@@ -349,7 +349,6 @@ def _validate_relation_by_interface_and_direction(
         raise TypeError("Unexpected RelationDirection: {}".format(expected_relation_role))
 
 
-
 class TargetsChangedEvent(EventBase):
     """Event emitted when Tempo scrape targets change."""
 
@@ -419,7 +418,11 @@ class TracingEndpointRequirer(Object):
 
 
 class EndpointChangedEvent(_AutoSnapshotEvent):
-    __optional_kwargs__ = ("hostname", "tempo_port", "otlp_grpc_port", "otlp_http_port", "zipkin_port")
+    __optional_kwargs__ = {"hostname": None,
+                           "tempo_port": None,
+                           "otlp_grpc_port": None,
+                           "otlp_http_port": None,
+                           "zipkin_port": None}
 
     if typing.TYPE_CHECKING:
         hostname = ""  # type: str
@@ -502,7 +505,7 @@ class TracingEndpointProvider(Object):
         """
         data = yaml.safe_load(event.relation.data[event.relation.app].get('tempo_endpoint'))
         if data:
-            self.on.endpoint_changed.emit(**data)
+            self.on.endpoint_changed.emit(event.relation, **data)
 
     @property
     def endpoint(self) -> Optional["TempoEndpointDict"]:

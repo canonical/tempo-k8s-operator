@@ -349,7 +349,6 @@ def _validate_relation_by_interface_and_direction(
         raise TypeError("Unexpected RelationDirection: {}".format(expected_relation_role))
 
 
-
 class TargetsChangedEvent(EventBase):
     """Event emitted when Tempo scrape targets change."""
 
