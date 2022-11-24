@@ -419,7 +419,11 @@ class TracingEndpointRequirer(Object):
 
 
 class EndpointChangedEvent(_AutoSnapshotEvent):
-    __optional_kwargs__ = ("hostname", "tempo_port", "otlp_grpc_port", "otlp_http_port", "zipkin_port")
+    __optional_kwargs__ = {"hostname": None,
+                           "tempo_port": None,
+                           "otlp_grpc_port": None,
+                           "otlp_http_port": None,
+                           "zipkin_port": None}
 
     if typing.TYPE_CHECKING:
         hostname = ""  # type: str
@@ -500,9 +504,9 @@ class TracingEndpointProvider(Object):
     def _on_tracing_relation_changed(self, event):
         """Notify the providers that there is new endpoint information available.
         """
-
-        data = yaml.safe_load(event.relation.data[event.relation.app]['tempo_endpoint'])
-        self.on.endpoint_changed.emit(**data)
+        data = yaml.safe_load(event.relation.data[event.relation.app].get('tempo_endpoint'))
+        if data:
+            self.on.endpoint_changed.emit(event.relation, **data)
 
     @property
     def endpoint(self) -> Optional["TempoEndpointDict"]:
@@ -518,7 +522,7 @@ class TracingEndpointProvider(Object):
             }
             return endpoints
         except Exception as e:
-            logger.error(e)
+            logger.error(f"Unable to fetch tempo endpoint from relation data: {e}")
             return None
 
     @property

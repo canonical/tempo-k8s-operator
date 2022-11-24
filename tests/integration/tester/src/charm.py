@@ -35,8 +35,6 @@ class TempoTesterCharm(CharmBase):
         self.tracing = TracingEndpointProvider(self)
         # Core lifecycle events
         self.framework.observe(self.on.config_changed, self._update)
-        self.framework.observe(self.on.workload_pebble_ready, self._on_tester_pebble_ready)
-        self.framework.observe(self.on.start, self._on_start)
 
         # Peer relation events
         self.framework.observe(
@@ -58,31 +56,42 @@ class TempoTesterCharm(CharmBase):
 
     def _on_tester_pebble_ready(self, e: PebbleReadyEvent):
         if e.workload.can_connect():
-            self.unit.status = MaintenanceStatus('installing software in workload container')
             self._setup_container(e.workload)
         else:
             self.unit.status = WaitingStatus('waiting for container connectivity...')
             return e.defer()
         self.unit.status = ActiveStatus('ready')
 
-    @staticmethod
-    def _setup_container(container: Container):
+    def ensure_container_setup(self):
+        container = self.container
+        if container.list_files('/', pattern='webserver.py'):
+            return
+        self._setup_container(container)
+
+    def _setup_container(self, container: Container):
         # copy the webserver file to the container. In a production environment,
         # the workload would typically be an OCI image. Here however we have a
         # 'bare' python container as base.
+        self.unit.status = MaintenanceStatus('copying over webserver source')
+
         resources = Path(__file__).parent / 'resources'
         webserver_source_path = resources / 'webserver.py'
+        logger.info(webserver_source_path)
         with open(webserver_source_path, 'r') as webserver_source:
             logger.info('pushing webserver source...')
             container.push('/webserver.py', webserver_source)
 
+        self.unit.status = MaintenanceStatus('installing software in workload container')
         # we install the webserver dependencies; in a production environment, these
         # would typically be baked in the workload OCI image.
         webserver_dependencies_path = resources / 'webserver-dependencies.txt'
+        logger.info(webserver_dependencies_path)
         with open(webserver_dependencies_path, 'r') as dependencies_file:
             dependencies = dependencies_file.read().split('\n')
             logger.info(f'installing webserver dependencies {dependencies}...')
             container.exec(['pip', 'install', *dependencies]).wait()
+
+        self.unit.status = MaintenanceStatus('container ready')
 
     # Actual tester stuff
     def _tester_layer(self):
@@ -93,7 +102,7 @@ class TempoTesterCharm(CharmBase):
             "APP_NAME": self.app.name,
             "TEMPO_ENDPOINT": self.tracing.otlp_grpc_endpoint or '',
         }
-        logging.info(f"Initing pebble layer with env: {str(env)}")
+        logging.info(f"Initing pebdble layer with env: {str(env)}")
 
         if self.unit.name.split('/')[1] == '0':
             env['PEERS'] = peers = ';'.join(self.peers)
@@ -156,7 +165,8 @@ class TempoTesterCharm(CharmBase):
             logger.info('container.add_layer')
             self.container.add_layer(self._layer_name, overlay, combine=True)
 
-            if restart:
+            service_exists = self.container.get_plan().services.get('tester', None) is not None
+            if service_exists and restart:
                 self._restart_service()
 
             return True
@@ -192,14 +202,6 @@ class TempoTesterCharm(CharmBase):
             bind_address = str(bind_address)
         return bind_address
 
-    def _on_start(self, _):
-        if not (peer_relation := self.peer_relation):
-            self.unit.status = WaitingStatus(
-                "waiting for peer relation to show up")
-            return
-
-        self.update_address_in_relation_data(peer_relation)
-
     def update_address_in_relation_data(self, relation):
         """stores this unit's private IP in the relation databag"""
         relation.data[self.unit].update(
@@ -208,6 +210,8 @@ class TempoTesterCharm(CharmBase):
 
     def _update(self, _):
         """Event handler for all things."""
+        self.ensure_container_setup()
+
         logger.info('running _update')
         if not self.container.can_connect():
             self.unit.status = WaitingStatus("waiting for container connectivity...")
@@ -230,7 +234,7 @@ class TempoTesterCharm(CharmBase):
         else:
             logger.info('no peer relation to configure')
 
-        self._update_layer(True)
+        self._update_layer(restart=True)
         self.unit.status = ActiveStatus('ready')
 
     def _get_peer_addresses(self) -> List[str]:
