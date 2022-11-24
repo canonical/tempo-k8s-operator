@@ -1,0 +1,17 @@
+name: Pull Request
+on:
+  pull_request:
+    paths-ignore:
+      - ".github/renovate*"
+      - ".github/workflows/release.yaml"
+      - ".github/workflows/renovate.yaml"
+      - ".github/workflows/update-libs.yaml"
+      - ".github/workflows/update-oci.yaml"
+      - ".gitignore"
+      - "Dockerfile"
+
+jobs:
+  test:
+    uses: ./.github/workflows/build-and-test.yaml
+    secrets:
+      CHARMHUB_TOKEN: "${{ secrets.CHARMHUB_TOKEN }}"

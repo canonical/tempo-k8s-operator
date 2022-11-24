@@ -1,0 +1,42 @@
+# Copyright 2022 Canonical Ltd.
+# See LICENSE file for licensing details.
+name: tempo-k8s
+display-name: Tempo
+description: |
+  Tempo is a distributed tracing backend by Grafana.
+summary: |
+  Tempo is a distributed tracing backend by Grafana.
+
+containers:
+  tempo:
+    resource: tempo-image
+    mounts:
+      - storage: data
+        location: /tmp/tempo
+
+resources:
+  tempo-image:
+    type: oci-image
+    description: OCI image for Tempo
+    # Included for simplicity in integration tests
+    # see https://hub.docker.com/r/grafana/tempo/tags
+    upstream-source: grafana/tempo:1.5.0
+
+provides:
+  profiling-endpoint:
+    interface: parca_scrape
+  grafana-dashboard:
+    interface: grafana_dashboard
+  metrics-endpoint:
+    interface: prometheus_scrape
+
+requires:
+  logging:
+    interface: loki_push_api
+  tracing-endpoint:
+    interface: tempo_scrape
+
+storage:
+  data:
+    type: filesystem
+    location: /tempo-data
