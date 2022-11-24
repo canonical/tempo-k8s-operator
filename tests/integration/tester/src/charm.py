@@ -14,12 +14,15 @@ from ops.model import (
 from ops.pebble import Layer
 from ops.charm import CharmBase
 
+from charms.tempo.v0.tempo_scrape import TracingEndpointProvider
+
 logger = logging.getLogger(__name__)
 
 
-class CharCharm(CharmBase):
+class TempoTesterCharm(CharmBase):
     """Charm the service."""
-    _container_name = _layer_name = _service_name = "tester"
+    _layer_name = _service_name = "tester"
+    _container_name = "workload"
     _peer_relation_name = "replicas"
     _address_name = 'private-address-ip'
     _port = 8080
@@ -29,9 +32,10 @@ class CharCharm(CharmBase):
 
         self.container: Container = self.unit.get_container(self._container_name)
 
+        self.tracing = TracingEndpointProvider(self)
         # Core lifecycle events
         self.framework.observe(self.on.config_changed, self._update)
-        self.framework.observe(self.on.tester_pebble_ready, self._on_tester_pebble_ready)
+        self.framework.observe(self.on.workload_pebble_ready, self._on_tester_pebble_ready)
         self.framework.observe(self.on.start, self._on_start)
 
         # Peer relation events
@@ -43,7 +47,10 @@ class CharCharm(CharmBase):
             self.on[self._peer_relation_name].relation_changed,
             self._update
         )
-
+        self.framework.observe(
+            self.tracing.on.endpoint_changed,
+            self._update
+        )
 
     @property
     def peers(self) -> List[str]:
@@ -51,10 +58,12 @@ class CharCharm(CharmBase):
 
     def _on_tester_pebble_ready(self, e: PebbleReadyEvent):
         if e.workload.can_connect():
+            self.unit.status = MaintenanceStatus('installing software in workload container')
             self._setup_container(e.workload)
         else:
             self.unit.status = WaitingStatus('waiting for container connectivity...')
-            e.defer()
+            return e.defer()
+        self.unit.status = ActiveStatus('ready')
 
     @staticmethod
     def _setup_container(container: Container):
@@ -81,7 +90,8 @@ class CharCharm(CharmBase):
         env = {
             "PORT": self.config["port"],
             "HOST": self.config["host"],
-            "APP_NAME": self.config["name"],
+            "APP_NAME": self.app.name,
+            "TEMPO_ENDPOINT": self.tracing.otlp_grpc_endpoint or '',
         }
         logging.info(f"Initing pebble layer with env: {str(env)}")
 
@@ -200,14 +210,13 @@ class CharCharm(CharmBase):
         """Event handler for all things."""
         logger.info('running _update')
         if not self.container.can_connect():
-            self.unit.status = MaintenanceStatus(
-                "Waiting for pod startup to complete")
+            self.unit.status = WaitingStatus("waiting for container connectivity...")
             return
 
         # Wait for IP address. IP address is needed for forming tester clusters
         # and for related apps' config.
         if not self.private_address:
-            self.unit.status = MaintenanceStatus("Waiting for IP address")
+            self.unit.status = MaintenanceStatus("waiting for IP address...")
             return
 
         # In the case of a single unit deployment, no 'RelationJoined' event is emitted, so
@@ -222,8 +231,7 @@ class CharCharm(CharmBase):
             logger.info('no peer relation to configure')
 
         self._update_layer(True)
-        self.unit.status = ActiveStatus()
-        return
+        self.unit.status = ActiveStatus('ready')
 
     def _get_peer_addresses(self) -> List[str]:
         """Create a list of addresses of all peer units (all units excluding current).
@@ -233,7 +241,7 @@ class CharCharm(CharmBase):
         addresses = []
         if pr := self.peer_relation:
             addresses = [
-                f"{address}:{self._port}"
+                f"{address}"
                 for unit in pr.units
                 # pr.units only holds peers (self.unit is not included)
                 if (address := pr.data[unit].get(self._address_name))
@@ -243,4 +251,4 @@ class CharCharm(CharmBase):
 
 
 if __name__ == "__main__":
-    main(CharCharm)
+    main(TempoTesterCharm)

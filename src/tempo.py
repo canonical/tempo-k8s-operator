@@ -1,18 +1,48 @@
+import socket
+
 import yaml
+from subprocess import getoutput, CalledProcessError
 
 
 class Tempo:
     config_path = "/etc/tempo.yaml"
     wal_path = '/etc/tempo_wal'
 
-    def __init__(self, port: int):
-        self._port = port
+    def __init__(self, port: int = 3200, host: str = "0.0.0.0"):
+        self.tempo_port = port
+
+        # todo make configurable?
+        self.otlp_grpc_port = 4317
+        self.otlp_http_port = 4318
+        self.zipkin_port = 9411
+
+        self._host = host
+
+    def get_requested_ports(self, service_name: str):
+        return [
+            (service_name, self.tempo_port, self.tempo_port),
+            # (service_name + '_jaeger_ingest', 14268, 14268),
+            (service_name + '_otlp_grpc', self.otlp_grpc_port, self.otlp_grpc_port),
+            (service_name + '_otlp_http', self.otlp_http_port, self.otlp_http_port),
+            (service_name + '_zipkin', self.zipkin_port, self.zipkin_port),
+        ]
+
+    @property
+    def endpoint(self):
+        return {
+            "hostname": socket.getfqdn(),
+            "tempo_port": self.tempo_port,
+            "otlp_grpc_port": self.otlp_grpc_port,
+            "otlp_http_port": self.otlp_http_port,
+            "zipkin_port": self.zipkin_port,
+        }
 
     def get_config(self):
         return yaml.safe_dump(
             {'auth_enabled': False,
+             'search_enabled': True,
              'server': {
-                 'http_listen_port': self._port
+                 'http_listen_port': self.tempo_port
              },
              # this configuration will listen on all ports and protocols that tempo is capable of.
              # the receives all come from the OpenTelemetry collector.  more configuration information can
@@ -63,3 +93,11 @@ class Tempo:
              }
              }
         )
+
+    def is_ready(self):
+        """Whether the tempo built-in readiness check reports 'ready'."""
+        try:
+            out = getoutput(f"curl http://{self._host}:{self.tempo_port}/ready").split('\n')[-1]
+        except (CalledProcessError, IndexError):
+            return False
+        return out == 'ready'

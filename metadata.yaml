@@ -33,8 +33,8 @@ provides:
 requires:
   logging:
     interface: loki_push_api
-  tracing-endpoint:
-    interface: tempo_scrape
+  tracing:
+    interface: tracing
 
 storage:
   data:

@@ -1,5 +1,6 @@
 # Copyright 2022 Canonical Ltd.
 # See LICENSE file for licensing details.
+import logging
 import os
 import random
 import time
@@ -19,13 +20,17 @@ from starlette.types import ASGIApp
 
 
 APP_NAME = os.environ.get('APP_NAME')
-APP = os.environ.get('APP_NAME')
-TEMPO_ENDPOINT = os.environ.get('TEMPO_ENDPOINT')
-HOST = os.environ.get('HOST')
-PORT = int(os.environ.get('PORT'))
+TEMPO_ENDPOINT = os.environ.get('TEMPO_ENDPOINT', '')
+HOST = os.environ.get('HOST', '0.0.0.0')
+PORT = int(os.environ.get('PORT', 3000))
+
+
+if not TEMPO_ENDPOINT:
+    logging.warning("TEMPO_ENDPOINT not configured; tracing disabled. webserver dead.")
 
 
 def init_master():
+    logging.debug('Initing as master.')
     # manual instrumentation for master node
     resource = Resource.create(attributes={
         "service.name": APP_NAME,
@@ -37,21 +42,26 @@ def init_master():
     provider.add_span_processor(processor)
     trace.set_tracer_provider(provider)
     tracer = trace.get_tracer(__name__)
-
     slaves = os.environ.get('PEERS').split(';')
+
+    print(f"preparing to send traces to {slaves}")
+
     while True:
-        with tracer.start_as_current_span("query_peers") as span:
+        with tracer.start_as_current_span("query_peers",
+                                          attributes={"service.name": APP_NAME}) as span:
             for i, slave in enumerate(slaves):
-                url = slave + f'/query/{i}'
+                url = "http://" + slave + f':{PORT}/query/{i}'
 
                 print(f'sending {i} to {slave}')
                 span.add_event("log", {
+                    "service.name": APP_NAME,
                     "slave.id": i,
                     "slave.root_url": slave,
                     "slave.query_url": slave,
                 })
 
-                with tracer.start_as_current_span(f"query_peer_{i}") as child_span:
+                with tracer.start_as_current_span(f"query_peer_{i}",
+                                                  attributes={"service.name": APP_NAME}) as child_span:
                     resp = requests.get(url)
                     print(f'received {resp} from {slave}')
                     try:
@@ -61,12 +71,15 @@ def init_master():
                         print(f'error handling response from {url}: invalid text: {resp.text}')
 
                     child_span.add_event("log", {
+                        "service.name": APP_NAME,
                         "slave.response.id": id_,
                         "slave.response.value": value_,
                     })
+        provider.force_flush()
 
 
 def init_slave():
+    logging.debug('Initing as slave.')
     # auto instrumentation for slave nodes
     app = FastAPI()
 
@@ -101,6 +114,11 @@ def init_slave():
 
 
 if __name__ == "__main__":
+    if not TEMPO_ENDPOINT:
+        while True:
+            logging.warning('IDLING. TEMPO_ENDPOINT unavailable.')
+            time.sleep(10)
+
     if os.environ.get('MASTER'):
         init_master()
     else:

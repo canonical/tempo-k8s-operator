@@ -1,2 +1,2 @@
 to deploy:
-`juju deploy /path/to/tester.charm --resource oci-image=python/3.10/slim-buster`
+`juju deploy /path/to/tester.charm --resource workload=python:slim-buster --config tempo_endpoint:foo.bar:4318`

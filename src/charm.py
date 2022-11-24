@@ -22,7 +22,6 @@ from tempo import Tempo
 
 logger = logging.getLogger(__name__)
 
-PORT = 3200
 
 class TempoCharm(CharmBase):
     """Charmed Operator for Tempo; a distributed tracing backend."""
@@ -35,27 +34,23 @@ class TempoCharm(CharmBase):
         self._stored.set_default(initial_admin_password="")
         self.framework.observe(self.on.tempo_pebble_ready, self._on_tempo_pebble_ready)
         self.framework.observe(self.on.update_status, self._on_update_status)
-        self.tempo = Tempo(PORT)
+        self.tempo = tempo = Tempo()
 
         # # Patch the juju-created Kubernetes service to contain the right ports
         # ports source: https://github.com/grafana/tempo/blob/main/example/docker-compose/local/docker-compose.yaml
-        self._service_patcher = KubernetesServicePatch(self, [
-            (self.app.name, PORT, PORT),  # tempo
-            # (self.app.name + '_jaeger_ingest', 14268, 14268), # jaeger ingest
-            # (self.app.name + '_otlp_grpc', 4317, 4317), # otlp grpc
-            # (self.app.name + '_otlp_http', 4318, 4318), # otlp http
-            (self.app.name + '_zipkin', 9411, 9411),  # zipkin
-        ])
+        self._service_patcher = KubernetesServicePatch(
+            self, tempo.get_requested_ports(self.app.name))
 
         # Provide ability for Tempo to be scraped by Prometheus using prometheus_scrape
         self._scraping = MetricsEndpointProvider(
             self,
             relation_name="metrics-endpoint",
-            jobs=[{"static_configs": [{"targets": [f"*:{PORT}"]}]}],
+            jobs=[{"static_configs": [{"targets": [f"*:{tempo.tempo_port}"]}]}],
         )
 
         # Enable log forwarding for Loki and other charms that implement loki_push_api
-        self._logging = LogProxyConsumer(self, relation_name="logging", log_files=[self._log_path])
+        self._logging = LogProxyConsumer(self, relation_name="logging",
+                                         log_files=[self._log_path])
 
         # Provide grafana dashboards over a relation interface
         # self._grafana_dashboards = GrafanaDashboardProvider(
@@ -67,7 +62,7 @@ class TempoCharm(CharmBase):
         #     self, jobs=[{"static_configs": [{"targets": ["*:4080"]}]}]
         # )
 
-        self._tracing = TracingEndpointRequirer(self)
+        self._tracing = TracingEndpointRequirer(self, tempo_endpoint=tempo.endpoint)
         # self._ingress = IngressPerAppRequirer(self, port=4080)
 
     def _on_tempo_pebble_ready(self, event: WorkloadEvent):

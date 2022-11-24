@@ -18,8 +18,9 @@ resources:
     upstream-source: python:slim-buster
 
 provides:
-  tempo-traces:
-    interface: database
+  tracing:
+    interface: tracing
+    limit: 1
 
 peers:
   replicas:
