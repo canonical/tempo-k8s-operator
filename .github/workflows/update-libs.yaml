@@ -3,8 +3,8 @@ on:
   # Manual trigger
   workflow_dispatch:
   # Check regularly the upstream every four hours
-  schedule:
-    - cron: "0 0,4,8,12,16,20 * * *"
+#  schedule:
+#    - cron: "0 0,4,8,12,16,20 * * *"
 
 jobs:
   update-lib:
