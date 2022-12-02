@@ -46,7 +46,7 @@ class Tempo:
              },
              # this configuration will listen on all ports and protocols that tempo is capable of.
              # the receives all come from the OpenTelemetry collector.  more configuration information can
-             # be found there: https://github.com/open-telemetry/opentelemetry-collector/tree/master/receiver
+             # be found there: https://github.com/open-telemetry/opentelemetry-collector/tree/overlord/receiver
              #
              # for a production deployment you should only enable the receivers you need!
              'distributor': {'receivers': {'jaeger': {

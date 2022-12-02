@@ -4,3 +4,4 @@ opentelemetry-instrumentation-fastapi
 opentelemetry-instrumentation-logging
 fastapi
 uvicorn
+prometheus_client

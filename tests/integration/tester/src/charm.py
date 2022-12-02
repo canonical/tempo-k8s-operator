@@ -14,6 +14,7 @@ from ops.model import (
 from ops.pebble import Layer
 from ops.charm import CharmBase
 
+from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
 from charms.tempo.v0.tempo_scrape import TracingEndpointProvider
 
 logger = logging.getLogger(__name__)
@@ -25,13 +26,13 @@ class TempoTesterCharm(CharmBase):
     _container_name = "workload"
     _peer_relation_name = "replicas"
     _address_name = 'private-address-ip'
-    _port = 8080
 
     def __init__(self, *args):
         super().__init__(*args)
 
         self.container: Container = self.unit.get_container(self._container_name)
 
+        self.metrics = MetricsEndpointProvider(self)
         self.tracing = TracingEndpointProvider(self)
         # Core lifecycle events
         self.framework.observe(self.on.config_changed, self._update)
@@ -106,8 +107,8 @@ class TempoTesterCharm(CharmBase):
 
         if self.unit.name.split('/')[1] == '0':
             env['PEERS'] = peers = ';'.join(self.peers)
-            env['MASTER'] = "1"
-            logging.info(f"Configuring master node; Peers: {peers}")
+            env['OVERLORD'] = "1"
+            logging.info(f"Configuring overlord node; Peers: {peers}")
 
         return Layer({
             "summary": "tester layer",

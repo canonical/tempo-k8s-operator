@@ -174,6 +174,7 @@ from typing import Optional, Tuple, Dict, Any, TypedDict
 import yaml
 from ops.charm import CharmBase, RelationRole, CharmEvents, RelationEvent
 from ops.framework import EventBase, EventSource, Object, ObjectEvents
+from ops.model import ModelError
 
 # The unique Charmhub library identifier, never change it
 LIBID = "7b30b495435746acb645ca414898621f"
@@ -412,9 +413,18 @@ class TracingEndpointRequirer(Object):
         )
 
     def update_relation_data(self, _):
-        if self._charm.unit.is_leader():
-            for relation in self._charm.model.relations[self._relation_name]:
-                relation.data[self._charm.app]['tempo_endpoint'] = yaml.safe_dump(self._tempo_endpoint)
+        try:
+            if self._charm.unit.is_leader():
+                for relation in self._charm.model.relations[self._relation_name]:
+                    data = yaml.safe_dump(self._tempo_endpoint)
+                    relation.data[self._charm.app]['tempo_endpoint'] = data
+        except ModelError as e:
+            # args are bytes
+            if e.args[0].startswith(b'ERROR cannot read relation application '
+                                    b'settings: permission denied'):
+                logger.error(f"encountered error {e} while attempting to update_relation_data."
+                             f"The relation must be gone.")
+                return
 
 
 class EndpointChangedEvent(_AutoSnapshotEvent):
