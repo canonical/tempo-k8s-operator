@@ -1,4 +1,4 @@
-alert: ZincTargetMissing
+alert: TempoTargetMissing
 expr: up == 0
 for: 0m
 labels:

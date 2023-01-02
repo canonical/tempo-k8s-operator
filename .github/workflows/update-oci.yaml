@@ -16,7 +16,7 @@ jobs:
       - id: latest-upstream
         uses: pozetroninc/github-action-get-latest-release@v0.6.0
         with:
-          repository: zinclabs/zinc
+          repository: grafana/tempo
           excludes: prerelease, draft
 
       - name: Checkout repo
@@ -27,7 +27,7 @@ jobs:
         run: |
           LATEST="${{ steps.latest-upstream.outputs.release }}"
           # Get the current version from the repo
-          CURRENT="v$(grep -Po "zinc:\K[0-9]+\.[0-9]+\.[0-9]+" Dockerfile)"
+          CURRENT="v$(grep -Po "tempo:\K[0-9]+\.[0-9]+\.[0-9]+" Dockerfile)"
 
           if [[ "$CURRENT" < "$LATEST" ]]; then
             echo "release=$LATEST" >> $GITHUB_OUTPUT
@@ -49,7 +49,7 @@ jobs:
           # Grab the output from the last job
           LATEST="${{ needs.check-upstream.outputs.release }}"
           # Update the version (strip the leading 'v' from the LATEST version)
-          sed -i "s/zinc:[0-9]\+\.[0-9]\+\.[0-9]\+/zinc:${LATEST/v/}/g" Dockerfile
+          sed -i "s/tempo:[0-9]\+\.[0-9]\+\.[0-9]\+/tempo:${LATEST/v/}/g" Dockerfile
 
       # We use a Github App and token to allow Github Actions to run properly on the created PR.
       - uses: tibdex/github-app-token@v1
@@ -63,11 +63,11 @@ jobs:
         id: cpr
         with:
           token: ${{ steps.generate-token.outputs.token }}
-          commit-message: "chore(deps): bump zinc version to ${{ needs.check-upstream.outputs.release }}"
+          commit-message: "chore(deps): bump tempo version to ${{ needs.check-upstream.outputs.release }}"
           committer: "Github Actions <github-actions@github.com>"
           author: "Github Actions <github-actions@github.com>"
-          title: "Update to Zinc ${{ needs.check-upstream.outputs.release }}"
-          body: Automated update to follow upstream [release](https://github.com/zinclabs/zinc/releases/tag/${{ needs.check-upstream.outputs.release }}) of Zinc ${{ needs.check-upstream.outputs.release }}.
+          title: "Update to Tempo ${{ needs.check-upstream.outputs.release }}"
+          body: Automated update to follow upstream [release](https://github.com/grafana/tempo/releases/tag/${{ needs.check-upstream.outputs.release }}) of Tempo ${{ needs.check-upstream.outputs.release }}.
           branch: "auto-${{ needs.check-upstream.outputs.release }}"
           delete-branch: true
           reviewers: jnsgruk

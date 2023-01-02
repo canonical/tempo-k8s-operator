@@ -6,5 +6,5 @@ module.exports = {
   onboarding: true,
   platform: "github",
   includeForks: true,
-  repositories: ["jnsgruk/zinc-k8s-operator"],
+  repositories: ["PietroPasotti/tempo-k8s-operator"],
 }
