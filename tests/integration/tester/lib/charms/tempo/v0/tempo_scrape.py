@@ -169,10 +169,10 @@ eponymous information.
 
 import logging
 import typing
-from typing import Optional, Tuple, Dict, Any, TypedDict
+from typing import Any, Dict, Optional, Tuple, TypedDict
 
 import yaml
-from ops.charm import CharmBase, RelationRole, CharmEvents, RelationEvent
+from ops.charm import CharmBase, CharmEvents, RelationEvent, RelationRole
 from ops.framework import EventBase, EventSource, Object, ObjectEvents
 
 # The unique Charmhub library identifier, never change it
@@ -195,12 +195,14 @@ RELATION_INTERFACE_NAME = "tracing"
 if typing.TYPE_CHECKING:
     TempoEndpointDict = TypedDict(
         "TempoEndpointDict",
-        {"hostname": str,
-         "tempo_port": int,
-         "otlp_grpc_port": int,
-         "otlp_http_port": int,
-         "zipkin_port": int,
-         })
+        {
+            "hostname": str,
+            "tempo_port": int,
+            "otlp_grpc_port": int,
+            "otlp_http_port": int,
+            "zipkin_port": int,
+        },
+    )
 
 
 class _AutoSnapshotEvent(RelationEvent):
@@ -257,10 +259,10 @@ class RelationInterfaceMismatchError(Exception):
     """Raised if the relation with the given name has an unexpected interface."""
 
     def __init__(
-            self,
-            relation_name: str,
-            expected_relation_interface: str,
-            actual_relation_interface: str,
+        self,
+        relation_name: str,
+        expected_relation_interface: str,
+        actual_relation_interface: str,
     ):
         self.relation_name = relation_name
         self.expected_relation_interface = expected_relation_interface
@@ -278,10 +280,10 @@ class RelationRoleMismatchError(Exception):
     """Raised if the relation with the given name has a different role than expected."""
 
     def __init__(
-            self,
-            relation_name: str,
-            expected_relation_role: RelationRole,
-            actual_relation_role: RelationRole,
+        self,
+        relation_name: str,
+        expected_relation_role: RelationRole,
+        actual_relation_role: RelationRole,
     ):
         self.relation_name = relation_name
         self.expected_relation_interface = expected_relation_role
@@ -294,10 +296,10 @@ class RelationRoleMismatchError(Exception):
 
 
 def _validate_relation_by_interface_and_direction(
-        charm: CharmBase,
-        relation_name: str,
-        expected_relation_interface: str,
-        expected_relation_role: RelationRole,
+    charm: CharmBase,
+    relation_name: str,
+    expected_relation_interface: str,
+    expected_relation_role: RelationRole,
 ):
     """Verifies that a relation has the necessary characteristics.
 
@@ -376,8 +378,12 @@ class TracingEndpointRequirer(Object):
 
     on = MonitoringEvents()
 
-    def __init__(self, charm: CharmBase, tempo_endpoint: 'TempoEndpointDict',
-                 relation_name: str = DEFAULT_RELATION_NAME):
+    def __init__(
+        self,
+        charm: CharmBase,
+        tempo_endpoint: "TempoEndpointDict",
+        relation_name: str = DEFAULT_RELATION_NAME,
+    ):
         """A Tempo based Monitoring service.
 
         Args:
@@ -404,25 +410,25 @@ class TracingEndpointRequirer(Object):
         self._tempo_endpoint = tempo_endpoint
         self._relation_name = relation_name
         events = self._charm.on[relation_name]
-        self.framework.observe(
-            events.relation_created, self.update_relation_data
-        )
-        self.framework.observe(
-            events.relation_joined, self.update_relation_data
-        )
+        self.framework.observe(events.relation_created, self.update_relation_data)
+        self.framework.observe(events.relation_joined, self.update_relation_data)
 
     def update_relation_data(self, _):
         if self._charm.unit.is_leader():
             for relation in self._charm.model.relations[self._relation_name]:
-                relation.data[self._charm.app]['tempo_endpoint'] = yaml.safe_dump(self._tempo_endpoint)
+                relation.data[self._charm.app]["tempo_endpoint"] = yaml.safe_dump(
+                    self._tempo_endpoint
+                )
 
 
 class EndpointChangedEvent(_AutoSnapshotEvent):
-    __optional_kwargs__ = {"hostname": None,
-                           "tempo_port": None,
-                           "otlp_grpc_port": None,
-                           "otlp_http_port": None,
-                           "zipkin_port": None}
+    __optional_kwargs__ = {
+        "hostname": None,
+        "tempo_port": None,
+        "otlp_grpc_port": None,
+        "otlp_http_port": None,
+        "zipkin_port": None,
+    }
 
     if typing.TYPE_CHECKING:
         hostname = ""  # type: str
@@ -442,9 +448,9 @@ class TracingEndpointProvider(Object):
     on = TracingEndpointEvents()
 
     def __init__(
-            self,
-            charm: CharmBase,
-            relation_name: str = DEFAULT_RELATION_NAME,
+        self,
+        charm: CharmBase,
+        relation_name: str = DEFAULT_RELATION_NAME,
     ):
         """Construct a tracing provider for a Tempo charm.
 
@@ -501,9 +507,8 @@ class TracingEndpointProvider(Object):
         self.framework.observe(events.relation_changed, self._on_tracing_relation_changed)
 
     def _on_tracing_relation_changed(self, event):
-        """Notify the providers that there is new endpoint information available.
-        """
-        data = yaml.safe_load(event.relation.data[event.relation.app].get('tempo_endpoint'))
+        """Notify the providers that there is new endpoint information available."""
+        data = yaml.safe_load(event.relation.data[event.relation.app].get("tempo_endpoint"))
         if data:
             self.on.endpoint_changed.emit(event.relation, **data)
 
@@ -511,7 +516,7 @@ class TracingEndpointProvider(Object):
     def endpoint(self) -> Optional["TempoEndpointDict"]:
         try:
             relation = self._charm.model.get_relation(self._relation_name)
-            raw_eps = yaml.safe_load(relation.data[relation.app]['tempo_endpoint'])
+            raw_eps = yaml.safe_load(relation.data[relation.app]["tempo_endpoint"])
             endpoints = {
                 "hostname": raw_eps["hostname"],
                 "tempo_port": int(raw_eps["tempo_port"]),
