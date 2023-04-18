@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
+from charms.tempo.v0.charm_tracing import trace_charm
 from charms.tempo.v0.tempo_scrape import TracingEndpointProvider
 from ops.charm import CharmBase, PebbleReadyEvent
 from ops.main import main
@@ -22,6 +23,7 @@ from ops.pebble import Layer
 logger = logging.getLogger(__name__)
 
 
+@trace_charm(tempo_endpoint="tempo")
 class TempoTesterCharm(CharmBase):
     """Charm the service."""
 
@@ -44,6 +46,10 @@ class TempoTesterCharm(CharmBase):
         self.framework.observe(self.on[self._peer_relation_name].relation_joined, self._update)
         self.framework.observe(self.on[self._peer_relation_name].relation_changed, self._update)
         self.framework.observe(self.tracing.on.endpoint_changed, self._update)
+
+    @property
+    def tempo(self) -> Optional[str]:
+        return self.tracing.otlp_grpc_endpoint
 
     @property
     def peers(self) -> List[str]:
@@ -95,7 +101,7 @@ class TempoTesterCharm(CharmBase):
             "PORT": self.config["port"],
             "HOST": self.config["host"],
             "APP_NAME": self.app.name,
-            "TEMPO_ENDPOINT": self.tracing.otlp_grpc_endpoint or "",
+            "TEMPO_ENDPOINT": self.tempo or "",
         }
         logging.info(f"Initing pebdble layer with env: {str(env)}")
 
