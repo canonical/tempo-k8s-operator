@@ -1,7 +1,7 @@
 from unittest.mock import patch
 
 import pytest
-from charms.tempo.v0.charm_tracing import get_current_span, trace, trace_charm
+from charms.tempo_k8s.v0.charm_tracing import get_current_span, trace, trace_charm
 from ops import EventBase, EventSource
 from ops.charm import CharmBase, CharmEvents
 from scenario import State

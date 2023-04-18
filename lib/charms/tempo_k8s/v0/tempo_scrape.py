@@ -22,7 +22,7 @@ relation is `tracing`. It is strongly recommended to use the same relation name 
 consistency across charms and doing so obviates the need for an additional constructor argument.
 The `TracingEndpointProvider` object may be instantiated as follows
 
-    from charms.tempo.v0.tempo_scrape import TracingEndpointProvider
+    from charms.tempo_k8s.v0.tempo_scrape import TracingEndpointProvider
 
     def __init__(self, *args):
         super().__init__(*args)
@@ -128,7 +128,7 @@ default value.
 For example a Tempo charm may instantiate the `TracingEndpointConsumer` in its constructor as
 follows
 
-    from charms.tempo.v0.tempo_scrape import TracingEndpointConsumer
+    from charms.tempo_k8s.v0.tempo_scrape import TracingEndpointConsumer
 
     def __init__(self, *args):
         super().__init__(*args)
@@ -177,7 +177,7 @@ from ops.framework import EventBase, EventSource, Object, ObjectEvents
 from ops.model import ModelError
 
 # The unique Charmhub library identifier, never change it
-LIBID = "7b30b495435746acb645ca414898621f"
+LIBID = "79954052707a491b98ca695971c227fe"
 
 # Increment this major API version when introducing breaking changes
 LIBAPI = 0

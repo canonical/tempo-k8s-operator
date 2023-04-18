@@ -11,7 +11,7 @@ from typing import Optional
 from charms.loki_k8s.v0.loki_push_api import LogProxyConsumer
 from charms.observability_libs.v0.kubernetes_service_patch import KubernetesServicePatch
 from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
-from charms.tempo.v0.tempo_scrape import TracingEndpointRequirer
+from charms.tempo_k8s.v0.tempo_scrape import TracingEndpointRequirer
 from ops.charm import CharmBase, WorkloadEvent
 from ops.framework import StoredState
 from ops.main import main

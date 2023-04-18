@@ -19,7 +19,7 @@ from ops.charm import CharmBase
 from ops.framework import Framework
 
 # The unique Charmhub library identifier, never change it
-LIBID = "7b30b495435746acb645ca414898621x"  # TODO: register new uuid; this is FAKE
+LIBID = "cb1705dcd1a14ca09b2e60187d1215c7"  # TODO: register new uuid; this is FAKE
 
 # Increment this major API version when introducing breaking changes
 LIBAPI = 0
