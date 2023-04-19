@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
 # Copyright 2022 Canonical Ltd.
 # See LICENSE file for licensing details.
+"""This charm library contains utilities to instrument your Charm (yes! charm code, not workload code!) with
+opentelemetry tracing data collection.
 
+This means that, if your charm is related to, for example, COS' Tempo charm, you will be able to inspect
+in real time from the Grafana dashboard the execution flow of your charm.
+
+"""
 import functools
 import inspect
 import logging
+import os
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Union, Type, Callable, TypeVar, Optional
@@ -28,7 +35,6 @@ LIBAPI = 0
 # to 0 if you are raising the major API version
 LIBPATCH = 1
 
-
 PYDEPS = [
     "opentelemetry-exporter-otlp-proto-grpc"
 ]
@@ -37,7 +43,18 @@ logger = logging.getLogger('tracing')
 
 tracer: ContextVar[opentelemetry.trace.Tracer] = ContextVar("tracer")
 # redefine it here to expose it as a toplevel module name
-get_current_span = otlp_get_current_span
+
+
+def get_current_span() -> Union[Span, None]:
+    """The currently active Span, if there is one, else None.
+
+    If you'd rather keep your logic unconditional, you can use opentelemetry.trace.get_current_span,
+    which will return an object that behaves like a span but records no data.
+    """
+    span = otlp_get_current_span()
+    if span is opentelemetry.trace.INVALID_SPAN:
+        return None
+    return span
 
 
 def _get_tracer() -> Optional[opentelemetry.trace.Tracer]:
@@ -55,6 +72,7 @@ def _span(name: str) -> Optional[Span]:
             yield span
     else:
         yield None
+
 
 _C = TypeVar("_C", bound=Type[CharmBase])
 _T = TypeVar("_T", bound=type)
@@ -110,18 +128,30 @@ def _setup_root_span_initializer(charm: Type[CharmBase],
         provider.add_span_processor(processor)
         opentelemetry.trace.set_tracer_provider(provider)
         _tracer = opentelemetry.trace.get_tracer(service_name)
-
-        span = _tracer.start_span('charm exec')
-
         _tracer_token = tracer.set(_tracer)
+
+        dispatch_path = os.getenv("JUJU_DISPATCH_PATH", '')
+
+        # all these shenanigans are to work around the fact that the opentelemetry tracing API is built
+        # on the assumption that spans will be used as contextmanagers.
+        # Since we don't (as we need to close the span on framework.commit),
+        # we need to manually set the root span as current.
+        span = _tracer.start_span(
+            'charm exec',
+            attributes={
+                'juju.dispatch_path': dispatch_path
+            }
+        )
+        ctx = opentelemetry.trace.set_span_in_context(span)
+        span_token = opentelemetry.context.attach(ctx)
 
         @contextmanager
         def wrap_event_context(event_name: str):
             # when the framework enters an event context, we create a span.
-            with _span("event: " + event_name) as span:
-                if span:
+            with _span("event: " + event_name) as event_context_span:
+                if event_context_span:
                     # todo: figure out how to inject event attrs in here
-                    span.add_event(event_name)
+                    event_context_span.add_event(event_name)
                 yield original_event_context(event_name)
 
         framework._event_context = wrap_event_context
@@ -131,6 +161,7 @@ def _setup_root_span_initializer(charm: Type[CharmBase],
         @functools.wraps(original_close)
         def wrap_close():
             span.end()
+            opentelemetry.context.detach(span_token)
             tracer.reset(_tracer_token)
             tp: TracerProvider = opentelemetry.trace.get_tracer_provider()
             tp.force_flush()
@@ -179,6 +210,7 @@ def trace_type(cls: _T) -> _T:
 
 def trace_function(function: _F) -> _F:
     logger.info(f'instrumenting {function}')
+
     # sig = inspect.signature(function)
     @functools.wraps(function)
     def wrapped_function(*args, **kwargs):

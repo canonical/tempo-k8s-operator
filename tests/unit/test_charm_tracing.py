@@ -203,3 +203,9 @@ def test_base_tracer_endpoint_custom_event(caplog):
             "event: start",
             "charm exec",
         ]
+        # only the charm exec span is a root
+        assert not spans[-1].parent
+        for span in spans[:-1]:
+            assert span.parent
+            assert span.parent.trace_id
+        assert len(set((span.parent.trace_id if span.parent else 0) for span in spans)) == 2

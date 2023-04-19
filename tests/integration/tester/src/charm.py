@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 from typing import List, Optional
 
+import opentelemetry
 from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
 from charms.tempo_k8s.v0.charm_tracing import trace_charm
 from charms.tempo_k8s.v0.tempo_scrape import TracingEndpointProvider
@@ -21,9 +22,10 @@ from ops.model import (
 from ops.pebble import Layer
 
 logger = logging.getLogger(__name__)
+TRACING_APP_NAME = "TempoTesterCharm"
 
 
-@trace_charm(tempo_endpoint="tempo")
+@trace_charm(tempo_endpoint="tempo", app_name=TRACING_APP_NAME)
 class TempoTesterCharm(CharmBase):
     """Charm the service."""
 
@@ -43,6 +45,7 @@ class TempoTesterCharm(CharmBase):
         self.framework.observe(self.on.config_changed, self._update)
 
         # Peer relation events
+        self.framework.observe(self.on.update_status, self._update)
         self.framework.observe(self.on[self._peer_relation_name].relation_joined, self._update)
         self.framework.observe(self.on[self._peer_relation_name].relation_changed, self._update)
         self.framework.observe(self.tracing.on.endpoint_changed, self._update)
@@ -50,6 +53,10 @@ class TempoTesterCharm(CharmBase):
     @property
     def tempo(self) -> Optional[str]:
         return self.tracing.otlp_grpc_endpoint
+
+    @property
+    def tracer(self):
+        return opentelemetry.trace.get_tracer(TRACING_APP_NAME)
 
     @property
     def peers(self) -> List[str]:
@@ -75,22 +82,24 @@ class TempoTesterCharm(CharmBase):
         # 'bare' python container as base.
         self.unit.status = MaintenanceStatus("copying over webserver source")
 
-        resources = Path(__file__).parent / "resources"
-        webserver_source_path = resources / "webserver.py"
-        logger.info(webserver_source_path)
-        with open(webserver_source_path, "r") as webserver_source:
-            logger.info("pushing webserver source...")
-            container.push("/webserver.py", webserver_source)
+        with self.tracer.start_as_current_span("container setup"):
+            resources = Path(__file__).parent / "resources"
+            webserver_source_path = resources / "webserver.py"
+            logger.info(webserver_source_path)
+            with open(webserver_source_path, "r") as webserver_source:
+                logger.info("pushing webserver source...")
+                container.push("/webserver.py", webserver_source)
 
         self.unit.status = MaintenanceStatus("installing software in workload container")
-        # we install the webserver dependencies; in a production environment, these
-        # would typically be baked in the workload OCI image.
-        webserver_dependencies_path = resources / "webserver-dependencies.txt"
-        logger.info(webserver_dependencies_path)
-        with open(webserver_dependencies_path, "r") as dependencies_file:
-            dependencies = dependencies_file.read().split("\n")
-            logger.info(f"installing webserver dependencies {dependencies}...")
-            container.exec(["pip", "install", *dependencies]).wait()
+        with self.tracer.start_as_current_span("installing dependencies"):
+            # we install the webserver dependencies; in a production environment, these
+            # would typically be baked in the workload OCI image.
+            webserver_dependencies_path = resources / "webserver-dependencies.txt"
+            logger.info(webserver_dependencies_path)
+            with open(webserver_dependencies_path, "r") as dependencies_file:
+                dependencies = dependencies_file.read().split("\n")
+                logger.info(f"installing webserver dependencies {dependencies}...")
+                container.exec(["pip", "install", *dependencies]).wait()
 
         self.unit.status = MaintenanceStatus("container ready")
 
@@ -145,8 +154,8 @@ class TempoTesterCharm(CharmBase):
             return False
 
         logger.info(f"pebble env, {self.container.get_plan().services.get('tester').environment}")
-
-        self.container.restart(self._service_name)
+        with self.tracer.start_as_current_span(f"restarting service {self._service_name}"):
+            self.container.restart(self._service_name)
         logger.info(f"restarted {self._service_name}")
         return True
 

@@ -7,12 +7,12 @@ import inspect
 import logging
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import Union, Type, Callable, TypeVar, Optional
+from typing import Callable, Optional, Type, TypeVar, Union
 
 import opentelemetry
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.resources import Resource
-from opentelemetry.sdk.trace import TracerProvider, Span
+from opentelemetry.sdk.trace import Span, TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.trace import get_current_span as otlp_get_current_span
 from ops.charm import CharmBase
@@ -29,11 +29,9 @@ LIBAPI = 0
 LIBPATCH = 1
 
 
-PYDEPS = [
-    "opentelemetry-exporter-otlp-proto-grpc"
-]
+PYDEPS = ["opentelemetry-exporter-otlp-proto-grpc"]
 
-logger = logging.getLogger('tracing')
+logger = logging.getLogger("tracing")
 
 tracer: ContextVar[opentelemetry.trace.Tracer] = ContextVar("tracer")
 # redefine it here to expose it as a toplevel module name
@@ -56,6 +54,7 @@ def _span(name: str) -> Optional[Span]:
     else:
         yield None
 
+
 _C = TypeVar("_C", bound=Type[CharmBase])
 _T = TypeVar("_T", bound=type)
 _F = TypeVar("_F", bound=Type[Callable])
@@ -69,10 +68,9 @@ class UntraceableObject(TracingError):
     """Raised when an object you're attempting to instrument cannot be autoinstrumented."""
 
 
-def _setup_root_span_initializer(charm: Type[CharmBase],
-                                 tempo_endpoint: str,
-                                 app_name: Optional[str] = None
-                                 ):
+def _setup_root_span_initializer(
+    charm: Type[CharmBase], tempo_endpoint: str, app_name: Optional[str] = None
+):
     """Patches the charm's initializer."""
     original_init = charm.__init__
 
@@ -82,28 +80,28 @@ def _setup_root_span_initializer(charm: Type[CharmBase],
 
         original_event_context = framework._event_context
 
-        logging.debug('Initializing opentelemetry tracer...')
+        logging.debug("Initializing opentelemetry tracer...")
         service_name = app_name or charm.__name__
 
-        resource = Resource.create(attributes={
-            "service.name": service_name,
-            "compose_service": service_name
-        })
+        resource = Resource.create(
+            attributes={"service.name": service_name, "compose_service": service_name}
+        )
         provider = TracerProvider(resource=resource)
 
         tempo = getattr(self, tempo_endpoint)
         if tempo is None:
-            logger.warning(f'{charm}.{tempo_endpoint} returned {tempo}; '
-                           f'continuing with tracing DISABLED.')
+            logger.warning(
+                f"{charm}.{tempo_endpoint} returned {tempo}; " f"continuing with tracing DISABLED."
+            )
             return
 
         elif not isinstance(tempo, str):
             raise TypeError(
-                f'{charm}.{tempo_endpoint} should return a tempo endpoint (string); '
-                f'got {tempo} instead.'
+                f"{charm}.{tempo_endpoint} should return a tempo endpoint (string); "
+                f"got {tempo} instead."
             )
         else:
-            logger.debug(f'Setting up span exporter to endpoint: {tempo}')
+            logger.debug(f"Setting up span exporter to endpoint: {tempo}")
             exporter = OTLPSpanExporter(endpoint=tempo)
 
         processor = BatchSpanProcessor(exporter)
@@ -111,7 +109,7 @@ def _setup_root_span_initializer(charm: Type[CharmBase],
         opentelemetry.trace.set_tracer_provider(provider)
         _tracer = opentelemetry.trace.get_tracer(service_name)
 
-        span = _tracer.start_span('charm exec')
+        span = _tracer.start_span("charm exec")
 
         _tracer_token = tracer.set(_tracer)
 
@@ -150,11 +148,13 @@ def trace_charm(tempo_endpoint: str, app_name: str = None) -> Callable[[_C], _C]
     def trace_charm_type(charm: _C) -> _C:
         """Prepares the charm as tracing root: when the charm is run, the root span will open."""
 
-        logger.info(f'instrumenting {charm}')
+        logger.info(f"instrumenting {charm}")
         # check that it is in dir(charm).
         if not hasattr(charm, tempo_endpoint):
-            raise RuntimeError(f'you passed tempo_endpoint={tempo_endpoint} to '
-                               f'@trace_charm; but {charm}.{tempo_endpoint} was not found.')
+            raise RuntimeError(
+                f"you passed tempo_endpoint={tempo_endpoint} to "
+                f"@trace_charm; but {charm}.{tempo_endpoint} was not found."
+            )
 
         _setup_root_span_initializer(charm, tempo_endpoint, app_name=app_name)
         trace_type(charm)
@@ -164,9 +164,9 @@ def trace_charm(tempo_endpoint: str, app_name: str = None) -> Callable[[_C], _C]
 
 
 def trace_type(cls: _T) -> _T:
-    logger.info(f'instrumenting {cls}')
+    logger.info(f"instrumenting {cls}")
     for name, method in inspect.getmembers(cls, predicate=inspect.isfunction):
-        logger.info(f'discovered {method}')
+        logger.info(f"discovered {method}")
 
         if method.__name__.startswith("__"):
             logger.info(f"skipping (dunder)")
@@ -178,7 +178,8 @@ def trace_type(cls: _T) -> _T:
 
 
 def trace_function(function: _F) -> _F:
-    logger.info(f'instrumenting {function}')
+    logger.info(f"instrumenting {function}")
+
     # sig = inspect.signature(function)
     @functools.wraps(function)
     def wrapped_function(*args, **kwargs):
@@ -198,5 +199,5 @@ def trace(obj: Union[Type, Callable]):
             return trace_function(obj)
         except:
             raise UntraceableObject(
-                f'cannot create span from {type(obj)}; instrument {obj} manually.'
+                f"cannot create span from {type(obj)}; instrument {obj} manually."
             )
