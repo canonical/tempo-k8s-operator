@@ -7,6 +7,39 @@ opentelemetry tracing data collection.
 This means that, if your charm is related to, for example, COS' Tempo charm, you will be able to inspect
 in real time from the Grafana dashboard the execution flow of your charm.
 
+To start using this library, you need to do two things:
+1) decorate your charm class with
+
+`@trace_charm(tempo_endpoint="tempo_endpoint")`
+
+2) add to your charm a "tempo_endpoint" (you can name this attribute whatever you like) property
+that returns a tempo otlp grpc endpoint. If you are using the `TracingEndpointProvider` as
+`self.tracing = TracingEndpointProvider(self)`, the implementation would be:
+
+```
+    @property
+    def tempo_endpoint(self) -> Optional[str]:
+        '''Tempo endpoint for charm tracing'''
+        return self.tracing.otlp_grpc_endpoint
+```
+
+At this point your charm will be automatically instrumented so that:
+- charm execution starts a trace, containing
+    - every event as a span (including custom events)
+    - every charm method call (except dunders) as a span
+
+if you wish to add more fine-grained information to the trace, you can do so by getting a hold of the tracer like so:
+```
+import opentelemetry
+...
+    @property
+    def tracer(self) -> opentelemetry.trace.Tracer:
+        return opentelemetry.trace.get_tracer(type(self).__name__)
+```
+
+By default, the tracer is named after the charm type. If you wish to override that, you can pass an `app_name`
+argument to `trace_charm`.
+
 """
 import functools
 import inspect
