@@ -29,5 +29,5 @@ def test_tempo_endpoint_published(context):
         '{"port": "4317", "type": "otlp_grpc"}, '
         '{"port": "4318", "type": "otlp_http"}, '
         '{"port": "9411", "type": "zipkin"}]',
-        "tempo_host": socket.getfqdn(),
+        "hostname": socket.getfqdn(),
     }

@@ -17,7 +17,7 @@ from ops.pebble import Layer
 from charms.loki_k8s.v0.loki_push_api import LogProxyConsumer
 from charms.observability_libs.v0.kubernetes_service_patch import KubernetesServicePatch
 from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
-from charms.tempo.v0.tempo_scrape import TracingEndpointRequirer
+from charms.tempo_k8s.v0.tempo_scrape import TracingEndpointRequirer
 from tempo import Tempo
 
 logger = logging.getLogger(__name__)
@@ -63,7 +63,7 @@ class TempoCharm(CharmBase):
         # )
 
         self._tracing = TracingEndpointRequirer(
-            self, tempo_host=tempo.host, ingesters=tempo.ingesters
+            self, hostname=tempo.host, ingesters=tempo.ingesters
         )
         # self._ingress = IngressPerAppRequirer(self, port=4080)
 
