@@ -62,7 +62,9 @@ class TempoCharm(CharmBase):
         #     self, jobs=[{"static_configs": [{"targets": ["*:4080"]}]}]
         # )
 
-        self._tracing = TracingEndpointRequirer(self, tempo_endpoint=tempo.endpoint)
+        self._tracing = TracingEndpointRequirer(
+            self, tempo_host=tempo.host, ingesters=tempo.ingesters
+        )
         # self._ingress = IngressPerAppRequirer(self, port=4080)
 
     def _on_tempo_pebble_ready(self, event: WorkloadEvent):
