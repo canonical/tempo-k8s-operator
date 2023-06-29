@@ -1,13 +1,17 @@
 import socket
+from subprocess import getoutput, CalledProcessError
 
 import yaml
+from ops import Object
+from ops.pebble import Layer
+
 from charms.tempo_k8s.v0.tempo_scrape import Ingester
-from subprocess import getoutput, CalledProcessError
 
 
 class Tempo:
     config_path = "/etc/tempo.yaml"
     wal_path = '/etc/tempo_wal'
+    log_path = "/var/log/tempo.log"
 
     def __init__(self, port: int = 3200, local_host: str = "0.0.0.0"):
         self.tempo_port = port
@@ -96,6 +100,23 @@ class Tempo:
                          'queue_depth': 10000}}
              }
              }
+        )
+
+    @property
+    def pebble_layer(self) -> Layer:
+        return Layer(
+            {
+                "services": {
+                    "tempo": {
+                        "override": "replace",
+                        "summary": "Main Tempo layer",
+                        "command": '/bin/sh -c "/tempo -config.file={} | tee {}"'.format(
+                            self.config_path,
+                            self.log_path),
+                        "startup": "enabled",
+                    }
+                },
+            }
         )
 
     def is_ready(self):
