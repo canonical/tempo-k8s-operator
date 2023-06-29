@@ -166,15 +166,15 @@ the `tempo_scrape_unit_name` and `tempo_scrape_unit_address` keys. While the `sc
 eponymous information.
 
 """  # noqa: W505
-
+import json
 import logging
-import typing
-from typing import Any, Dict, Optional, Tuple, TypedDict
+from itertools import starmap
+from typing import Optional, Tuple, Dict, Any, Literal, TYPE_CHECKING, List
 
-import yaml
-from ops.charm import CharmBase, CharmEvents, RelationEvent, RelationRole
-from ops.framework import EventBase, EventSource, Object, ObjectEvents
-from ops.model import ModelError
+from ops.charm import CharmBase, RelationRole, CharmEvents, RelationEvent
+from ops.framework import EventSource, Object, ObjectEvents
+from ops.model import ModelError, Relation
+from pydantic import BaseModel, AnyHttpUrl, Json
 
 # The unique Charmhub library identifier, never change it
 LIBID = "79954052707a491b98ca695971c227fe"
@@ -186,6 +186,8 @@ LIBAPI = 0
 # to 0 if you are raising the major API version
 LIBPATCH = 3
 
+PYDEPS = ["pydantic"]
+
 logger = logging.getLogger(__name__)
 
 ALLOWED_KEYS = {"job_name", "static_configs", "scrape_interval", "scrape_timeout"}
@@ -193,17 +195,17 @@ DEFAULT_JOB = {"static_configs": [{"targets": ["*:80"]}]}
 DEFAULT_RELATION_NAME = "tracing"
 RELATION_INTERFACE_NAME = "tracing"
 
-if typing.TYPE_CHECKING:
-    TempoEndpointDict = TypedDict(
-        "TempoEndpointDict",
-        {
-            "hostname": str,
-            "tempo_port": int,
-            "otlp_grpc_port": int,
-            "otlp_http_port": int,
-            "zipkin_port": int,
-        },
-    )
+IngesterType = Literal['otlp_grpc', 'otlp_http', 'zipkin', 'tempo']
+
+
+class Ingester(BaseModel):
+    port: str
+    type: IngesterType
+
+
+class TracingRequirerData(BaseModel):
+    hostname: AnyHttpUrl
+    ingesters: Json[List[Ingester]]
 
 
 class _AutoSnapshotEvent(RelationEvent):
@@ -352,20 +354,9 @@ def _validate_relation_by_interface_and_direction(
         raise TypeError("Unexpected RelationDirection: {}".format(expected_relation_role))
 
 
-class TargetsChangedEvent(EventBase):
+class TargetsChangedEvent(_AutoSnapshotEvent):
     """Event emitted when Tempo scrape targets change."""
-
-    def __init__(self, handle, relation_id):
-        super().__init__(handle)
-        self.relation_id = relation_id
-
-    def snapshot(self):
-        """Save scrape target relation information."""
-        return {"relation_id": self.relation_id}
-
-    def restore(self, snapshot):
-        """Restore scrape target relation information."""
-        self.relation_id = snapshot["relation_id"]
+    __args__ = ("relation_id", )
 
 
 class MonitoringEvents(ObjectEvents):
@@ -379,12 +370,11 @@ class TracingEndpointRequirer(Object):
 
     on = MonitoringEvents()
 
-    def __init__(
-        self,
-        charm: CharmBase,
-        tempo_endpoint: "TempoEndpointDict",
-        relation_name: str = DEFAULT_RELATION_NAME,
-    ):
+    def __init__(self,
+                 charm: CharmBase,
+                 hostname: str,
+                 ingesters: List[Ingester],
+                 relation_name: str = DEFAULT_RELATION_NAME):
         """A Tempo based Monitoring service.
 
         Args:
@@ -408,7 +398,8 @@ class TracingEndpointRequirer(Object):
 
         super().__init__(charm, relation_name)
         self._charm = charm
-        self._tempo_endpoint = tempo_endpoint
+        self._hostname = hostname
+        self._ingesters = ingesters
         self._relation_name = relation_name
         events = self._charm.on[relation_name]
         self.framework.observe(events.relation_created, self.update_relation_data)
@@ -418,35 +409,25 @@ class TracingEndpointRequirer(Object):
         try:
             if self._charm.unit.is_leader():
                 for relation in self._charm.model.relations[self._relation_name]:
-                    data = yaml.safe_dump(self._tempo_endpoint)
-                    relation.data[self._charm.app]["tempo_endpoint"] = data
+                    app_databag = relation.data[self._charm.app]
+                    app_databag['hostname'] = self._hostname
+                    app_databag['ingesters'] = json.dumps([ing.dict() for ing in self._ingesters])
+
         except ModelError as e:
             # args are bytes
-            if e.args[0].startswith(
-                b"ERROR cannot read relation application " b"settings: permission denied"
-            ):
-                logger.error(
-                    f"encountered error {e} while attempting to update_relation_data."
-                    f"The relation must be gone."
-                )
+            if e.args[0].startswith(b'ERROR cannot read relation application '
+                                    b'settings: permission denied'):
+                logger.error(f"encountered error {e} while attempting to update_relation_data."
+                             f"The relation must be gone.")
                 return
 
 
 class EndpointChangedEvent(_AutoSnapshotEvent):
-    __optional_kwargs__ = {
-        "hostname": None,
-        "tempo_port": None,
-        "otlp_grpc_port": None,
-        "otlp_http_port": None,
-        "zipkin_port": None,
-    }
+    __args__ = ("hostname", "ingesters")
 
-    if typing.TYPE_CHECKING:
+    if TYPE_CHECKING:
         hostname = ""  # type: str
-        tempo_port = 0  # type: int
-        otlp_grpc_port = 0  # type: int
-        otlp_http_port = 0  # type: int
-        zipkin_port = 0  # type int
+        ingesters = []  # type: List[Ingester]
 
 
 class TracingEndpointEvents(CharmEvents):
@@ -518,24 +499,27 @@ class TracingEndpointProvider(Object):
         self.framework.observe(events.relation_changed, self._on_tracing_relation_changed)
 
     def _on_tracing_relation_changed(self, event):
-        """Notify the providers that there is new endpoint information available."""
-        data = yaml.safe_load(event.relation.data[event.relation.app].get("tempo_endpoint"))
+        """Notify the providers that there is new endpoint information available.
+        """
+        data = self._deserialize_from_relation(event.relation)
         if data:
-            self.on.endpoint_changed.emit(event.relation, **data)
+            self.on.endpoint_changed.emit(event.relation, data.hostname, data.ingesters)
+
+    def _deserialize_from_relation(self, relation: Relation) -> Optional[TracingRequirerData]:
+        try:
+            app_databag = relation.data[relation.app]
+            data = app_databag.get('hostname')
+            ingesters = list(starmap(Ingester, json.loads(app_databag.get('ingesters'))))
+            return TracingRequirerData(hostname=data, ingesters=ingesters)
+        except Exception as e:
+            logger.error(e, exc_info=True)
+            return None
 
     @property
-    def endpoint(self) -> Optional["TempoEndpointDict"]:
+    def endpoint(self) -> Optional[TracingRequirerData]:
         try:
             relation = self._charm.model.get_relation(self._relation_name)
-            raw_eps = yaml.safe_load(relation.data[relation.app]["tempo_endpoint"])
-            endpoints = {
-                "hostname": raw_eps["hostname"],
-                "tempo_port": int(raw_eps["tempo_port"]),
-                "otlp_grpc_port": int(raw_eps["otlp_grpc_port"]),
-                "otlp_http_port": int(raw_eps["otlp_http_port"]),
-                "zipkin_port": int(raw_eps["zipkin_port"]),
-            }
-            return endpoints
+            return self._deserialize_from_relation(relation)
         except Exception as e:
             logger.error(f"Unable to fetch tempo endpoint from relation data: {e}")
             return None
@@ -545,4 +529,5 @@ class TracingEndpointProvider(Object):
         ep = self.endpoint
         if not ep:
             return None
-        return f"http://{ep['hostname']}:{ep['otlp_grpc_port']}"
+        otlp_grpc_ingester_port = next(filter(lambda i: i.type == "otlp_grpc", ep.ingesters)).port
+        return f"http://{ep.hostname}:{otlp_grpc_ingester_port}"

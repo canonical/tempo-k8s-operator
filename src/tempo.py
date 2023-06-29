@@ -1,14 +1,22 @@
 import socket
+from subprocess import getoutput, CalledProcessError
 from subprocess import CalledProcessError, getoutput
 
 import yaml
 
+import yaml
+from ops import Object
+from ops.pebble import Layer
+
+from charms.tempo_k8s.v0.tempo_scrape import Ingester
+
 
 class Tempo:
     config_path = "/etc/tempo.yaml"
-    wal_path = "/etc/tempo_wal"
+    wal_path = '/etc/tempo_wal'
+    log_path = "/var/log/tempo.log"
 
-    def __init__(self, port: int = 3200, host: str = "0.0.0.0"):
+    def __init__(self, port: int = 3200, local_host: str = "0.0.0.0"):
         self.tempo_port = port
 
         # todo make configurable?
@@ -16,26 +24,29 @@ class Tempo:
         self.otlp_http_port = 4318
         self.zipkin_port = 9411
 
-        self._host = host
+        self._local_hostname = local_host
 
-    def get_requested_ports(self, service_name: str):
+        self._supported_ingesters = (
+            ("tempo", self.tempo_port),
+            ("otlp_grpc", self.otlp_grpc_port),
+            ("otlp_http", self.otlp_http_port),
+            ("zipkin", self.zipkin_port),
+        )
+
+    def get_requested_ports(self, service_name_prefix: str):
+        # todo allow remapping ports?
         return [
-            (service_name, self.tempo_port, self.tempo_port),
-            # (service_name + '_jaeger_ingest', 14268, 14268),
-            (service_name + "_otlp_grpc", self.otlp_grpc_port, self.otlp_grpc_port),
-            (service_name + "_otlp_http", self.otlp_http_port, self.otlp_http_port),
-            (service_name + "_zipkin", self.zipkin_port, self.zipkin_port),
+            (service_name_prefix + ingester_type, ingester_port, ingester_port)
+            for ingester_type, ingester_port in self._supported_ingesters
         ]
 
     @property
-    def endpoint(self):
-        return {
-            "hostname": socket.getfqdn(),
-            "tempo_port": self.tempo_port,
-            "otlp_grpc_port": self.otlp_grpc_port,
-            "otlp_http_port": self.otlp_http_port,
-            "zipkin_port": self.zipkin_port,
-        }
+    def host(self) -> str:
+        return socket.getfqdn()
+
+    @property
+    def ingesters(self):
+        return [Ingester(type=_type, port=port) for _type, port in self._supported_ingesters]
 
     def get_config(self):
         return yaml.safe_dump(
@@ -103,10 +114,29 @@ class Tempo:
             }
         )
 
+    @property
+    def pebble_layer(self) -> Layer:
+        return Layer(
+            {
+                "services": {
+                    "tempo": {
+                        "override": "replace",
+                        "summary": "Main Tempo layer",
+                        "command": '/bin/sh -c "/tempo -config.file={} | tee {}"'.format(
+                            self.config_path,
+                            self.log_path),
+                        "startup": "enabled",
+                    }
+                },
+            }
+        )
+
     def is_ready(self):
         """Whether the tempo built-in readiness check reports 'ready'."""
         try:
-            out = getoutput(f"curl http://{self._host}:{self.tempo_port}/ready").split("\n")[-1]
+            out = getoutput(f"curl http://{self._local_hostname}:{self.tempo_port}/ready").split(
+                "\n"
+            )[-1]
         except (CalledProcessError, IndexError):
             return False
         return out == "ready"

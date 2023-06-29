@@ -18,6 +18,10 @@ from ops.main import main
 from ops.model import ActiveStatus
 from ops.pebble import Layer
 
+from charms.loki_k8s.v0.loki_push_api import LogProxyConsumer
+from charms.observability_libs.v0.kubernetes_service_patch import KubernetesServicePatch
+from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
+from charms.tempo_k8s.v0.tempo_scrape import TracingEndpointRequirer
 from tempo import Tempo
 
 logger = logging.getLogger(__name__)
@@ -27,7 +31,6 @@ class TempoCharm(CharmBase):
     """Charmed Operator for Tempo; a distributed tracing backend."""
 
     _stored = StoredState()
-    _log_path = "/var/log/tempo.log"
 
     def __init__(self, *args):
         super().__init__(*args)
@@ -50,7 +53,8 @@ class TempoCharm(CharmBase):
         )
 
         # Enable log forwarding for Loki and other charms that implement loki_push_api
-        self._logging = LogProxyConsumer(self, relation_name="logging", log_files=[self._log_path])
+        self._logging = LogProxyConsumer(self, relation_name="logging",
+                                         log_files=[self.tempo.log_path])
 
         # Provide grafana dashboards over a relation interface
         # self._grafana_dashboards = GrafanaDashboardProvider(
@@ -62,7 +66,9 @@ class TempoCharm(CharmBase):
         #     self, jobs=[{"static_configs": [{"targets": ["*:4080"]}]}]
         # )
 
-        self._tracing = TracingEndpointRequirer(self, tempo_endpoint=tempo.endpoint)
+        self._tracing = TracingEndpointRequirer(
+            self, hostname=tempo.host, ingesters=tempo.ingesters
+        )
         # self._ingress = IngressPerAppRequirer(self, port=4080)
 
     def _on_tempo_pebble_ready(self, event: WorkloadEvent):
@@ -74,7 +80,7 @@ class TempoCharm(CharmBase):
         # drop tempo_config.yaml into the container
         container.push(self.tempo.config_path, self.tempo.get_config())
 
-        container.add_layer("tempo", self._pebble_layer, combine=True)
+        container.add_layer("tempo", self.tempo.pebble_layer, combine=True)
         container.replan()
 
         self.unit.set_workload_version(self.version)
@@ -83,23 +89,6 @@ class TempoCharm(CharmBase):
     def _on_update_status(self, _):
         """Update the status of the application."""
         self.unit.set_workload_version(self.version)
-
-    @property
-    def _pebble_layer(self) -> Layer:
-        return Layer(
-            {
-                "services": {
-                    "tempo": {
-                        "override": "replace",
-                        "summary": "tempo",
-                        "command": '/bin/sh -c "/tempo -config.file={} | tee {}"'.format(
-                            self.tempo.config_path, self._log_path
-                        ),
-                        "startup": "enabled",
-                    }
-                },
-            }
-        )
 
     @property
     def version(self) -> str:
