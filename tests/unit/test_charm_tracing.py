@@ -1,10 +1,11 @@
 from unittest.mock import patch
 
 import pytest
-from charms.tempo_k8s.v0.charm_tracing import get_current_span, trace, trace_charm
 from ops import EventBase, EventSource
 from ops.charm import CharmBase, CharmEvents
-from scenario import State
+from scenario import State, Context
+
+from charms.tempo_k8s.v0.charm_instrumentation import get_current_span, trace, trace_charm
 
 
 @pytest.fixture(autouse=True)
@@ -32,7 +33,8 @@ def test_base_tracer_endpoint(caplog):
 
     with patch("opentelemetry.exporter.otlp.proto.grpc.exporter.OTLPExporterMixin._export") as f:
         f.return_value = opentelemetry.sdk.metrics._internal.export.MetricExportResult.SUCCESS
-        State().trigger("start", MyCharmSimple, meta=MyCharmSimple.META)
+        ctx = Context(MyCharmSimple, meta=MyCharmSimple.META)
+        ctx.run("start", State())
         assert "Setting up span exporter to endpoint: foo.bar:80" in caplog.text
         span = f.call_args_list[0].args[0][0]
         assert span.resource.attributes["service.name"] == "MyCharmSimple"
@@ -53,7 +55,8 @@ def test_base_tracer_endpoint_disabled(caplog):
 
     with patch("opentelemetry.exporter.otlp.proto.grpc.exporter.OTLPExporterMixin._export") as f:
         f.return_value = opentelemetry.sdk.metrics._internal.export.MetricExportResult.SUCCESS
-        State().trigger("start", MyCharmSimpleDisabled, meta=MyCharmSimpleDisabled.META)
+        ctx = Context(MyCharmSimpleDisabled, meta=MyCharmSimpleDisabled.META)
+        ctx.run("start", State())
 
         assert "continuing with tracing DISABLED." in caplog.text
         assert not f.called
@@ -93,7 +96,8 @@ def test_base_tracer_endpoint_event(caplog):
 
     with patch("opentelemetry.exporter.otlp.proto.grpc.exporter.OTLPExporterMixin._export") as f:
         f.return_value = opentelemetry.sdk.metrics._internal.export.MetricExportResult.SUCCESS
-        State().trigger("start", MyCharmSimpleEvent, meta=MyCharmSimpleEvent.META)
+        ctx = Context(MyCharmSimpleEvent, meta=MyCharmSimpleEvent.META)
+        ctx.run("start", State())
 
         spans = f.call_args_list[0].args[0]
         span0, span1, span2, span3 = spans
@@ -143,7 +147,8 @@ def test_base_tracer_endpoint_methods(caplog):
 
     with patch("opentelemetry.exporter.otlp.proto.grpc.exporter.OTLPExporterMixin._export") as f:
         f.return_value = opentelemetry.sdk.metrics._internal.export.MetricExportResult.SUCCESS
-        State().trigger("start", MyCharmWithMethods, meta=MyCharmWithMethods.META)
+        ctx = Context(MyCharmWithMethods, meta=MyCharmWithMethods.META)
+        ctx.run("start", State())
 
         spans = f.call_args_list[0].args[0]
         span_names = [span.name for span in spans]
@@ -192,7 +197,8 @@ def test_base_tracer_endpoint_custom_event(caplog):
 
     with patch("opentelemetry.exporter.otlp.proto.grpc.exporter.OTLPExporterMixin._export") as f:
         f.return_value = opentelemetry.sdk.metrics._internal.export.MetricExportResult.SUCCESS
-        State().trigger("start", MyCharmWithCustomEvents, meta=MyCharmWithCustomEvents.META)
+        ctx = Context(MyCharmWithCustomEvents, meta=MyCharmWithCustomEvents.META)
+        ctx.run("start", State())
 
         spans = f.call_args_list[0].args[0]
         span_names = [span.name for span in spans]

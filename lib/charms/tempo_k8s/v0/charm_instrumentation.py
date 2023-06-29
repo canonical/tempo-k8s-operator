@@ -37,8 +37,8 @@ import opentelemetry
         return opentelemetry.trace.get_tracer(type(self).__name__)
 ```
 
-By default, the tracer is named after the charm type. If you wish to override that, you can pass an `app_name`
-argument to `trace_charm`.
+By default, the tracer is named after the charm type. If you wish to override that, you can pass
+a different `service_name` argument to `trace_charm`.
 
 """
 import functools
@@ -56,10 +56,10 @@ from opentelemetry.sdk.trace import TracerProvider, Span
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.trace import get_current_span as otlp_get_current_span
 from ops.charm import CharmBase
-from ops.framework import Framework
+from ops.framework import Framework, Handle
 
 # The unique Charmhub library identifier, never change it
-LIBID = "cb1705dcd1a14ca09b2e60187d1215c7"  # TODO: register new uuid; this is FAKE
+LIBID = "0a8cf1b7b95d4cfcb90055f2d84897b3"  # TODO: register new uuid; this is FAKE
 
 # Increment this major API version when introducing breaking changes
 LIBAPI = 0
@@ -122,23 +122,26 @@ class UntraceableObject(TracingError):
 
 def _setup_root_span_initializer(charm: Type[CharmBase],
                                  tempo_endpoint: str,
-                                 app_name: Optional[str] = None
+                                 service_name: Optional[str] = None
                                  ):
     """Patches the charm's initializer."""
     original_init = charm.__init__
 
     @functools.wraps(original_init)
     def wrap_init(self: CharmBase, framework: Framework, *args, **kwargs):
-        original_init(self, framework, *args, **kwargs)
+
+        # already init some attrs that will be reinited later by calling original_init:
+        self.framework = framework
+        self.handle = Handle(None, self.handle_kind, None)
 
         original_event_context = framework._event_context
 
         logging.debug('Initializing opentelemetry tracer...')
-        service_name = app_name or charm.__name__
+        _service_name = service_name or charm.__name__
 
         resource = Resource.create(attributes={
-            "service.name": service_name,
-            "compose_service": service_name
+            "service.name": _service_name,
+            "compose_service": _service_name
         })
         provider = TracerProvider(resource=resource)
 
@@ -203,12 +206,13 @@ def _setup_root_span_initializer(charm: Type[CharmBase],
 
         framework.close = wrap_close
 
+        original_init(self, framework, *args, **kwargs)
         return
 
     charm.__init__ = wrap_init
 
 
-def trace_charm(tempo_endpoint: str, app_name: str = None) -> Callable[[_C], _C]:
+def trace_charm(tempo_endpoint: str, service_name: str = None) -> Callable[[_C], _C]:
     """Setup tracing on this charm class."""
 
     def trace_charm_type(charm: _C) -> _C:
@@ -220,7 +224,7 @@ def trace_charm(tempo_endpoint: str, app_name: str = None) -> Callable[[_C], _C]
             raise RuntimeError(f'you passed tempo_endpoint={tempo_endpoint} to '
                                f'@trace_charm; but {charm}.{tempo_endpoint} was not found.')
 
-        _setup_root_span_initializer(charm, tempo_endpoint, app_name=app_name)
+        _setup_root_span_initializer(charm, tempo_endpoint, service_name=service_name)
         trace_type(charm)
         return charm
 

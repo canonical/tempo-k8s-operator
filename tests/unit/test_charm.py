@@ -1,40 +1,31 @@
-from scenario import Scenario, Runtime
-
-Runtime.install()
-
 from pathlib import Path
 from unittest import mock
 
 import pytest
-from charm import TempoCharm
 from ops.charm import StartEvent
-from scenario.structs import CharmSpec, Scene, event, Context, State
+from scenario import Context, State
+
+from charm import TempoCharm
 
 TEMPO_CHARM_ROOT = Path(__file__).parent.parent.parent
 
 
 @pytest.fixture(scope='session')
-def scenario():
+def charm_type():
     with mock.patch("charm.KubernetesServicePatch", lambda x, y: None):
-        yield Scenario(
-            CharmSpec.load(TempoCharm)
-        )
+        yield TempoCharm
 
 
-@pytest.fixture(params=(True, False))
-def base_context(request):
-    return Context(
-        state=State(
-            leader=request.param
-        )
-    )
+@pytest.fixture
+def base_context(charm_type):
+    return Context(charm_type)
 
 
-def test_start(scenario, base_context):
-    out = scenario.run(
-        Scene(
-            event("start"),
-            context=base_context)
+@pytest.mark.parametrize('leader', (True, False))
+def test_start(base_context, leader):
+    out = base_context.run(
+        "start",
+        State(leader=leader)
     )
     assert isinstance(out.charm, TempoCharm)
     assert isinstance(out.event, StartEvent)

@@ -8,7 +8,7 @@ from typing import List, Optional
 
 import opentelemetry
 from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
-from charms.tempo_k8s.v0.charm_tracing import trace_charm
+from charms.tempo_k8s.v0.charm_instrumentation import trace_charm
 from charms.tempo_k8s.v0.tempo_scrape import TracingEndpointProvider
 from ops.charm import CharmBase, PebbleReadyEvent
 from ops.main import main
@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 TRACING_APP_NAME = "TempoTesterCharm"
 
 
-@trace_charm(tempo_endpoint="tempo", app_name=TRACING_APP_NAME)
+@trace_charm(tempo_endpoint="tempo", service_name=TRACING_APP_NAME)
 class TempoTesterCharm(CharmBase):
     """Charm the service."""
 
