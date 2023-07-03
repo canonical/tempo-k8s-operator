@@ -8,25 +8,22 @@ import logging
 import re
 from typing import Optional
 
-from charms.loki_k8s.v0.loki_push_api import LogProxyConsumer
-from charms.observability_libs.v0.kubernetes_service_patch import KubernetesServicePatch
-from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
-from charms.tempo_k8s.v0.tempo_scrape import TracingEndpointRequirer
 from ops.charm import CharmBase, WorkloadEvent
 from ops.framework import StoredState
 from ops.main import main
 from ops.model import ActiveStatus
-from ops.pebble import Layer
 
 from charms.loki_k8s.v0.loki_push_api import LogProxyConsumer
 from charms.observability_libs.v0.kubernetes_service_patch import KubernetesServicePatch
 from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
 from charms.tempo_k8s.v0.tempo_scrape import TracingEndpointRequirer
+from charms.tempo_k8s.v0.charm_instrumentation import trace_charm
 from tempo import Tempo
 
 logger = logging.getLogger(__name__)
 
 
+@trace_charm(tempo_endpoint="_tempo_otlp_grpc_endpoint", service_name="TEMPO_CHARM_SELF_TRACING")
 class TempoCharm(CharmBase):
     """Charmed Operator for Tempo; a distributed tracing backend."""
 
@@ -132,6 +129,13 @@ class TempoCharm(CharmBase):
             )
             return
         return version
+
+    @property
+    def _tempo_otlp_grpc_endpoint(self) -> Optional[str]:
+        """Endpoint at which the charm tracing information will be forwarded."""
+        # the charm container and the tempo workload container have apparently the same IP, so we can
+        # talk to tempo by using localhost.
+        return f"http://localhost:{self.tempo.otlp_grpc_port}/"
 
 
 if __name__ == "__main__":  # pragma: nocover
