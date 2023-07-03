@@ -1,7 +1,7 @@
 from unittest.mock import patch
 
 import pytest
-from ops import EventBase, EventSource
+from ops import EventBase, EventSource, Framework
 from ops.charm import CharmBase, CharmEvents
 from scenario import State, Context
 
@@ -42,6 +42,33 @@ def test_base_tracer_endpoint(caplog):
 
 
 @trace_charm("tempo")
+class MyCharmInitAttr(CharmBase):
+    META = {"name": "frank"}
+
+    def __init__(self, framework: Framework):
+        super().__init__(framework)
+        self._tempo = "foo.bar:80"
+
+    @property
+    def tempo(self):
+        return self._tempo
+
+
+def test_init_attr(caplog):
+    import opentelemetry
+
+    with patch("opentelemetry.exporter.otlp.proto.grpc.exporter.OTLPExporterMixin._export") as f:
+        f.return_value = opentelemetry.sdk.metrics._internal.export.MetricExportResult.SUCCESS
+        ctx = Context(MyCharmInitAttr, meta=MyCharmInitAttr.META)
+        ctx.run("start", State())
+        assert "Setting up span exporter to endpoint: foo.bar:80" in caplog.text
+        span = f.call_args_list[0].args[0][0]
+        assert span.resource.attributes["service.name"] == "MyCharmInitAttr"
+        assert span.resource.attributes["compose_service"] == "MyCharmInitAttr"
+
+
+
+@trace_charm("tempo")
 class MyCharmSimpleDisabled(CharmBase):
     META = {"name": "frank"}
 
@@ -73,7 +100,11 @@ class MyCharmSimpleEvent(CharmBase):
 
     def __init__(self, fw):
         super().__init__(fw)
+        span = get_current_span()
+        assert span is None  # can't do that in init.
         fw.observe(self.on.start, self._on_start)
+
+    def _on_start(self, _):
         span = get_current_span()
         span.add_event(
             "log",
@@ -82,8 +113,6 @@ class MyCharmSimpleEvent(CharmBase):
                 "baz": "qux",
             },
         )
-
-    def _on_start(self, _):
         _my_fn(2)
 
     @property

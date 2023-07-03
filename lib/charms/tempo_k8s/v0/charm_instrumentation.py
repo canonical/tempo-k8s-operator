@@ -66,10 +66,10 @@ LIBAPI = 0
 
 # Increment this PATCH version before using `charmcraft publish-lib` or reset
 # to 0 if you are raising the major API version
-LIBPATCH = 1
+LIBPATCH = 2
 
 PYDEPS = [
-    "opentelemetry-exporter-otlp-proto-grpc"
+    "opentelemetry-exporter-otlp-proto-grpc==1.17.0"
 ]
 
 logger = logging.getLogger('tracing')
@@ -129,10 +129,11 @@ def _setup_root_span_initializer(charm: Type[CharmBase],
 
     @functools.wraps(original_init)
     def wrap_init(self: CharmBase, framework: Framework, *args, **kwargs):
+        original_init(self, framework, *args, **kwargs)
 
         # already init some attrs that will be reinited later by calling original_init:
-        self.framework = framework
-        self.handle = Handle(None, self.handle_kind, None)
+        # self.framework = framework
+        # self.handle = Handle(None, self.handle_kind, None)
 
         original_event_context = framework._event_context
 
@@ -205,8 +206,6 @@ def _setup_root_span_initializer(charm: Type[CharmBase],
             original_close()
 
         framework.close = wrap_close
-
-        original_init(self, framework, *args, **kwargs)
         return
 
     charm.__init__ = wrap_init

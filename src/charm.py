@@ -135,7 +135,7 @@ class TempoCharm(CharmBase):
         """Endpoint at which the charm tracing information will be forwarded."""
         # the charm container and the tempo workload container have apparently the same IP, so we can
         # talk to tempo by using localhost.
-        return f"http://localhost:{self.tempo.otlp_grpc_port}/"
+        return f"http://localhost:4317/"
 
 
 if __name__ == "__main__":  # pragma: nocover
