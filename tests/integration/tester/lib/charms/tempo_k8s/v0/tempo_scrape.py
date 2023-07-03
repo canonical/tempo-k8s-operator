@@ -186,7 +186,7 @@ LIBAPI = 0
 # to 0 if you are raising the major API version
 LIBPATCH = 3
 
-PYDEPS = ["pydantic"]
+PYDEPS = ["pydantic<2.0"]
 
 logger = logging.getLogger(__name__)
 
