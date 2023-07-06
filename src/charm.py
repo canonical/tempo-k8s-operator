@@ -8,16 +8,16 @@ import logging
 import re
 from typing import Optional
 
+from charms.loki_k8s.v0.loki_push_api import LogProxyConsumer
+from charms.observability_libs.v0.kubernetes_service_patch import KubernetesServicePatch
+from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
+from charms.tempo_k8s.v0.tempo_scrape import TracingEndpointRequirer
 from ops.charm import CharmBase, WorkloadEvent
 from ops.framework import StoredState
 from ops.main import main
 from ops.model import ActiveStatus
 from ops.pebble import Layer
 
-from charms.loki_k8s.v0.loki_push_api import LogProxyConsumer
-from charms.observability_libs.v0.kubernetes_service_patch import KubernetesServicePatch
-from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
-from charms.tempo_k8s.v0.tempo_scrape import TracingEndpointRequirer
 from tempo import Tempo
 
 logger = logging.getLogger(__name__)
@@ -38,7 +38,8 @@ class TempoCharm(CharmBase):
         # # Patch the juju-created Kubernetes service to contain the right ports
         # ports source: https://github.com/grafana/tempo/blob/main/example/docker-compose/local/docker-compose.yaml
         self._service_patcher = KubernetesServicePatch(
-            self, tempo.get_requested_ports(self.app.name))
+            self, tempo.get_requested_ports(self.app.name)
+        )
 
         # Provide ability for Tempo to be scraped by Prometheus using prometheus_scrape
         self._scraping = MetricsEndpointProvider(
@@ -48,8 +49,9 @@ class TempoCharm(CharmBase):
         )
 
         # Enable log forwarding for Loki and other charms that implement loki_push_api
-        self._logging = LogProxyConsumer(self, relation_name="logging",
-                                         log_files=[self.tempo.log_path])
+        self._logging = LogProxyConsumer(
+            self, relation_name="logging", log_files=[self.tempo.log_path]
+        )
 
         # Provide grafana dashboards over a relation interface
         # self._grafana_dashboards = GrafanaDashboardProvider(
@@ -103,7 +105,7 @@ class TempoCharm(CharmBase):
     def _get_version(self) -> Optional[str]:
         """Helper for fetching the version from the running workload using the Tempo CLI."""
 
-        container = self.unit.get_container('tempo')
+        container = self.unit.get_container("tempo")
         proc = container.exec(["/tempo", "-version"])
         out, err = proc.wait_output()
 
@@ -121,8 +123,10 @@ class TempoCharm(CharmBase):
         elif version_headless := re.search(r"tempo, version (\S+)", out):
             version = version_headless.groups()[0]
         else:
-            logger.warning(f'unable to determine tempo workload version: output {out} '
-                           f'does not match any known pattern')
+            logger.warning(
+                f"unable to determine tempo workload version: output {out} "
+                f"does not match any known pattern"
+            )
             return
         return version
 
