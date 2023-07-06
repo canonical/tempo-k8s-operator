@@ -56,15 +56,14 @@ from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExport
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import Span, TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.trace import INVALID_SPAN, Tracer
+from opentelemetry.trace import get_current_span as otlp_get_current_span
 from opentelemetry.trace import (
-    INVALID_SPAN,
-    Tracer,
     get_tracer,
     get_tracer_provider,
     set_span_in_context,
     set_tracer_provider,
 )
-from opentelemetry.trace import get_current_span as otlp_get_current_span
 from ops.charm import CharmBase
 from ops.framework import Framework
 
@@ -147,7 +146,7 @@ class UntraceableObjectError(TracingError):
 
 
 def _setup_root_span_initializer(
-        charm: Type[CharmBase], tempo_endpoint: str, service_name: Optional[str] = None
+    charm: Type[CharmBase], tempo_endpoint: str, service_name: Optional[str] = None
 ):
     """Patch the charm's initializer."""
     original_init = charm.__init__

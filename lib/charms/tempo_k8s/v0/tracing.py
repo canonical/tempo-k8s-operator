@@ -62,7 +62,7 @@ follows
 import json
 import logging
 from itertools import starmap
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, cast, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Tuple, cast
 
 from ops.charm import CharmBase, CharmEvents, RelationEvent, RelationRole
 from ops.framework import EventSource, Object
