@@ -208,6 +208,9 @@ def _setup_root_span_initializer(
         # we need to manually set the root span as current.
         span = _tracer.start_span("charm exec", attributes={"juju.dispatch_path": dispatch_path})
         ctx = set_span_in_context(span)
+        root_trace_id = span.get_span_context().trace_id
+        logger.debug(f"Starting root trace with id={root_trace_id!r}.")
+
         span_token = opentelemetry.context.attach(ctx)  # type: ignore
 
         @contextmanager
