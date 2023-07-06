@@ -1,11 +1,7 @@
 import socket
-from subprocess import getoutput, CalledProcessError
 from subprocess import CalledProcessError, getoutput
 
 import yaml
-
-import yaml
-from ops import Object
 from ops.pebble import Layer
 
 from charms.tempo_k8s.v0.tempo_scrape import Ingester
@@ -19,6 +15,7 @@ class Tempo:
     def __init__(self, port: int = 3200, local_host: str = "0.0.0.0"):
         self.tempo_port = port
 
+        # ports source: https://github.com/grafana/tempo/blob/main/example/docker-compose/local/docker-compose.yaml
         # todo make configurable?
         self.otlp_grpc_port = 4317
         self.otlp_http_port = 4318

@@ -16,14 +16,18 @@ from ops.model import ActiveStatus
 from charms.loki_k8s.v0.loki_push_api import LogProxyConsumer
 from charms.observability_libs.v0.kubernetes_service_patch import KubernetesServicePatch
 from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
-from charms.tempo_k8s.v0.tempo_scrape import TracingEndpointRequirer
 from charms.tempo_k8s.v0.charm_instrumentation import trace_charm
+from charms.tempo_k8s.v0.tempo_scrape import TracingEndpointRequirer
+from charms.traefik_k8s.v1.ingress import IngressPerAppRequirer
 from tempo import Tempo
 
 logger = logging.getLogger(__name__)
 
 
-@trace_charm(tempo_endpoint="_tempo_otlp_grpc_endpoint", service_name="TEMPO_CHARM_SELF_TRACING")
+@trace_charm(
+    tempo_endpoint="_tempo_otlp_grpc_endpoint",
+    service_name="TempoCharm"
+)
 class TempoCharm(CharmBase):
     """Charmed Operator for Tempo; a distributed tracing backend."""
 
@@ -37,7 +41,6 @@ class TempoCharm(CharmBase):
         self.tempo = tempo = Tempo()
 
         # # Patch the juju-created Kubernetes service to contain the right ports
-        # ports source: https://github.com/grafana/tempo/blob/main/example/docker-compose/local/docker-compose.yaml
         self._service_patcher = KubernetesServicePatch(
             self, tempo.get_requested_ports(self.app.name)
         )
@@ -66,7 +69,7 @@ class TempoCharm(CharmBase):
         self._tracing = TracingEndpointRequirer(
             self, hostname=tempo.host, ingesters=tempo.ingesters
         )
-        # self._ingress = IngressPerAppRequirer(self, port=4080)
+        self._ingress = IngressPerAppRequirer(self, port=self.tempo.tempo_port)
 
     def _on_tempo_pebble_ready(self, event: WorkloadEvent):
         container = event.workload
@@ -135,7 +138,7 @@ class TempoCharm(CharmBase):
         """Endpoint at which the charm tracing information will be forwarded."""
         # the charm container and the tempo workload container have apparently the same IP, so we can
         # talk to tempo by using localhost.
-        return f"http://localhost:4317/"
+        return f"http://localhost:{self.tempo.otlp_grpc_port}/"
 
 
 if __name__ == "__main__":  # pragma: nocover
