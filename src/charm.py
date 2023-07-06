@@ -11,27 +11,19 @@ from typing import Optional
 from charms.loki_k8s.v0.loki_push_api import LogProxyConsumer
 from charms.observability_libs.v0.kubernetes_service_patch import KubernetesServicePatch
 from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
-from charms.tempo_k8s.v0.tempo_scrape import TracingEndpointRequirer
+from charms.tempo_k8s.v0.charm_instrumentation import trace_charm
+from charms.tempo_k8s.v0.tracing import TracingEndpointRequirer
+from charms.traefik_k8s.v1.ingress import IngressPerAppRequirer
 from ops.charm import CharmBase, WorkloadEvent
 from ops.framework import StoredState
 from ops.main import main
 from ops.model import ActiveStatus
-
-from charms.loki_k8s.v0.loki_push_api import LogProxyConsumer
-from charms.observability_libs.v0.kubernetes_service_patch import KubernetesServicePatch
-from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
-from charms.tempo_k8s.v0.charm_instrumentation import trace_charm
-from charms.tempo_k8s.v0.tempo_scrape import TracingEndpointRequirer
-from charms.traefik_k8s.v1.ingress import IngressPerAppRequirer
 from tempo import Tempo
 
 logger = logging.getLogger(__name__)
 
 
-@trace_charm(
-    tempo_endpoint="_tempo_otlp_grpc_endpoint",
-    service_name="TempoCharm"
-)
+@trace_charm(tempo_endpoint="_tempo_otlp_grpc_endpoint", service_name="TempoCharm")
 class TempoCharm(CharmBase):
     """Charmed Operator for Tempo; a distributed tracing backend."""
 
@@ -40,7 +32,8 @@ class TempoCharm(CharmBase):
     def __init__(self, *args):
         super().__init__(*args)
         self._stored.set_default(initial_admin_password="")
-        self.framework.observe(self.on.tempo_pebble_ready, self._on_tempo_pebble_ready)
+        tempo_pebble_ready_event = self.on.tempo_pebble_ready  # type:ignore
+        self.framework.observe(tempo_pebble_ready_event, self._on_tempo_pebble_ready)
         self.framework.observe(self.on.update_status, self._on_update_status)
         self.tempo = tempo = Tempo()
 
@@ -111,8 +104,10 @@ class TempoCharm(CharmBase):
         return ""
 
     def _get_version(self) -> Optional[str]:
-        """Helper for fetching the version from the running workload using the Tempo CLI."""
+        """Fetch the version from the running workload using the Tempo CLI.
 
+        Helper function.
+        """
         container = self.unit.get_container("tempo")
         proc = container.exec(["/tempo", "-version"])
         out, err = proc.wait_output()

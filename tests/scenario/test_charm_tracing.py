@@ -1,11 +1,14 @@
 from unittest.mock import patch
 
 import pytest
+from charms.tempo_k8s.v0.charm_instrumentation import (
+    get_current_span,
+    trace,
+    trace_charm,
+)
 from ops import EventBase, EventSource, Framework
 from ops.charm import CharmBase, CharmEvents
-from scenario import State, Context
-
-from charms.tempo_k8s.v0.charm_instrumentation import get_current_span, trace, trace_charm
+from scenario import Context, State
 
 
 @pytest.fixture(autouse=True)
@@ -65,7 +68,6 @@ def test_init_attr(caplog):
         span = f.call_args_list[0].args[0][0]
         assert span.resource.attributes["service.name"] == "MyCharmInitAttr"
         assert span.resource.attributes["compose_service"] == "MyCharmInitAttr"
-
 
 
 @trace_charm("tempo")
@@ -243,4 +245,4 @@ def test_base_tracer_endpoint_custom_event(caplog):
         for span in spans[:-1]:
             assert span.parent
             assert span.parent.trace_id
-        assert len(set((span.parent.trace_id if span.parent else 0) for span in spans)) == 2
+        assert len({(span.parent.trace_id if span.parent else 0) for span in spans}) == 2
