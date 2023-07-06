@@ -1,10 +1,20 @@
+import os
 import socket
 from pathlib import Path
 
 import pytest
+from charms.tempo_k8s.v0.charm_instrumentation import CHARM_TRACING_ENABLED
 from scenario import Relation, State
+from scenario.sequences import check_builtin_sequences
 
 TEMPO_CHARM_ROOT = Path(__file__).parent.parent.parent
+
+
+os.environ[CHARM_TRACING_ENABLED] = "0"
+
+
+def test_builtin_sequences(tempo_charm):
+    check_builtin_sequences(tempo_charm)
 
 
 @pytest.fixture(params=(True, False))

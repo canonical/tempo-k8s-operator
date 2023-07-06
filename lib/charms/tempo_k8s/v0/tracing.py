@@ -2,208 +2,100 @@
 # See LICENSE file for licensing details.
 """## Overview.
 
-This document explains how to integrate with the Tempo charm for the purpose of providing a
-tracing endpoint to Tempo. It also explains how alternative implementations of the Tempo charm
+This document explains how to integrate with the Tempo charm for the purpose of pushing traces to a
+tracing endpoint provided by Tempo. It also explains how alternative implementations of the Tempo charm
 may maintain the same interface and be backward compatible with all currently integrated charms.
 
 ## Provider Library Usage
 
-This Tempo charm interacts with its scrape targets using its charm library. Charms seeking to
-expose tracing endpoints for the Tempo charm, must do so using the `TracingEndpointProvider`
+Charms seeking to push traces to Tempo, must do so using the `TracingEndpointProvider`
 object from this charm library. For the simplest use cases, using the `TracingEndpointProvider`
 object only requires instantiating it, typically in the constructor of your charm. The
-`TracingEndpointProvider` constructor requires the name of the relation over which a scrape
-target (tracing endpoint) is exposed to the Tempo charm. This relation must use the
-`tempo_scrape` interface. By default address of the tracing endpoint is set to the unit IP
-address, by each unit of the `TracingEndpointProvider` charm. These units set their address in
-response to the `PebbleReady` event of each container in the unit, since container restarts of
-Kubernetes charms can result in change of IP addresses. The default name for the tracing endpoint
-relation is `tracing`. It is strongly recommended to use the same relation name for
-consistency across charms and doing so obviates the need for an additional constructor argument.
-The `TracingEndpointProvider` object may be instantiated as follows
+`TracingEndpointProvider` constructor requires the name of the relation over which a tracing endpoint
+ is exposed by the Tempo charm. This relation must use the
+`tracing` interface. 
+ The `TracingEndpointProvider` object may be instantiated as follows
 
-    from charms.tempo_k8s.v0.tempo_scrape import TracingEndpointProvider
+    from charms.tempo_k8s.v0.tracing import TracingEndpointProvider
 
     def __init__(self, *args):
         super().__init__(*args)
         # ...
-        self.tracing_endpoint = TracingEndpointProvider(self)
+        self.tracing = TracingEndpointProvider(self)
         # ...
 
 Note that the first argument (`self`) to `TracingEndpointProvider` is always a reference to the
-parent (scrape target) charm.
+parent charm.
 
-An instantiated `TracingEndpointProvider` object will ensure that each unit of its parent charm,
-is a scrape target for the `TracingEndpointConsumer` (Tempo) charm. By default
-`TracingEndpointProvider` assumes each unit of the consumer charm exports its profiles on port
-80. These defaults may be changed by providing the `TracingEndpointProvider` constructor an
-optional argument (`jobs`) that represents a Tempo scrape job specification using Python standard
-data structures. This job specification is a subset of Tempo's own [scrape
-configuration](https://www.tempo.dev/docs/configuration) format but represented using Python data
-structures. More than one job may be provided using the `jobs` argument. Hence `jobs` accepts a
-list of dictionaries where each dictionary represents one `<scrape_config>` object as described in
-the Tempo documentation. The currently supported configuration subset is: `job_name`,
-`static_configs`
+Units of provider charms obtain the tempo endpoint to which they will push their traces by using one 
+of these  `TracingEndpointProvider` attributes, depending on which protocol they support:
+- otlp_grpc_endpoint
+- otlp_http_endpoint
+- zipkin_endpoint
+- tempo_endpoint
 
-Suppose it is required to change the port on which scraped profiles are exposed to 8000. This may be
-done by providing the following data structure as the value of `jobs`.
+## Requirer Library Usage
 
-```python
-[{"static_configs": [{"targets": ["*:8000"]}]}]
-```
+The `TracingEndpointRequirer` object may be used by charms to manage relations with their
+trace sources. For this purposes a Tempo-like charm needs to do two things
 
-The wildcard ("*") host specification implies that the scrape targets will automatically be set to
-the host addresses advertised by each unit of the consumer charm.
-
-It is also possible to change the profile path and scrape multiple ports, for example
-
-```
-[{"static_configs": [{"targets": ["*:8000", "*:8081"]}]}]
-```
-
-More complex scrape configurations are possible. For example
-
-```
-[{
-    "static_configs": [{
-        "targets": ["10.1.32.215:7000", "*:8000"],
-        "labels": {
-            "some-key": "some-value"
-        }
-    }]
-}]
-```
-
-This example scrapes the target "10.1.32.215" at port 7000 in addition to scraping each unit at
-port 8000. There is however one difference between wildcard targets (specified using "*") and fully
-qualified targets (such as "10.1.32.215"). The Tempo charm automatically associates labels with
-profiles generated by each target. These labels localise the source of profiles within the Juju
-topology by specifying its "model name", "model UUID", "application name" and "unit name". However
-unit name is associated only with wildcard targets but not with fully qualified targets.
-
-Multiple jobs with labels are allowed, but each job must be given a unique name:
-
-```
-[
-    {
-        "job_name": "my-first-job",
-        "static_configs": [
-            {
-                "targets": ["*:7000"],
-                "labels": {
-                    "some-key": "some-value"
-                }
-            }
-        ]
-    },
-    {
-        "job_name": "my-second-job",
-        "static_configs": [
-            {
-                "targets": ["*:8000"],
-                "labels": {
-                    "some-other-key": "some-other-value"
-                }
-            }
-        ]
-    }
-]
-```
-
-**Important:** `job_name` should be a fixed string (e.g. hardcoded literal). For instance, if you
-include variable elements, like your `unit.name`, it may break the continuity of the profile time
-series gathered by Tempo when the leader unit changes (e.g. on upgrade or rescale).
-
-## Consumer Library Usage
-
-The `TracingEndpointConsumer` object may be used by Tempo charms to manage relations with their
-scrape targets. For this purposes a Tempo charm needs to do two things
-
-1. Instantiate the `TracingEndpointConsumer` object by providing it a
+1. Instantiate the `TracingEndpointRequirer` object by providing it a
 reference to the parent (Tempo) charm and optionally the name of the relation that the Tempo charm
-uses to interact with scrape targets. This relation must confirm to the `tempo_scrape` interface
+uses to interact with its trace sources. This relation must conform to the `tracing` interface
 and it is strongly recommended that this relation be named `tracing` which is its
 default value.
 
-For example a Tempo charm may instantiate the `TracingEndpointConsumer` in its constructor as
+For example a Tempo charm may instantiate the `TracingEndpointRequirer` in its constructor as
 follows
 
-    from charms.tempo_k8s.v0.tempo_scrape import TracingEndpointConsumer
+    from charms.tempo_k8s.v0.tracing import TracingEndpointRequirer
 
     def __init__(self, *args):
         super().__init__(*args)
         # ...
-        self.tracing_consumer = TracingEndpointConsumer(self)
+        self.tracing = TracingEndpointRequirer(self)
         # ...
 
-2. A Tempo charm also needs to respond to the `TargetsChangedEvent` event of the
-`TracingEndpointConsumer` by adding itself as an observer for these events, as in
 
-    self.framework.observe(
-        self.tracing_consumer.on.targets_changed,
-        self._on_scrape_targets_changed,
-    )
-
-In responding to the `TargetsChangedEvent` event the Tempo charm must update the Tempo
-configuration so that any new scrape targets are added and/or old ones removed from the list of
-scraped endpoints. For this purpose the `TracingEndpointConsumer` object exposes a `jobs()`
-method that returns a list of scrape jobs. Each element of this list is the Tempo scrape
-configuration for that job. In order to update the Tempo configuration, the Tempo charm needs to
-replace the current list of jobs with the list provided by `jobs()` as follows
-
-    def _on_scrape_targets_changed(self, event):
-        ...
-        scrape_jobs = self.tracing_consumer.jobs()
-        for job in scrape_jobs:
-            tempo_scrape_config.append(job)
-        ...
-
-## Relation Data
-
-Units of profiles provider charms advertise their names and addresses over unit relation data using
-the `tempo_scrape_unit_name` and `tempo_scrape_unit_address` keys. While the `scrape_metadata`,
-`scrape_jobs` and `alert_rules` keys in application relation data of profiles provider charms hold
-eponymous information.
 
 """  # noqa: W505
 import json
 import logging
 from itertools import starmap
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, cast, Tuple
 
 from ops.charm import CharmBase, CharmEvents, RelationEvent, RelationRole
-from ops.framework import EventSource, Object, ObjectEvents
-from ops.model import ModelError, Relation
+from ops.framework import EventSource, Object
+from ops.model import Application, ModelError, Relation
 from pydantic import AnyHttpUrl, BaseModel, Json
 
 # The unique Charmhub library identifier, never change it
-LIBID = "79954052707a491b98ca695971c227fe"
+LIBID = "12977e9aa0b34367903d8afeb8c3d85d"
 
 # Increment this major API version when introducing breaking changes
 LIBAPI = 0
 
 # Increment this PATCH version before using `charmcraft publish-lib` or reset
 # to 0 if you are raising the major API version
-LIBPATCH = 3
+LIBPATCH = 1
 
 PYDEPS = ["pydantic<2.0"]
 
 logger = logging.getLogger(__name__)
 
-ALLOWED_KEYS = {"job_name", "static_configs", "scrape_interval", "scrape_timeout"}
-DEFAULT_JOB = {"static_configs": [{"targets": ["*:80"]}]}
 DEFAULT_RELATION_NAME = "tracing"
 RELATION_INTERFACE_NAME = "tracing"
 
 IngesterType = Literal["otlp_grpc", "otlp_http", "zipkin", "tempo"]
 
 
-class Ingester(BaseModel):
+# todo use models from charm-relation-interfaces
+class Ingester(BaseModel):  # noqa: D101
     port: str
     type: IngesterType
 
 
-class TracingRequirerData(BaseModel):
+class TracingRequirerData(BaseModel):  # noqa: D101
     hostname: AnyHttpUrl
     ingesters: Json[List[Ingester]]
 
@@ -304,7 +196,7 @@ def _validate_relation_by_interface_and_direction(
     expected_relation_interface: str,
     expected_relation_role: RelationRole,
 ):
-    """Verifies that a relation has the necessary characteristics.
+    """Validate a relation.
 
     Verifies that the `relation_name` provided: (1) exists in metadata.yaml,
     (2) declares as interface the interface name passed as `relation_interface`
@@ -334,7 +226,9 @@ def _validate_relation_by_interface_and_direction(
 
     relation = charm.meta.relations[relation_name]
 
-    actual_relation_interface = relation.interface_name
+    # fixme: why do we need to cast here?
+    actual_relation_interface = cast(str, relation.interface_name)
+
     if actual_relation_interface != expected_relation_interface:
         raise RelationInterfaceMismatchError(
             relation_name, expected_relation_interface, actual_relation_interface
@@ -354,22 +248,8 @@ def _validate_relation_by_interface_and_direction(
         raise TypeError("Unexpected RelationDirection: {}".format(expected_relation_role))
 
 
-class TargetsChangedEvent(_AutoSnapshotEvent):
-    """Event emitted when Tempo scrape targets change."""
-
-    __args__ = ("relation_id",)
-
-
-class MonitoringEvents(ObjectEvents):
-    """Event descriptor for events raised by `TracingEndpointConsumer`."""
-
-    targets_changed = EventSource(TargetsChangedEvent)
-
-
 class TracingEndpointRequirer(Object):
-    """A Tempo based monitoring service."""
-
-    on = MonitoringEvents()
+    """Class representing a trace ingester service."""
 
     def __init__(
         self,
@@ -378,7 +258,7 @@ class TracingEndpointRequirer(Object):
         ingesters: List[Ingester],
         relation_name: str = DEFAULT_RELATION_NAME,
     ):
-        """A Tempo based Monitoring service.
+        """Initialize.
 
         Args:
             charm: a `CharmBase` instance that manages this instance of the Tempo service.
@@ -389,7 +269,7 @@ class TracingEndpointRequirer(Object):
             RelationNotFoundError: If there is no relation in the charm's metadata.yaml
                 with the same name as provided via `relation_name` argument.
             RelationInterfaceMismatchError: The relation with the same name as provided
-                via `relation_name` argument does not have the `tempo_scrape` relation
+                via `relation_name` argument does not have the `tracing` relation
                 interface.
             RelationRoleMismatchError: If the relation with the same name as provided
                 via `relation_name` argument does not have the `RelationRole.requires`
@@ -405,16 +285,25 @@ class TracingEndpointRequirer(Object):
         self._ingesters = ingesters
         self._relation_name = relation_name
         events = self._charm.on[relation_name]
-        self.framework.observe(events.relation_created, self.update_relation_data)
-        self.framework.observe(events.relation_joined, self.update_relation_data)
+        self.framework.observe(events.relation_created, self._on_relation_event)
+        self.framework.observe(events.relation_joined, self._on_relation_event)
 
-    def update_relation_data(self, _):
+    def _marshal(self) -> Dict[Any, Any]:
+        """Marshal data that should be transmitted over relation data."""
+        data = {
+            "hostname": self._hostname,
+            "ingesters": json.dumps([ing.dict() for ing in self._ingesters]),
+        }
+        return data
+
+    def _on_relation_event(self, _):
+        # Generic relation event handler.
+
         try:
             if self._charm.unit.is_leader():
                 for relation in self._charm.model.relations[self._relation_name]:
                     app_databag = relation.data[self._charm.app]
-                    app_databag["hostname"] = self._hostname
-                    app_databag["ingesters"] = json.dumps([ing.dict() for ing in self._ingesters])
+                    app_databag.update(self._marshal())
 
         except ModelError as e:
             # args are bytes
@@ -429,6 +318,8 @@ class TracingEndpointRequirer(Object):
 
 
 class EndpointChangedEvent(_AutoSnapshotEvent):
+    """Event representing a change in one of the ingester endpoints."""
+
     __args__ = ("hostname", "ingesters")
 
     if TYPE_CHECKING:
@@ -437,13 +328,15 @@ class EndpointChangedEvent(_AutoSnapshotEvent):
 
 
 class TracingEndpointEvents(CharmEvents):
+    """TracingEndpointProvider events."""
+
     endpoint_changed = EventSource(EndpointChangedEvent)
 
 
 class TracingEndpointProvider(Object):
     """A tracing endpoint for Tempo."""
 
-    on = TracingEndpointEvents()
+    on = TracingEndpointEvents()  # type: ignore
 
     def __init__(
         self,
@@ -455,28 +348,10 @@ class TracingEndpointProvider(Object):
         If your charm exposes a Tempo tracing endpoint, the `TracingEndpointProvider` object
         enables your charm to easily communicate how to reach that endpoint.
 
-        By default, a charm instantiating this object has the tracing endpoints of each of its
-        units scraped by the related Tempo charms.
-
-        The scraped profiles are automatically tagged by the Tempo charms with Juju topology data
-        via the `juju_model_name`, `juju_model_uuid`, `juju_application_name` and `juju_unit`
-        labels. To support such tagging `TracingEndpointProvider` automatically forwards scrape
-        metadata to a `TracingEndpointConsumer` (Tempo charm).
-
-        Scrape targets provided by `TracingEndpointProvider` can be customized when instantiating
-        this object. For example in the case of a charm exposing the tracing endpoint for each of
-        its units on port 8080, the `TracingEndpointProvider` can be
-        instantiated as follows:
-
-            self.tracing_endpoint_provider = TracingEndpointProvider(
-                self, jobs=[{"static_configs": [{"targets": ["*:8080"]}]}]
-            )
-
-        The notation `*:<port>` means "scrape each unit of this charm on port `<port>`.
 
         Args:
             charm: a `CharmBase` object that manages this
-                `TracingEndpointProvider` object. Typically this is `self` in the instantiating
+                `TracingEndpointProvider` object. Typically, this is `self` in the instantiating
                 class.
             relation_name: an optional string name of the relation between `charm`
                 and the Tempo charmed service. The default is "tracing". It is strongly
@@ -487,7 +362,7 @@ class TracingEndpointProvider(Object):
             RelationNotFoundError: If there is no relation in the charm's metadata.yaml
                 with the same name as provided via `relation_name` argument.
             RelationInterfaceMismatchError: The relation with the same name as provided
-                via `relation_name` argument does not have the `tempo_scrape` relation
+                via `relation_name` argument does not have the `tracing` relation
                 interface.
             RelationRoleMismatchError: If the relation with the same name as provided
                 via `relation_name` argument does not have the `RelationRole.provides`
@@ -504,35 +379,73 @@ class TracingEndpointProvider(Object):
         events = self._charm.on[self._relation_name]
         self.framework.observe(events.relation_changed, self._on_tracing_relation_changed)
 
+    def _is_ready(self, relation: Optional[Relation]):
+        if not relation:
+            logger.error("no relation")
+            return False
+        if not relation.app:
+            logger.error(f"{relation} event received but there is no relation.app")
+            return False
+        return True
+
     def _on_tracing_relation_changed(self, event):
         """Notify the providers that there is new endpoint information available."""
-        data = self._deserialize_from_relation(event.relation)
-        if data:
-            self.on.endpoint_changed.emit(event.relation, data.hostname, data.ingesters)
+        if not self._is_ready(event.relation):
+            return
 
-    def _deserialize_from_relation(self, relation: Relation) -> Optional[TracingRequirerData]:
+        data = self._unmarshal(event.relation)
+        if data:
+            self.on.endpoint_changed.emit(event.relation, data.hostname, data.ingesters)  # type: ignore
+
+    def _unmarshal(self, relation: Relation) -> Optional[TracingRequirerData]:
+        """Unmarshal relation data."""
         try:
-            app_databag = relation.data[relation.app]
-            data = app_databag.get("hostname")
-            ingesters = list(starmap(Ingester, json.loads(app_databag.get("ingesters"))))
-            return TracingRequirerData(hostname=data, ingesters=ingesters)
+            app = cast(Application, relation.app)  # assume caller did their duty
+            app_databag = relation.data[app]
+            hostname = app_databag["hostname"]
+            ingesters = list(starmap(Ingester, json.loads(app_databag["ingesters"])))
+            return TracingRequirerData(hostname=cast(AnyHttpUrl, hostname), ingesters=ingesters)
         except Exception as e:
             logger.error(e, exc_info=True)
             return None
 
     @property
-    def endpoint(self) -> Optional[TracingRequirerData]:
+    def endpoints(self) -> Optional[TracingRequirerData]:
+        """Unmarshalled relation data."""
+        relation = self._charm.model.get_relation(self._relation_name)
+        if not self._is_ready(relation):
+            return
+        return self._unmarshal(cast(Relation, relation))
+
+    def _get_ingester(self, ingester_type: IngesterType):
+        ep = self.endpoints
+        if not ep:
+            return None
         try:
-            relation = self._charm.model.get_relation(self._relation_name)
-            return self._deserialize_from_relation(relation)
-        except Exception as e:
-            logger.error(f"Unable to fetch tempo endpoint from relation data: {e}")
+            otlp_grpc_ingester_port = next(
+                filter(lambda i: i.type == ingester_type, ep.ingesters)
+            ).port
+            return f"http://{ep.hostname}:{otlp_grpc_ingester_port}"
+        except StopIteration:
+            logger.error(f"no ingester found with type {ingester_type}")
             return None
 
     @property
     def otlp_grpc_endpoint(self) -> Optional[str]:
-        ep = self.endpoint
-        if not ep:
-            return None
-        otlp_grpc_ingester_port = next(filter(lambda i: i.type == "otlp_grpc", ep.ingesters)).port
-        return f"http://{ep.hostname}:{otlp_grpc_ingester_port}"
+        """Ingester endpoint for the ``otlp_grpc`` protocol."""
+        return self._get_ingester("otlp_grpc")
+
+    @property
+    def otlp_http_endpoint(self) -> Optional[str]:
+        """Ingester endpoint for the ``otlp_http`` protocol."""
+        return self._get_ingester("otlp_http")
+
+    @property
+    def zipkin_endpoint(self) -> Optional[str]:
+        """Ingester endpoint for the ``zipkin`` protocol."""
+        return self._get_ingester("zipkin")
+
+    @property
+    def tempo_endpoint(self) -> Optional[str]:
+        """Ingester endpoint for the ``tempo`` protocol."""
+        return self._get_ingester("tempo")

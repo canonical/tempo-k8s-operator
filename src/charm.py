@@ -8,21 +8,22 @@ import logging
 import re
 from typing import Optional
 
+from charms.loki_k8s.v0.loki_push_api import LogProxyConsumer
+from charms.observability_libs.v0.kubernetes_service_patch import KubernetesServicePatch
+from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
+from charms.tempo_k8s.v0.charm_instrumentation import trace_charm
+from charms.tempo_k8s.v0.tracing import TracingEndpointRequirer
+from charms.traefik_k8s.v1.ingress import IngressPerAppRequirer
 from ops.charm import CharmBase, WorkloadEvent
 from ops.framework import StoredState
 from ops.main import main
 from ops.model import ActiveStatus
-from ops.pebble import Layer
-
-from charms.loki_k8s.v0.loki_push_api import LogProxyConsumer
-from charms.observability_libs.v0.kubernetes_service_patch import KubernetesServicePatch
-from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
-from charms.tempo_k8s.v0.tempo_scrape import TracingEndpointRequirer
 from tempo import Tempo
 
 logger = logging.getLogger(__name__)
 
 
+@trace_charm(tempo_endpoint="_tempo_otlp_grpc_endpoint", service_name="TempoCharm")
 class TempoCharm(CharmBase):
     """Charmed Operator for Tempo; a distributed tracing backend."""
 
@@ -31,14 +32,15 @@ class TempoCharm(CharmBase):
     def __init__(self, *args):
         super().__init__(*args)
         self._stored.set_default(initial_admin_password="")
-        self.framework.observe(self.on.tempo_pebble_ready, self._on_tempo_pebble_ready)
+        tempo_pebble_ready_event = self.on.tempo_pebble_ready  # type:ignore
+        self.framework.observe(tempo_pebble_ready_event, self._on_tempo_pebble_ready)
         self.framework.observe(self.on.update_status, self._on_update_status)
         self.tempo = tempo = Tempo()
 
         # # Patch the juju-created Kubernetes service to contain the right ports
-        # ports source: https://github.com/grafana/tempo/blob/main/example/docker-compose/local/docker-compose.yaml
         self._service_patcher = KubernetesServicePatch(
-            self, tempo.get_requested_ports(self.app.name))
+            self, tempo.get_requested_ports(self.app.name)
+        )
 
         # Provide ability for Tempo to be scraped by Prometheus using prometheus_scrape
         self._scraping = MetricsEndpointProvider(
@@ -48,8 +50,9 @@ class TempoCharm(CharmBase):
         )
 
         # Enable log forwarding for Loki and other charms that implement loki_push_api
-        self._logging = LogProxyConsumer(self, relation_name="logging",
-                                         log_files=[self.tempo.log_path])
+        self._logging = LogProxyConsumer(
+            self, relation_name="logging", log_files=[self.tempo.log_path]
+        )
 
         # Provide grafana dashboards over a relation interface
         # self._grafana_dashboards = GrafanaDashboardProvider(
@@ -64,7 +67,7 @@ class TempoCharm(CharmBase):
         self._tracing = TracingEndpointRequirer(
             self, hostname=tempo.host, ingesters=tempo.ingesters
         )
-        # self._ingress = IngressPerAppRequirer(self, port=4080)
+        self._ingress = IngressPerAppRequirer(self, port=self.tempo.tempo_port)
 
     def _on_tempo_pebble_ready(self, event: WorkloadEvent):
         container = event.workload
@@ -101,9 +104,11 @@ class TempoCharm(CharmBase):
         return ""
 
     def _get_version(self) -> Optional[str]:
-        """Helper for fetching the version from the running workload using the Tempo CLI."""
+        """Fetch the version from the running workload using the Tempo CLI.
 
-        container = self.unit.get_container('tempo')
+        Helper function.
+        """
+        container = self.unit.get_container("tempo")
         proc = container.exec(["/tempo", "-version"])
         out, err = proc.wait_output()
 
@@ -121,10 +126,19 @@ class TempoCharm(CharmBase):
         elif version_headless := re.search(r"tempo, version (\S+)", out):
             version = version_headless.groups()[0]
         else:
-            logger.warning(f'unable to determine tempo workload version: output {out} '
-                           f'does not match any known pattern')
+            logger.warning(
+                f"unable to determine tempo workload version: output {out} "
+                f"does not match any known pattern"
+            )
             return
         return version
+
+    @property
+    def _tempo_otlp_grpc_endpoint(self) -> Optional[str]:
+        """Endpoint at which the charm tracing information will be forwarded."""
+        # the charm container and the tempo workload container have apparently the same IP, so we can
+        # talk to tempo by using localhost.
+        return f"http://localhost:{self.tempo.otlp_grpc_port}/"
 
 
 if __name__ == "__main__":  # pragma: nocover
