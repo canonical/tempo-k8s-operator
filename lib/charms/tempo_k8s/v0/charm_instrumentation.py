@@ -41,8 +41,8 @@ import opentelemetry
 
 By default, the tracer is named after the charm type. If you wish to override that, you can pass
 a different `service_name` argument to `trace_charm`.
-
 """
+
 import functools
 import inspect
 import logging
@@ -69,14 +69,14 @@ from ops.charm import CharmBase
 from ops.framework import Framework
 
 # The unique Charmhub library identifier, never change it
-LIBID = "0a8cf1b7b95d4cfcb90055f2d84897b3"  # TODO: register new uuid; this is FAKE
+LIBID = "0a8cf1b7b95d4cfcb90055f2d84897b3"
 
 # Increment this major API version when introducing breaking changes
 LIBAPI = 0
 
 # Increment this PATCH version before using `charmcraft publish-lib` or reset
 # to 0 if you are raising the major API version
-LIBPATCH = 2
+LIBPATCH = 4
 
 PYDEPS = ["opentelemetry-exporter-otlp-proto-grpc==1.17.0"]
 
@@ -147,7 +147,7 @@ class UntraceableObjectError(TracingError):
 
 
 def _setup_root_span_initializer(
-    charm: Type[CharmBase], tempo_endpoint: str, service_name: Optional[str] = None
+        charm: Type[CharmBase], tempo_endpoint: str, service_name: Optional[str] = None
 ):
     """Patch the charm's initializer."""
     original_init = charm.__init__
