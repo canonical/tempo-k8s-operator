@@ -8,6 +8,10 @@ import logging
 import re
 from typing import Optional
 
+from charms.loki_k8s.v0.loki_push_api import LogProxyConsumer
+from charms.observability_libs.v0.kubernetes_service_patch import KubernetesServicePatch
+from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
+from charms.tempo_k8s.v0.tempo_scrape import TracingEndpointRequirer
 from ops.charm import CharmBase, WorkloadEvent
 from ops.framework import StoredState
 from ops.main import main
@@ -53,8 +57,9 @@ class TempoCharm(CharmBase):
         )
 
         # Enable log forwarding for Loki and other charms that implement loki_push_api
-        self._logging = LogProxyConsumer(self, relation_name="logging",
-                                         log_files=[self.tempo.log_path])
+        self._logging = LogProxyConsumer(
+            self, relation_name="logging", log_files=[self.tempo.log_path]
+        )
 
         # Provide grafana dashboards over a relation interface
         # self._grafana_dashboards = GrafanaDashboardProvider(
