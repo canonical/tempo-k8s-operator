@@ -1,13 +1,21 @@
+#!/usr/bin/env python3
+# Copyright 2022 Canonical Ltd.
+# See LICENSE file for licensing details.
+
+"""Tempo workload configuration and client."""
+
 import socket
 from subprocess import CalledProcessError, getoutput
+from typing import List
 
 import yaml
-from charms.tempo_k8s.v0.tempo_scrape import Ingester
-from ops import Object
+from charms.tempo_k8s.v0.tracing import Ingester
 from ops.pebble import Layer
 
 
 class Tempo:
+    """Class representing the Tempo client workload configuration."""
+
     config_path = "/etc/tempo.yaml"
     wal_path = "/etc/tempo_wal"
     log_path = "/var/log/tempo.log"
@@ -15,6 +23,7 @@ class Tempo:
     def __init__(self, port: int = 3200, local_host: str = "0.0.0.0"):
         self.tempo_port = port
 
+        # ports source: https://github.com/grafana/tempo/blob/main/example/docker-compose/local/docker-compose.yaml
         # todo make configurable?
         self.otlp_grpc_port = 4317
         self.otlp_http_port = 4318
@@ -30,6 +39,7 @@ class Tempo:
         )
 
     def get_requested_ports(self, service_name_prefix: str):
+        """List of service names and port mappings for the kubernetes service patch."""
         # todo allow remapping ports?
         return [
             (service_name_prefix + ingester_type, ingester_port, ingester_port)
@@ -38,13 +48,16 @@ class Tempo:
 
     @property
     def host(self) -> str:
+        """Hostname at which tempo is running."""
         return socket.getfqdn()
 
     @property
-    def ingesters(self):
-        return [Ingester(type=_type, port=port) for _type, port in self._supported_ingesters]
+    def ingesters(self) -> List[Ingester]:
+        """All ingesters supported by this Tempo client."""
+        return [Ingester(type=_type, port=str(port)) for _type, port in self._supported_ingesters]
 
-    def get_config(self):
+    def get_config(self) -> str:
+        """Generate the Tempo configuration."""
         return yaml.safe_dump(
             {
                 "auth_enabled": False,
@@ -112,6 +125,7 @@ class Tempo:
 
     @property
     def pebble_layer(self) -> Layer:
+        """Generate the pebble layer for the Tempo container."""
         return Layer(
             {
                 "services": {
@@ -129,6 +143,7 @@ class Tempo:
 
     def is_ready(self):
         """Whether the tempo built-in readiness check reports 'ready'."""
+        # Fixme: sometimes it takes a few attempts for it to report ready.
         try:
             out = getoutput(f"curl http://{self._local_hostname}:{self.tempo_port}/ready").split(
                 "\n"

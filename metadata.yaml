@@ -35,6 +35,9 @@ requires:
     interface: loki_push_api
   tracing:
     interface: tracing
+  ingress:
+    interface: ingress
+    limit: 1
 
 storage:
   data:
