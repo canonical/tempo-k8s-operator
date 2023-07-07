@@ -12,9 +12,14 @@ class Tempo:
     wal_path = "/etc/tempo_wal"
     log_path = "/var/log/tempo.log"
 
-    def __init__(self, port: int = 3200, local_host: str = "0.0.0.0"):
+    def __init__(self, port: int = 3200,
+                 grpc_listen_port: int = 9096, local_host: str = "0.0.0.0"):
         self.tempo_port = port
 
+        # default grpc listen port is 9095, but that conflicts with promtail.
+        self.grpc_listen_port = grpc_listen_port
+
+        # ports source: https://github.com/grafana/tempo/blob/main/example/docker-compose/local/docker-compose.yaml
         # todo make configurable?
         self.otlp_grpc_port = 4317
         self.otlp_http_port = 4318
@@ -49,7 +54,10 @@ class Tempo:
             {
                 "auth_enabled": False,
                 "search_enabled": True,
-                "server": {"http_listen_port": self.tempo_port},
+                "server": {
+                    "http_listen_port": self.tempo_port,
+                    "grpc_listen_port": self.grpc_listen_port,
+                },
                 # this configuration will listen on all ports and protocols that tempo is capable of.
                 # the receives all come from the OpenTelemetry collector.  more configuration information can
                 # be found there: https://github.com/open-telemetry/opentelemetry-collector/tree/overlord/receiver
