@@ -23,7 +23,7 @@ from tempo import Tempo
 logger = logging.getLogger(__name__)
 
 
-@trace_charm(tempo_endpoint="_tempo_otlp_grpc_endpoint", service_name="TempoCharm")
+@trace_charm(tempo_endpoint="_tempo_otlp_grpc_endpoint")
 class TempoCharm(CharmBase):
     """Charmed Operator for Tempo; a distributed tracing backend."""
 
