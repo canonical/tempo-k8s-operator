@@ -8,16 +8,17 @@ import logging
 import re
 from typing import Optional
 
-from charms.loki_k8s.v0.loki_push_api import LogProxyConsumer
-from charms.observability_libs.v0.kubernetes_service_patch import KubernetesServicePatch
-from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
-from charms.tempo_k8s.v0.tempo_scrape import TracingEndpointRequirer
 from ops.charm import CharmBase, WorkloadEvent
 from ops.framework import StoredState
 from ops.main import main
 from ops.model import ActiveStatus
-from ops.pebble import Layer
 
+from charms.grafana_k8s.v0.grafana_source import GrafanaSourceProvider
+from charms.loki_k8s.v0.loki_push_api import LogProxyConsumer
+from charms.observability_libs.v0.kubernetes_service_patch import KubernetesServicePatch
+from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
+from charms.tempo_k8s.v0.tempo_scrape import TracingEndpointRequirer
+from charms.traefik_k8s.v1.ingress import IngressPerAppRequirer
 from tempo import Tempo
 
 logger = logging.getLogger(__name__)
@@ -35,12 +36,16 @@ class TempoCharm(CharmBase):
         self.framework.observe(self.on.update_status, self._on_update_status)
         self.tempo = tempo = Tempo()
 
+        # configure this tempo as a datasource in grafana
+        self.grafana_source_provider = GrafanaSourceProvider(
+            self, source_type="tempo", source_port=tempo.tempo_port
+        )
+
         # # Patch the juju-created Kubernetes service to contain the right ports
         # ports source: https://github.com/grafana/tempo/blob/main/example/docker-compose/local/docker-compose.yaml
         self._service_patcher = KubernetesServicePatch(
             self, tempo.get_requested_ports(self.app.name)
         )
-
         # Provide ability for Tempo to be scraped by Prometheus using prometheus_scrape
         self._scraping = MetricsEndpointProvider(
             self,
@@ -66,7 +71,7 @@ class TempoCharm(CharmBase):
         self._tracing = TracingEndpointRequirer(
             self, hostname=tempo.host, ingesters=tempo.ingesters
         )
-        # self._ingress = IngressPerAppRequirer(self, port=4080)
+        self._ingress = IngressPerAppRequirer(self, port=4080)
 
     def _on_tempo_pebble_ready(self, event: WorkloadEvent):
         container = event.workload
