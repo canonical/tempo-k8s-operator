@@ -2,15 +2,16 @@ import os
 from unittest.mock import patch
 
 import pytest
+from charms.tempo_k8s.v0.charm_instrumentation import (
+    CHARM_TRACING_ENABLED,
+    get_current_span,
+    trace,
+    trace_charm,
+)
 from ops import EventBase, EventSource, Framework
 from ops.charm import CharmBase, CharmEvents
 from scenario import Context, State
 
-from charms.tempo_k8s.v0.charm_instrumentation import (
-    get_current_span,
-    trace,
-    trace_charm, CHARM_TRACING_ENABLED,
-)
 
 @pytest.fixture(autouse=True)
 def cleanup():
