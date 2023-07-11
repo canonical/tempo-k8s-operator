@@ -4,7 +4,7 @@ This repository contains the source code for a Charmed Operator that drives [Tem
 
 ## Usage
 
-Assuming you have access to a bootstrapped Juju controller on Kubernetes, you can simply:
+Assuming you have access to a bootstrapped Juju controller on Kubernetes, you can:
 
 ```bash
 $ juju deploy tempo-k8s # --trust (use when cluster has RBAC enabled)
