@@ -1,6 +1,12 @@
 # Copyright 2022 Canonical Ltd.
 # See LICENSE file for licensing details.
 
+[build]
+build-base = "/tmp/build"
+
+[egg_info]
+egg-base = "/tmp"
+
 # Testing tools configuration
 [tool.coverage.run]
 branch = true
