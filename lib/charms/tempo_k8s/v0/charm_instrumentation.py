@@ -183,7 +183,11 @@ def _setup_root_span_initializer(
         )
         provider = TracerProvider(resource=resource)
 
-        tempo_endpoint = tempo_endpoint_getter(self)
+        if isinstance(tempo_endpoint_getter, property):
+            tempo_endpoint = tempo_endpoint_getter.__get__(self)
+        else:  # method or callable
+            tempo_endpoint = tempo_endpoint_getter(self)
+
         if tempo_endpoint is None:
             logger.warning(
                 f"{charm}.{tempo_endpoint_getter} returned None; continuing with tracing DISABLED."
