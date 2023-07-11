@@ -13,6 +13,8 @@ from charms.tempo_k8s.v0.charm_instrumentation import (
     autoinstrument_charm,
 )
 
+os.environ[CHARM_TRACING_ENABLED] = "1"
+
 
 @pytest.fixture(autouse=True)
 def cleanup():
@@ -47,9 +49,11 @@ def test_base_tracer_endpoint(caplog):
         ctx = Context(MyCharmSimple, meta=MyCharmSimple.META)
         ctx.run("start", State())
         assert "Setting up span exporter to endpoint: foo.bar:80" in caplog.text
+        assert "Starting root trace with id=" in caplog.text
         span = f.call_args_list[0].args[0][0]
         assert span.resource.attributes["service.name"] == "frank"
         assert span.resource.attributes["compose_service"] == "frank"
+        assert span.resource.attributes["charm_type"] == "MyCharmSimple"
 
 
 class MyCharmInitAttr(CharmBase):
@@ -78,6 +82,7 @@ def test_init_attr(caplog):
         span = f.call_args_list[0].args[0][0]
         assert span.resource.attributes["service.name"] == "frank"
         assert span.resource.attributes["compose_service"] == "frank"
+        assert span.resource.attributes["charm_type"] == "MyCharmInitAttr"
 
 
 class MyCharmSimpleDisabled(CharmBase):
@@ -158,7 +163,6 @@ def test_base_tracer_endpoint_event(caplog):
 
         for span in spans:
             assert span.resource.attributes["service.name"] == "frank"
-
 
 def test_juju_topology_injection(caplog):
     import opentelemetry
