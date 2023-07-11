@@ -11,7 +11,7 @@ from typing import Optional
 from charms.loki_k8s.v0.loki_push_api import LogProxyConsumer
 from charms.observability_libs.v0.kubernetes_service_patch import KubernetesServicePatch
 from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
-from charms.tempo_k8s.v0.charm_instrumentation import autoinstrument_charm
+from charms.tempo_k8s.v0.charm_instrumentation import autoinstrument
 from charms.tempo_k8s.v0.tracing import TracingEndpointRequirer
 from charms.traefik_k8s.v1.ingress import IngressPerAppRequirer
 from ops.charm import CharmBase, WorkloadEvent
@@ -141,8 +141,10 @@ class TempoCharm(CharmBase):
 
 
 if __name__ == "__main__":  # pragma: nocover
-    autoinstrument_charm(
+    autoinstrument(
         TempoCharm,
         tempo_endpoint_getter=TempoCharm.tempo_otlp_grpc_endpoint,
-        service_name="TempoCharm")
+        service_name="TempoCharm",
+        extra_types=(Tempo, TracingEndpointRequirer)
+    )
     main(TempoCharm)

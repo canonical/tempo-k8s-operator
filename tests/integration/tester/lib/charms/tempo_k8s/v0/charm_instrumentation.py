@@ -115,7 +115,7 @@ class TracingError(RuntimeError):
 
 
 class UntraceableObject(TracingError):
-    """Raised when an object you're attempting to instrument cannot be autoinstrumented."""
+    """Raised when an object you're attempting to instrument cannot be ed."""
 
 
 def _setup_root_span_initializer(

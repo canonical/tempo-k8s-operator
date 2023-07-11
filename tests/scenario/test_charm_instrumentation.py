@@ -10,7 +10,7 @@ from charms.tempo_k8s.v0.charm_instrumentation import (
     CHARM_TRACING_ENABLED,
     get_current_span,
     trace,
-    autoinstrument_charm,
+    autoinstrument,
 )
 
 os.environ[CHARM_TRACING_ENABLED] = "1"
@@ -38,7 +38,7 @@ class MyCharmSimple(CharmBase):
         return "foo.bar:80"
 
 
-autoinstrument_charm(MyCharmSimple, MyCharmSimple.tempo)
+autoinstrument(MyCharmSimple, MyCharmSimple.tempo)
 
 
 def test_base_tracer_endpoint(caplog):
@@ -56,6 +56,43 @@ def test_base_tracer_endpoint(caplog):
         assert span.resource.attributes["charm_type"] == "MyCharmSimple"
 
 
+class SubObject:
+    def foo(self):
+        return "bar"
+
+
+class MyCharmSubObject(CharmBase):
+    META = {"name": "frank"}
+
+    def __init__(self, framework: Framework):
+        super().__init__(framework)
+        self.subobj = SubObject()
+        framework.observe(self.on.start, self._on_start)
+
+    def _on_start(self, _):
+        self.subobj.foo()
+    @property
+    def tempo(self):
+        return "foo.bar:80"
+
+
+autoinstrument(
+    MyCharmSubObject,
+    MyCharmSubObject.tempo,
+    extra_types=[SubObject])
+
+
+def test_subobj_tracer_endpoint(caplog):
+    import opentelemetry
+
+    with patch("opentelemetry.exporter.otlp.proto.grpc.exporter.OTLPExporterMixin._export") as f:
+        f.return_value = opentelemetry.sdk.metrics._internal.export.MetricExportResult.SUCCESS
+        ctx = Context(MyCharmSubObject, meta=MyCharmSubObject.META)
+        ctx.run("start", State())
+        spans = f.call_args_list[0].args[0]
+        assert spans[0].name == "method call: SubObject.foo"
+
+
 class MyCharmInitAttr(CharmBase):
     META = {"name": "frank"}
 
@@ -68,7 +105,7 @@ class MyCharmInitAttr(CharmBase):
         return self._tempo
 
 
-autoinstrument_charm(MyCharmInitAttr, MyCharmInitAttr.tempo)
+autoinstrument(MyCharmInitAttr, MyCharmInitAttr.tempo)
 
 
 def test_init_attr(caplog):
@@ -93,7 +130,7 @@ class MyCharmSimpleDisabled(CharmBase):
         return None
 
 
-autoinstrument_charm(MyCharmSimpleDisabled, MyCharmSimpleDisabled.tempo)
+autoinstrument(MyCharmSimpleDisabled, MyCharmSimpleDisabled.tempo)
 
 
 def test_base_tracer_endpoint_disabled(caplog):
@@ -138,7 +175,7 @@ class MyCharmSimpleEvent(CharmBase):
         return "foo.bar:80"
 
 
-autoinstrument_charm(MyCharmSimpleEvent, MyCharmSimpleEvent.tempo)
+autoinstrument(MyCharmSimpleEvent, MyCharmSimpleEvent.tempo)
 
 
 def test_base_tracer_endpoint_event(caplog):
@@ -151,9 +188,9 @@ def test_base_tracer_endpoint_event(caplog):
 
         spans = f.call_args_list[0].args[0]
         span0, span1, span2, span3 = spans
-        assert span0.name == "method call: _my_fn"
+        assert span0.name == "function call: _my_fn"
 
-        assert span1.name == "method call: _on_start"
+        assert span1.name == "method call: MyCharmSimpleEvent._on_start"
 
         assert span2.name == "event: start"
         evt = span2.events[0]
@@ -163,6 +200,7 @@ def test_base_tracer_endpoint_event(caplog):
 
         for span in spans:
             assert span.resource.attributes["service.name"] == "frank"
+
 
 def test_juju_topology_injection(caplog):
     import opentelemetry
@@ -208,7 +246,7 @@ class MyCharmWithMethods(CharmBase):
         return "foo.bar:80"
 
 
-autoinstrument_charm(MyCharmWithMethods, MyCharmWithMethods.tempo)
+autoinstrument(MyCharmWithMethods, MyCharmWithMethods.tempo)
 
 
 def test_base_tracer_endpoint_methods(caplog):
@@ -222,10 +260,10 @@ def test_base_tracer_endpoint_methods(caplog):
         spans = f.call_args_list[0].args[0]
         span_names = [span.name for span in spans]
         assert span_names == [
-            "method call: a",
-            "method call: b",
-            "method call: c",
-            "method call: _on_start",
+            "method call: MyCharmWithMethods.a",
+            "method call: MyCharmWithMethods.b",
+            "method call: MyCharmWithMethods.c",
+            "method call: MyCharmWithMethods._on_start",
             "event: start",
             "charm exec",
         ]
@@ -260,7 +298,7 @@ class MyCharmWithCustomEvents(CharmBase):
         return "foo.bar:80"
 
 
-autoinstrument_charm(MyCharmWithCustomEvents, MyCharmWithCustomEvents.tempo)
+autoinstrument(MyCharmWithCustomEvents, MyCharmWithCustomEvents.tempo)
 
 
 def test_base_tracer_endpoint_custom_event(caplog):
@@ -274,9 +312,9 @@ def test_base_tracer_endpoint_custom_event(caplog):
         spans = f.call_args_list[0].args[0]
         span_names = [span.name for span in spans]
         assert span_names == [
-            "method call: _on_foo",
+            "method call: MyCharmWithCustomEvents._on_foo",
             "event: foo",
-            "method call: _on_start",
+            "method call: MyCharmWithCustomEvents._on_start",
             "event: start",
             "charm exec",
         ]
