@@ -39,6 +39,7 @@ requires:
     interface: tracing
   ingress:
     interface: ingress
+    limit: 1
 
 storage:
   data:
