@@ -216,7 +216,9 @@ def _setup_root_span_initializer(
         # we need to manually set the root span as current.
         span = _tracer.start_span("charm exec", attributes={"juju.dispatch_path": dispatch_path})
         ctx = set_span_in_context(span)
-        root_trace_id = span.get_span_context().trace_id
+
+        # log a trace id so we can look it up in tempo.
+        root_trace_id = hex(span.get_span_context().trace_id)[2:]  # strip 0x prefix
         logger.debug(f"Starting root trace with id={root_trace_id!r}.")
 
         span_token = opentelemetry.context.attach(ctx)  # type: ignore
@@ -258,11 +260,38 @@ def autoinstrument(
         ],
         service_name: Optional[str] = None,
         extra_types: Sequence[type] = ()
-):
+) -> Type[CharmBase]:
     """Set up tracing on this charm class.
 
     Use this function to get out-of-the-box traces for all events emitted on this charm and all
     method calls on instances of this class.
+
+    Returns the charm type itself, allowing this to be used like so:
+
+    >>> from charms.tempo_k8s.v0.charm_instrumentation import autoinstrument
+    >>> from ops.main import main
+    >>> charm = autoinstrument(
+    >>>         MyCharm,
+    >>>         tempo_endpoint_getter=MyCharm.tempo_otlp_grpc_endpoint,
+    >>>         service_name="MyCharm",
+    >>>         extra_types=(Foo, Bar)
+    >>> )
+    >>> main(charm)
+
+    This can be handy if you have a severe case of mutation allergy.
+    Otherwise, you can:
+
+    >>> from charms.tempo_k8s.v0.charm_instrumentation import autoinstrument
+    >>> from ops.main import main
+    >>> autoinstrument(
+    >>>         MyCharm,
+    >>>         tempo_endpoint_getter=MyCharm.tempo_otlp_grpc_endpoint,
+    >>>         service_name="MyCharm",
+    >>>         extra_types=(Foo, Bar)
+    >>> )
+    >>> main(MyCharm)
+
+    like a tolerant person.
 
     :arg charm_type: the CharmBase subclass to autoinstrument.
     :arg tempo_endpoint_getter: method or property on the charm type that returns an
@@ -279,6 +308,8 @@ def autoinstrument(
     trace_type(charm_type)
     for type_ in extra_types:
         trace_type(type_)
+
+    return charm_type
 
 
 def trace_type(cls: _T) -> _T:
