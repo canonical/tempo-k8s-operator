@@ -1,7 +1,9 @@
+import os
 from unittest.mock import patch
 
 import pytest
 from charms.tempo_k8s.v0.charm_instrumentation import (
+    CHARM_TRACING_ENABLED,
     get_current_span,
     trace,
     trace_charm,
@@ -9,6 +11,8 @@ from charms.tempo_k8s.v0.charm_instrumentation import (
 from ops import EventBase, EventSource, Framework
 from ops.charm import CharmBase, CharmEvents
 from scenario import Context, State
+
+os.environ[CHARM_TRACING_ENABLED] = "1"
 
 
 @pytest.fixture(autouse=True)
@@ -39,9 +43,11 @@ def test_base_tracer_endpoint(caplog):
         ctx = Context(MyCharmSimple, meta=MyCharmSimple.META)
         ctx.run("start", State())
         assert "Setting up span exporter to endpoint: foo.bar:80" in caplog.text
+        assert "Starting root trace with id=" in caplog.text
         span = f.call_args_list[0].args[0][0]
-        assert span.resource.attributes["service.name"] == "MyCharmSimple"
-        assert span.resource.attributes["compose_service"] == "MyCharmSimple"
+        assert span.resource.attributes["service.name"] == "frank"
+        assert span.resource.attributes["compose_service"] == "frank"
+        assert span.resource.attributes["charm_type"] == "MyCharmSimple"
 
 
 @trace_charm("tempo")
@@ -66,8 +72,9 @@ def test_init_attr(caplog):
         ctx.run("start", State())
         assert "Setting up span exporter to endpoint: foo.bar:80" in caplog.text
         span = f.call_args_list[0].args[0][0]
-        assert span.resource.attributes["service.name"] == "MyCharmInitAttr"
-        assert span.resource.attributes["compose_service"] == "MyCharmInitAttr"
+        assert span.resource.attributes["service.name"] == "frank"
+        assert span.resource.attributes["compose_service"] == "frank"
+        assert span.resource.attributes["charm_type"] == "MyCharmInitAttr"
 
 
 @trace_charm("tempo")
@@ -143,7 +150,7 @@ def test_base_tracer_endpoint_event(caplog):
         assert span3.name == "charm exec"
 
         for span in spans:
-            assert span.resource.attributes["service.name"] == "MyCharmSimpleEvent"
+            assert span.resource.attributes["service.name"] == "frank"
 
 
 @trace_charm("tempo")
