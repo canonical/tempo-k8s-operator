@@ -2,15 +2,16 @@ import os
 from unittest.mock import patch
 
 import pytest
+from ops import EventBase, EventSource, Framework
+from ops.charm import CharmBase, CharmEvents
+from scenario import Context, State
+
 from charms.tempo_k8s.v0.charm_instrumentation import (
     CHARM_TRACING_ENABLED,
     get_current_span,
     trace,
-    trace_charm,
+    autoinstrument_charm,
 )
-from ops import EventBase, EventSource, Framework
-from ops.charm import CharmBase, CharmEvents
-from scenario import Context, State
 
 
 @pytest.fixture(autouse=True)
@@ -27,13 +28,15 @@ def cleanup():
         yield
 
 
-@trace_charm("tempo")
 class MyCharmSimple(CharmBase):
     META = {"name": "frank"}
 
     @property
     def tempo(self):
         return "foo.bar:80"
+
+
+autoinstrument_charm(MyCharmSimple, MyCharmSimple.tempo)
 
 
 def test_base_tracer_endpoint(caplog):
@@ -49,7 +52,6 @@ def test_base_tracer_endpoint(caplog):
         assert span.resource.attributes["compose_service"] == "frank"
 
 
-@trace_charm("tempo")
 class MyCharmInitAttr(CharmBase):
     META = {"name": "frank"}
 
@@ -60,6 +62,9 @@ class MyCharmInitAttr(CharmBase):
     @property
     def tempo(self):
         return self._tempo
+
+
+autoinstrument_charm(MyCharmInitAttr, MyCharmInitAttr.tempo)
 
 
 def test_init_attr(caplog):
@@ -75,13 +80,15 @@ def test_init_attr(caplog):
         assert span.resource.attributes["compose_service"] == "frank"
 
 
-@trace_charm("tempo")
 class MyCharmSimpleDisabled(CharmBase):
     META = {"name": "frank"}
 
     @property
     def tempo(self):
         return None
+
+
+autoinstrument_charm(MyCharmSimpleDisabled, MyCharmSimpleDisabled.tempo)
 
 
 def test_base_tracer_endpoint_disabled(caplog):
@@ -101,7 +108,6 @@ def _my_fn(foo):
     return foo + 1
 
 
-@trace_charm("tempo")
 class MyCharmSimpleEvent(CharmBase):
     META = {"name": "frank"}
 
@@ -125,6 +131,9 @@ class MyCharmSimpleEvent(CharmBase):
     @property
     def tempo(self):
         return "foo.bar:80"
+
+
+autoinstrument_charm(MyCharmSimpleEvent, MyCharmSimpleEvent.tempo)
 
 
 def test_base_tracer_endpoint_event(caplog):
@@ -169,7 +178,6 @@ def test_juju_topology_injection(caplog):
             assert span.resource.attributes["juju_model_uuid"] == state.model.uuid
 
 
-@trace_charm("tempo")
 class MyCharmWithMethods(CharmBase):
     META = {"name": "frank"}
 
@@ -194,6 +202,9 @@ class MyCharmWithMethods(CharmBase):
     @property
     def tempo(self):
         return "foo.bar:80"
+
+
+autoinstrument_charm(MyCharmWithMethods, MyCharmWithMethods.tempo)
 
 
 def test_base_tracer_endpoint_methods(caplog):
@@ -224,7 +235,6 @@ class MyEvents(CharmEvents):
     foo = EventSource(Foo)
 
 
-@trace_charm("tempo")
 class MyCharmWithCustomEvents(CharmBase):
     on = MyEvents()
 
@@ -244,6 +254,9 @@ class MyCharmWithCustomEvents(CharmBase):
     @property
     def tempo(self):
         return "foo.bar:80"
+
+
+autoinstrument_charm(MyCharmWithCustomEvents, MyCharmWithCustomEvents.tempo)
 
 
 def test_base_tracer_endpoint_custom_event(caplog):

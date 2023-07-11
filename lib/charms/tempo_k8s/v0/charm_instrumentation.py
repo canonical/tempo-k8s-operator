@@ -12,15 +12,15 @@ in real time from the Grafana dashboard the execution flow of your charm.
 To start using this library, you need to do two things:
 1) decorate your charm class with
 
-`@trace_charm(tempo_endpoint="tempo_endpoint")`
+`@trace_charm(tempo_endpoint_getter="tempo_endpoint_getter")`
 
-2) add to your charm a "tempo_endpoint" (you can name this attribute whatever you like) property
+2) add to your charm a "tempo_endpoint_getter" (you can name this attribute whatever you like) property
 that returns a tempo otlp grpc endpoint. If you are using the `TracingEndpointProvider` as
 `self.tracing = TracingEndpointProvider(self)`, the implementation would be:
 
 ```
     @property
-    def tempo_endpoint(self) -> Optional[str]:
+    def tempo_endpoint_getter(self) -> Optional[str]:
         '''Tempo endpoint for charm tracing'''
         return self.tracing.otlp_grpc_endpoint
 ```
@@ -146,7 +146,9 @@ class UntraceableObjectError(TracingError):
 
 
 def _setup_root_span_initializer(
-    charm: Type[CharmBase], tempo_endpoint: str, service_name: Optional[str] = None
+        charm: Type[CharmBase],
+        tempo_endpoint_getter: Callable[[CharmBase], Optional[str]],
+        service_name: Optional[str] = None
 ):
     """Patch the charm's initializer."""
     original_init = charm.__init__
@@ -181,21 +183,20 @@ def _setup_root_span_initializer(
         )
         provider = TracerProvider(resource=resource)
 
-        tempo = getattr(self, tempo_endpoint)
-        if tempo is None:
+        tempo_endpoint = tempo_endpoint_getter(self)
+        if tempo_endpoint is None:
             logger.warning(
-                f"{charm}.{tempo_endpoint} returned {tempo}; " f"continuing with tracing DISABLED."
+                f"{charm}.{tempo_endpoint_getter} returned None; continuing with tracing DISABLED."
             )
             return
-
-        elif not isinstance(tempo, str):
+        elif not isinstance(tempo_endpoint, str):
             raise TypeError(
-                f"{charm}.{tempo_endpoint} should return a tempo endpoint (string); "
-                f"got {tempo} instead."
+                f"{charm}.{tempo_endpoint_getter} should return a tempo endpoint (string); "
+                f"got {tempo_endpoint} instead."
             )
         else:
-            logger.debug(f"Setting up span exporter to endpoint: {tempo}")
-            exporter = OTLPSpanExporter(endpoint=tempo)
+            logger.debug(f"Setting up span exporter to endpoint: {tempo_endpoint}")
+            exporter = OTLPSpanExporter(endpoint=tempo_endpoint)
 
         processor = BatchSpanProcessor(exporter)
         provider.add_span_processor(processor)
@@ -245,27 +246,20 @@ def _setup_root_span_initializer(
     charm.__init__ = wrap_init
 
 
-def trace_charm(tempo_endpoint: str, service_name: Optional[str] = None) -> Callable[[_C], _C]:
+def autoinstrument_charm(
+        charm_type: Type[CharmBase],
+        tempo_endpoint_getter: Callable[[CharmBase], Optional[str]],
+        service_name: Optional[str] = None
+):
     """Set up tracing on this charm class.
 
-    Use this decorator to get out-of-the-box traces for all events emitted on this charm and all
+    Use this function to get out-of-the-box traces for all events emitted on this charm and all
     method calls on instances of this class.
     """
 
-    def _decorator(charm: _C) -> _C:
-        logger.info(f"instrumenting {charm}")
-        # check that it is in dir(charm).
-        if not hasattr(charm, tempo_endpoint):
-            raise RuntimeError(
-                f"you passed tempo_endpoint={tempo_endpoint} to "
-                f"@trace_charm; but {charm}.{tempo_endpoint} was not found."
-            )
-
-        _setup_root_span_initializer(charm, tempo_endpoint, service_name=service_name)
-        trace_type(charm)
-        return charm
-
-    return _decorator
+    logger.info(f"instrumenting {charm_type}")
+    _setup_root_span_initializer(charm_type, tempo_endpoint_getter, service_name=service_name)
+    trace_type(charm_type)
 
 
 def trace_type(cls: _T) -> _T:
