@@ -9,7 +9,7 @@ from subprocess import CalledProcessError, getoutput
 from typing import List
 
 import yaml
-from charms.tempo_k8s.v0.tracing import Ingester
+from charms.tempo_k8s.v0.tracing import Ingester, RawIngester
 from ops.pebble import Layer
 
 
@@ -35,7 +35,7 @@ class Tempo:
 
         self._local_hostname = local_host
 
-        self._supported_ingesters = (
+        self._supported_ingesters: List[RawIngester] = (
             ("tempo", self.tempo_port),
             ("otlp_grpc", self.otlp_grpc_port),
             ("otlp_http", self.otlp_http_port),
@@ -56,9 +56,9 @@ class Tempo:
         return socket.getfqdn()
 
     @property
-    def ingesters(self) -> List[Ingester]:
+    def ingesters(self) -> List[RawIngester]:
         """All ingesters supported by this Tempo client."""
-        return [Ingester(type=_type, port=str(port)) for _type, port in self._supported_ingesters]
+        return [(protocol, port) for protocol, port in self._supported_ingesters]
 
     def get_config(self) -> str:
         """Generate the Tempo configuration."""
