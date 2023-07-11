@@ -172,8 +172,13 @@ def _setup_root_span_initializer(
             attributes={
                 "service.name": _service_name,
                 "compose_service": _service_name,
-                "charm_type": type(self).__name__
-                # todo: shove juju topology in here?
+                "charm_type": type(self).__name__,
+
+                # juju topology
+                "juju_unit": self.unit.name,
+                "juju_application": self.app.name,
+                "juju_model": self.model.name,
+                "juju_model_uuid": self.model.uuid,
             }
         )
         provider = TracerProvider(resource=resource)

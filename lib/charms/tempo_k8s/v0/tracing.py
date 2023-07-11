@@ -64,6 +64,7 @@ import logging
 from itertools import starmap
 from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, cast, Tuple
 
+import pydantic
 from ops.charm import CharmBase, CharmEvents, RelationEvent, RelationRole
 from ops.framework import EventSource, Object
 from ops.model import Application, ModelError, Relation
@@ -86,18 +87,51 @@ logger = logging.getLogger(__name__)
 DEFAULT_RELATION_NAME = "tracing"
 RELATION_INTERFACE_NAME = "tracing"
 
-IngesterType = Literal["otlp_grpc", "otlp_http", "zipkin", "tempo"]
+IngesterProtocol = Literal["otlp_grpc", "otlp_http", "zipkin", "tempo"]
+
+RawIngester = Tuple[IngesterProtocol, int]
 
 
 # todo use models from charm-relation-interfaces
 class Ingester(BaseModel):  # noqa: D101
+    protocol: IngesterProtocol
     port: str
-    type: IngesterType
 
 
 class TracingRequirerData(BaseModel):  # noqa: D101
-    hostname: AnyHttpUrl
+    url: AnyHttpUrl
     ingesters: Json[List[Ingester]]
+
+    @classmethod
+    def load(cls, relation: Relation) -> Optional["TracingRequirerData"]:
+        """Unmarshal relation data."""
+        try:
+            app = cast(Application, relation.app)  # assume caller did their duty
+            app_databag = relation.data[app]
+            url = app_databag["url"]
+            ingesters = list(starmap(Ingester, json.loads(app_databag["ingesters"])))
+            return cls(url=cast(AnyHttpUrl, url), ingesters=ingesters)
+        except Exception as e:
+            logger.error(e, exc_info=True)
+            return None
+
+    @classmethod
+    def dump(cls,
+             relation: Relation,
+             app: Application,
+             url: str,
+             raw_ingesters: List[RawIngester]):
+        """Marshal to relation data."""
+
+        ingesters = json.dumps([Ingester(protocol=proto, port=port).dict() for proto, port in raw_ingesters])
+        try:
+            cls(url=url, ingesters=ingesters)
+        except pydantic.ValidationError:
+            logger.error(f"error validating {url}/{raw_ingesters}")
+            raise
+        databag = relation.data[app]
+        databag["url"] = url
+        databag["ingesters"] = ingesters
 
 
 class _AutoSnapshotEvent(RelationEvent):
@@ -154,10 +188,10 @@ class RelationInterfaceMismatchError(Exception):
     """Raised if the relation with the given name has an unexpected interface."""
 
     def __init__(
-        self,
-        relation_name: str,
-        expected_relation_interface: str,
-        actual_relation_interface: str,
+            self,
+            relation_name: str,
+            expected_relation_interface: str,
+            actual_relation_interface: str,
     ):
         self.relation_name = relation_name
         self.expected_relation_interface = expected_relation_interface
@@ -175,10 +209,10 @@ class RelationRoleMismatchError(Exception):
     """Raised if the relation with the given name has a different role than expected."""
 
     def __init__(
-        self,
-        relation_name: str,
-        expected_relation_role: RelationRole,
-        actual_relation_role: RelationRole,
+            self,
+            relation_name: str,
+            expected_relation_role: RelationRole,
+            actual_relation_role: RelationRole,
     ):
         self.relation_name = relation_name
         self.expected_relation_interface = expected_relation_role
@@ -191,10 +225,10 @@ class RelationRoleMismatchError(Exception):
 
 
 def _validate_relation_by_interface_and_direction(
-    charm: CharmBase,
-    relation_name: str,
-    expected_relation_interface: str,
-    expected_relation_role: RelationRole,
+        charm: CharmBase,
+        relation_name: str,
+        expected_relation_interface: str,
+        expected_relation_role: RelationRole,
 ):
     """Validate a relation.
 
@@ -252,11 +286,11 @@ class TracingEndpointRequirer(Object):
     """Class representing a trace ingester service."""
 
     def __init__(
-        self,
-        charm: CharmBase,
-        hostname: str,
-        ingesters: List[Ingester],
-        relation_name: str = DEFAULT_RELATION_NAME,
+            self,
+            charm: CharmBase,
+            url: str,
+            ingesters: List[RawIngester],
+            relation_name: str = DEFAULT_RELATION_NAME,
     ):
         """Initialize.
 
@@ -281,7 +315,7 @@ class TracingEndpointRequirer(Object):
 
         super().__init__(charm, relation_name)
         self._charm = charm
-        self._hostname = hostname
+        self._url = url
         self._ingesters = ingesters
         self._relation_name = relation_name
         events = self._charm.on[relation_name]
@@ -291,7 +325,7 @@ class TracingEndpointRequirer(Object):
     def _marshal(self) -> Dict[Any, Any]:
         """Marshal data that should be transmitted over relation data."""
         data = {
-            "hostname": self._hostname,
+            "url": self._url,
             "ingesters": json.dumps([ing.dict() for ing in self._ingesters]),
         }
         return data
@@ -302,28 +336,35 @@ class TracingEndpointRequirer(Object):
         try:
             if self._charm.unit.is_leader():
                 for relation in self._charm.model.relations[self._relation_name]:
-                    app_databag = relation.data[self._charm.app]
-                    app_databag.update(self._marshal())
+                    TracingRequirerData.dump(
+                        relation,
+                        self._charm.app,
+                        self._url,
+                        self._ingesters
+                    )
 
         except ModelError as e:
             # args are bytes
-            if e.args[0].startswith(
-                b"ERROR cannot read relation application " b"settings: permission denied"
-            ):
-                logger.error(
-                    f"encountered error {e} while attempting to update_relation_data."
-                    f"The relation must be gone."
-                )
-                return
+            msg = e.args[0]
+            if isinstance(msg, bytes):
+                if msg.startswith(
+                        b"ERROR cannot read relation application " b"settings: permission denied"
+                ):
+                    logger.error(
+                        f"encountered error {e} while attempting to update_relation_data."
+                        f"The relation must be gone."
+                    )
+                    return
+            raise
 
 
 class EndpointChangedEvent(_AutoSnapshotEvent):
     """Event representing a change in one of the ingester endpoints."""
 
-    __args__ = ("hostname", "ingesters")
+    __args__ = ("url", "ingesters")
 
     if TYPE_CHECKING:
-        hostname = ""  # type: str
+        url = ""  # type: str
         ingesters = []  # type: List[Ingester]
 
 
@@ -339,9 +380,9 @@ class TracingEndpointProvider(Object):
     on = TracingEndpointEvents()  # type: ignore
 
     def __init__(
-        self,
-        charm: CharmBase,
-        relation_name: str = DEFAULT_RELATION_NAME,
+            self,
+            charm: CharmBase,
+            relation_name: str = DEFAULT_RELATION_NAME,
     ):
         """Construct a tracing provider for a Tempo charm.
 
@@ -393,21 +434,9 @@ class TracingEndpointProvider(Object):
         if not self._is_ready(event.relation):
             return
 
-        data = self._unmarshal(event.relation)
+        data = TracingRequirerData.load(event.relation)
         if data:
-            self.on.endpoint_changed.emit(event.relation, data.hostname, data.ingesters)  # type: ignore
-
-    def _unmarshal(self, relation: Relation) -> Optional[TracingRequirerData]:
-        """Unmarshal relation data."""
-        try:
-            app = cast(Application, relation.app)  # assume caller did their duty
-            app_databag = relation.data[app]
-            hostname = app_databag["hostname"]
-            ingesters = list(starmap(Ingester, json.loads(app_databag["ingesters"])))
-            return TracingRequirerData(hostname=cast(AnyHttpUrl, hostname), ingesters=ingesters)
-        except Exception as e:
-            logger.error(e, exc_info=True)
-            return None
+            self.on.endpoint_changed.emit(event.relation, data.url, data.ingesters)  # type: ignore
 
     @property
     def endpoints(self) -> Optional[TracingRequirerData]:
@@ -415,19 +444,19 @@ class TracingEndpointProvider(Object):
         relation = self._charm.model.get_relation(self._relation_name)
         if not self._is_ready(relation):
             return
-        return self._unmarshal(cast(Relation, relation))
+        return TracingRequirerData.load(cast(Relation, relation))
 
-    def _get_ingester(self, ingester_type: IngesterType):
+    def _get_ingester(self, protocol: IngesterProtocol):
         ep = self.endpoints
         if not ep:
             return None
         try:
             otlp_grpc_ingester_port = next(
-                filter(lambda i: i.type == ingester_type, ep.ingesters)
+                filter(lambda i: i.protocol == protocol, ep.ingesters)
             ).port
-            return f"http://{ep.hostname}:{otlp_grpc_ingester_port}"
+            return f"http://{ep.url}:{otlp_grpc_ingester_port}"
         except StopIteration:
-            logger.error(f"no ingester found with type {ingester_type}")
+            logger.error(f"no ingester found with protocol={protocol!r}")
             return None
 
     @property

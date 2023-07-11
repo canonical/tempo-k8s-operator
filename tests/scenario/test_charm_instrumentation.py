@@ -1,18 +1,22 @@
+import os
 from unittest.mock import patch
 
 import pytest
-from charms.tempo_k8s.v0.charm_instrumentation import (
-    get_current_span,
-    trace,
-    trace_charm,
-)
 from ops import EventBase, EventSource, Framework
 from ops.charm import CharmBase, CharmEvents
 from scenario import Context, State
 
+from charms.tempo_k8s.v0.charm_instrumentation import (
+    get_current_span,
+    trace,
+    trace_charm, CHARM_TRACING_ENABLED,
+)
 
 @pytest.fixture(autouse=True)
 def cleanup():
+    # if any other test module disabled it...
+    os.environ[CHARM_TRACING_ENABLED] = "1"
+
     def patched_set_tracer_provider(tracer_provider, log):
         import opentelemetry
 
@@ -40,8 +44,8 @@ def test_base_tracer_endpoint(caplog):
         ctx.run("start", State())
         assert "Setting up span exporter to endpoint: foo.bar:80" in caplog.text
         span = f.call_args_list[0].args[0][0]
-        assert span.resource.attributes["service.name"] == "MyCharmSimple"
-        assert span.resource.attributes["compose_service"] == "MyCharmSimple"
+        assert span.resource.attributes["service.name"] == "frank"
+        assert span.resource.attributes["compose_service"] == "frank"
 
 
 @trace_charm("tempo")
@@ -66,8 +70,8 @@ def test_init_attr(caplog):
         ctx.run("start", State())
         assert "Setting up span exporter to endpoint: foo.bar:80" in caplog.text
         span = f.call_args_list[0].args[0][0]
-        assert span.resource.attributes["service.name"] == "MyCharmInitAttr"
-        assert span.resource.attributes["compose_service"] == "MyCharmInitAttr"
+        assert span.resource.attributes["service.name"] == "frank"
+        assert span.resource.attributes["compose_service"] == "frank"
 
 
 @trace_charm("tempo")
@@ -128,7 +132,7 @@ def test_base_tracer_endpoint_event(caplog):
     with patch("opentelemetry.exporter.otlp.proto.grpc.exporter.OTLPExporterMixin._export") as f:
         f.return_value = opentelemetry.sdk.metrics._internal.export.MetricExportResult.SUCCESS
         ctx = Context(MyCharmSimpleEvent, meta=MyCharmSimpleEvent.META)
-        ctx.run("start", State())
+        state = ctx.run("start", State())
 
         spans = f.call_args_list[0].args[0]
         span0, span1, span2, span3 = spans
@@ -143,7 +147,25 @@ def test_base_tracer_endpoint_event(caplog):
         assert span3.name == "charm exec"
 
         for span in spans:
-            assert span.resource.attributes["service.name"] == "MyCharmSimpleEvent"
+            assert span.resource.attributes["service.name"] == "frank"
+
+
+def test_juju_topology_injection(caplog):
+    import opentelemetry
+
+    with patch("opentelemetry.exporter.otlp.proto.grpc.exporter.OTLPExporterMixin._export") as f:
+        f.return_value = opentelemetry.sdk.metrics._internal.export.MetricExportResult.SUCCESS
+        ctx = Context(MyCharmSimpleEvent, meta=MyCharmSimpleEvent.META)
+        state = ctx.run("start", State())
+
+        spans = f.call_args_list[0].args[0]
+
+        for span in spans:
+            # topology
+            assert span.resource.attributes["juju_unit"] == "frank/0"
+            assert span.resource.attributes["juju_application"] == "frank"
+            assert span.resource.attributes["juju_model"] == state.model.name
+            assert span.resource.attributes["juju_model_uuid"] == state.model.uuid
 
 
 @trace_charm("tempo")
