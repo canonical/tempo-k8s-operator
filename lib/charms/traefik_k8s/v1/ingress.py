@@ -69,7 +69,7 @@ LIBAPI = 1
 
 # Increment this PATCH version before using `charmcraft publish-lib` or reset
 # to 0 if you are raising the major API version
-LIBPATCH = 5
+LIBPATCH = 14
 
 DEFAULT_RELATION_NAME = "ingress"
 RELATION_INTERFACE = "ingress"
@@ -98,6 +98,7 @@ INGRESS_REQUIRES_APP_SCHEMA = {
         "host": {"type": "string"},
         "port": {"type": "string"},
         "strip-prefix": {"type": "string"},
+        "redirect-https": {"type": "string"},
     },
     "required": ["model", "name", "host", "port"],
 }
@@ -118,13 +119,20 @@ except ImportError:
 # Model of the data a unit implementing the requirer will need to provide.
 RequirerData = TypedDict(
     "RequirerData",
-    {"model": str, "name": str, "host": str, "port": int, "strip-prefix": bool},
+    {
+        "model": str,
+        "name": str,
+        "host": str,
+        "port": int,
+        "strip-prefix": bool,
+        "redirect-https": bool,
+    },
     total=False,
 )
 # Provider ingress data model.
 ProviderIngressData = TypedDict("ProviderIngressData", {"url": str})
 # Provider application databag model.
-ProviderApplicationData = TypedDict("ProviderApplicationData", {"ingress": ProviderIngressData})
+ProviderApplicationData = TypedDict("ProviderApplicationData", {"ingress": ProviderIngressData})  # type: ignore
 
 
 def _validate_data(data, schema):
@@ -161,8 +169,8 @@ class _IngressPerAppBase(Object):
         observe(rel_events.relation_joined, self._handle_relation)
         observe(rel_events.relation_changed, self._handle_relation)
         observe(rel_events.relation_broken, self._handle_relation_broken)
-        observe(charm.on.leader_elected, self._handle_upgrade_or_leader)
-        observe(charm.on.upgrade_charm, self._handle_upgrade_or_leader)
+        observe(charm.on.leader_elected, self._handle_upgrade_or_leader)  # type: ignore
+        observe(charm.on.upgrade_charm, self._handle_upgrade_or_leader)  # type: ignore
 
     @property
     def relations(self):
@@ -183,8 +191,8 @@ class _IngressPerAppBase(Object):
 
 
 class _IPAEvent(RelationEvent):
-    __args__ = ()  # type: Tuple[str, ...]
-    __optional_kwargs__ = {}  # type: Dict[str, Any]
+    __args__: Tuple[str, ...] = ()
+    __optional_kwargs__: Dict[str, Any] = {}
 
     @classmethod
     def __attrs__(cls):
@@ -202,7 +210,7 @@ class _IPAEvent(RelationEvent):
             obj = kwargs.get(attr, default)
             setattr(self, attr, obj)
 
-    def snapshot(self) -> dict:
+    def snapshot(self):
         dct = super().snapshot()
         for attr in self.__attrs__():
             obj = getattr(self, attr)
@@ -217,7 +225,7 @@ class _IPAEvent(RelationEvent):
 
         return dct
 
-    def restore(self, snapshot: dict) -> None:
+    def restore(self, snapshot) -> None:
         super().restore(snapshot)
         for attr, obj in snapshot.items():
             setattr(self, attr, obj)
@@ -226,14 +234,15 @@ class _IPAEvent(RelationEvent):
 class IngressPerAppDataProvidedEvent(_IPAEvent):
     """Event representing that ingress data has been provided for an app."""
 
-    __args__ = ("name", "model", "port", "host", "strip_prefix")
+    __args__ = ("name", "model", "port", "host", "strip_prefix", "redirect_https")
 
     if typing.TYPE_CHECKING:
-        name = None  # type: str
-        model = None  # type: str
-        port = None  # type: int
-        host = None  # type: str
-        strip_prefix = False  # type: bool
+        name: Optional[str] = None
+        model: Optional[str] = None
+        port: Optional[str] = None
+        host: Optional[str] = None
+        strip_prefix: bool = False
+        redirect_https: bool = False
 
 
 class IngressPerAppDataRemovedEvent(RelationEvent):
@@ -250,7 +259,7 @@ class IngressPerAppProviderEvents(ObjectEvents):
 class IngressPerAppProvider(_IngressPerAppBase):
     """Implementation of the provider of ingress."""
 
-    on = IngressPerAppProviderEvents()
+    on = IngressPerAppProviderEvents()  # type: ignore
 
     def __init__(self, charm: CharmBase, relation_name: str = DEFAULT_RELATION_NAME):
         """Constructor for IngressPerAppProvider.
@@ -267,17 +276,18 @@ class IngressPerAppProvider(_IngressPerAppBase):
         # notify listeners.
         if self.is_ready(event.relation):
             data = self._get_requirer_data(event.relation)
-            self.on.data_provided.emit(
+            self.on.data_provided.emit(  # type: ignore
                 event.relation,
                 data["name"],
                 data["model"],
                 data["port"],
                 data["host"],
                 data.get("strip-prefix", False),
+                data.get("redirect-https", False),
             )
 
     def _handle_relation_broken(self, event):
-        self.on.data_removed.emit(event.relation)
+        self.on.data_removed.emit(event.relation)  # type: ignore
 
     def wipe_ingress_data(self, relation: Relation):
         """Clear ingress data from relation."""
@@ -293,33 +303,34 @@ class IngressPerAppProvider(_IngressPerAppBase):
             return
         del relation.data[self.app]["ingress"]
 
-    def _get_requirer_data(self, relation: Relation) -> RequirerData:
+    def _get_requirer_data(self, relation: Relation) -> RequirerData:  # type: ignore
         """Fetch and validate the requirer's app databag.
 
         For convenience, we convert 'port' to integer.
         """
-        if not all((relation.app, relation.app.name)):
+        if not relation.app or not relation.app.name:  # type: ignore
             # Handle edge case where remote app name can be missing, e.g.,
             # relation_broken events.
             # FIXME https://github.com/canonical/traefik-k8s-operator/issues/34
             return {}
 
         databag = relation.data[relation.app]
-        remote_data = {}  # type: Dict[str, Union[int, str]]
-        for k in ("port", "host", "model", "name", "mode", "strip-prefix"):
+        remote_data: Dict[str, Union[int, str]] = {}
+        for k in ("port", "host", "model", "name", "mode", "strip-prefix", "redirect-https"):
             v = databag.get(k)
             if v is not None:
                 remote_data[k] = v
         _validate_data(remote_data, INGRESS_REQUIRES_APP_SCHEMA)
         remote_data["port"] = int(remote_data["port"])
-        remote_data["strip-prefix"] = bool(remote_data.get("strip-prefix", False))
-        return remote_data
+        remote_data["strip-prefix"] = bool(remote_data.get("strip-prefix", "false") == "true")
+        remote_data["redirect-https"] = bool(remote_data.get("redirect-https", "false") == "true")
+        return typing.cast(RequirerData, remote_data)
 
-    def get_data(self, relation: Relation) -> RequirerData:
+    def get_data(self, relation: Relation) -> RequirerData:  # type: ignore
         """Fetch the remote app's databag, i.e. the requirer data."""
         return self._get_requirer_data(relation)
 
-    def is_ready(self, relation: Relation = None):
+    def is_ready(self, relation: Optional[Relation] = None):
         """The Provider is ready if the requirer has sent valid data."""
         if not relation:
             return any(map(self.is_ready, self.relations))
@@ -330,14 +341,14 @@ class IngressPerAppProvider(_IngressPerAppBase):
             log.warning("Requirer not ready; validation error encountered: %s" % str(e))
             return False
 
-    def _provided_url(self, relation: Relation) -> ProviderIngressData:
+    def _provided_url(self, relation: Relation) -> ProviderIngressData:  # type: ignore
         """Fetch and validate this app databag; return the ingress url."""
-        if not all((relation.app, relation.app.name, self.unit.is_leader())):
+        if not relation.app or not relation.app.name or not self.unit.is_leader():  # type: ignore
             # Handle edge case where remote app name can be missing, e.g.,
             # relation_broken events.
             # Also, only leader units can read own app databags.
             # FIXME https://github.com/canonical/traefik-k8s-operator/issues/34
-            return {}  # noqa
+            return typing.cast(ProviderIngressData, {})  # noqa
 
         # fetch the provider's app databag
         raw_data = relation.data[self.app].get("ingress")
@@ -374,6 +385,9 @@ class IngressPerAppProvider(_IngressPerAppBase):
         results = {}
 
         for ingress_relation in self.relations:
+            assert (
+                ingress_relation.app
+            ), "no app in relation (shouldn't happen)"  # for type checker
             results[ingress_relation.app.name] = self._provided_url(ingress_relation)
 
         return results
@@ -384,7 +398,7 @@ class IngressPerAppReadyEvent(_IPAEvent):
 
     __args__ = ("url",)
     if typing.TYPE_CHECKING:
-        url = None  # type: str
+        url: Optional[str] = None
 
 
 class IngressPerAppRevokedEvent(RelationEvent):
@@ -401,8 +415,9 @@ class IngressPerAppRequirerEvents(ObjectEvents):
 class IngressPerAppRequirer(_IngressPerAppBase):
     """Implementation of the requirer of the ingress relation."""
 
-    on = IngressPerAppRequirerEvents()
-    # used to prevent spur1ious urls to be sent out if the event we're currently
+    on = IngressPerAppRequirerEvents()  # type: ignore
+
+    # used to prevent spurious urls to be sent out if the event we're currently
     # handling is a relation-broken one.
     _stored = StoredState()
 
@@ -411,9 +426,10 @@ class IngressPerAppRequirer(_IngressPerAppBase):
         charm: CharmBase,
         relation_name: str = DEFAULT_RELATION_NAME,
         *,
-        host: str = None,
-        port: int = None,
+        host: Optional[str] = None,
+        port: Optional[int] = None,
         strip_prefix: bool = False,
+        redirect_https: bool = False,
     ):
         """Constructor for IngressRequirer.
 
@@ -429,6 +445,7 @@ class IngressPerAppRequirer(_IngressPerAppBase):
             host: Hostname to be used by the ingress provider to address the requiring
                 application; if unspecified, the default Kubernetes service name will be used.
             strip_prefix: configure Traefik to strip the path prefix.
+            redirect_https: redirect incoming requests to the HTTPS.
 
         Request Args:
             port: the port of the service
@@ -437,8 +454,9 @@ class IngressPerAppRequirer(_IngressPerAppBase):
         self.charm: CharmBase = charm
         self.relation_name = relation_name
         self._strip_prefix = strip_prefix
+        self._redirect_https = redirect_https
 
-        self._stored.set_default(current_url=None)
+        self._stored.set_default(current_url=None)  # type: ignore
 
         # if instantiated with a port, and we are related, then
         # we immediately publish our ingress data  to speed up the process.
@@ -458,13 +476,13 @@ class IngressPerAppRequirer(_IngressPerAppBase):
                 if isinstance(event, RelationBrokenEvent)
                 else self._get_url_from_relation_data()
             )
-            if self._stored.current_url != new_url:
-                self._stored.current_url = new_url
-                self.on.ready.emit(event.relation, new_url)
+            if self._stored.current_url != new_url:  # type: ignore
+                self._stored.current_url = new_url  # type: ignore
+                self.on.ready.emit(event.relation, new_url)  # type: ignore
 
     def _handle_relation_broken(self, event):
-        self._stored.current_url = None
-        self.on.revoked.emit(event.relation)
+        self._stored.current_url = None  # type: ignore
+        self.on.revoked.emit(event.relation)  # type: ignore
 
     def _handle_upgrade_or_leader(self, event):
         """On upgrade/leadership change: ensure we publish the data we have."""
@@ -484,7 +502,7 @@ class IngressPerAppRequirer(_IngressPerAppBase):
             host, port = self._auto_data
             self.provide_ingress_requirements(host=host, port=port)
 
-    def provide_ingress_requirements(self, *, host: str = None, port: int):
+    def provide_ingress_requirements(self, *, host: Optional[str] = None, port: int):
         """Publishes the data that Traefik needs to provide ingress.
 
         NB only the leader unit is supposed to do this.
@@ -513,6 +531,9 @@ class IngressPerAppRequirer(_IngressPerAppBase):
         if self._strip_prefix:
             data["strip-prefix"] = "true"
 
+        if self._redirect_https:
+            data["redirect-https"] = "true"
+
         _validate_data(data, INGRESS_REQUIRES_APP_SCHEMA)
         self.relation.data[self.app].update(data)
 
@@ -527,7 +548,7 @@ class IngressPerAppRequirer(_IngressPerAppBase):
         Returns None if the URL isn't available yet.
         """
         relation = self.relation
-        if not relation:
+        if not relation or not relation.app:
             return None
 
         # fetch the provider's app databag
@@ -553,6 +574,6 @@ class IngressPerAppRequirer(_IngressPerAppBase):
 
         Returns None if the URL isn't available yet.
         """
-        data = self._stored.current_url or None  # type: ignore
+        data = self._stored.current_url or self._get_url_from_relation_data()  # type: ignore
         assert isinstance(data, (str, type(None)))  # for static checker
         return data

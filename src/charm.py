@@ -13,12 +13,14 @@ from ops.framework import StoredState
 from ops.main import main
 from ops.model import ActiveStatus
 
+from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
 from charms.grafana_k8s.v0.grafana_source import GrafanaSourceProvider
 from charms.loki_k8s.v0.loki_push_api import LogProxyConsumer
 from charms.observability_libs.v0.kubernetes_service_patch import KubernetesServicePatch
 from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
 from charms.tempo_k8s.v0.charm_instrumentation import trace_charm
 from charms.tempo_k8s.v0.tracing import TracingEndpointRequirer
+from charms.traefik_k8s.v1.ingress import IngressPerAppRequirer
 from tempo import Tempo
 
 logger = logging.getLogger(__name__)
@@ -59,10 +61,9 @@ class TempoCharm(CharmBase):
             self, relation_name="logging", log_files=[self.tempo.log_path]
         )
 
-        # Provide grafana dashboards over a relation interface
-        # self._grafana_dashboards = GrafanaDashboardProvider(
-        #     self, relation_name="grafana-dashboard"
-        # )
+        self._grafana_dashboards = GrafanaDashboardProvider(
+            self, relation_name="grafana-dashboard"
+        )
 
         # Enable profiling over a relation with Parca
         # self._profiling = ProfilingEndpointProvider(
