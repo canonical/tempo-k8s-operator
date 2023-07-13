@@ -2,16 +2,15 @@ import os
 from unittest.mock import patch
 
 import pytest
+from charms.tempo_k8s.v0.charm_instrumentation import (
+    CHARM_TRACING_ENABLED,
+    autoinstrument,
+    get_current_span,
+    trace,
+)
 from ops import EventBase, EventSource, Framework
 from ops.charm import CharmBase, CharmEvents
 from scenario import Context, State
-
-from charms.tempo_k8s.v0.charm_instrumentation import (
-    CHARM_TRACING_ENABLED,
-    get_current_span,
-    trace,
-    autoinstrument,
-)
 
 os.environ[CHARM_TRACING_ENABLED] = "1"
 
@@ -71,15 +70,13 @@ class MyCharmSubObject(CharmBase):
 
     def _on_start(self, _):
         self.subobj.foo()
+
     @property
     def tempo(self):
         return "foo.bar:80"
 
 
-autoinstrument(
-    MyCharmSubObject,
-    MyCharmSubObject.tempo,
-    extra_types=[SubObject])
+autoinstrument(MyCharmSubObject, MyCharmSubObject.tempo, extra_types=[SubObject])
 
 
 def test_subobj_tracer_endpoint(caplog):
@@ -184,7 +181,7 @@ def test_base_tracer_endpoint_event(caplog):
     with patch("opentelemetry.exporter.otlp.proto.grpc.exporter.OTLPExporterMixin._export") as f:
         f.return_value = opentelemetry.sdk.metrics._internal.export.MetricExportResult.SUCCESS
         ctx = Context(MyCharmSimpleEvent, meta=MyCharmSimpleEvent.META)
-        state = ctx.run("start", State())
+        ctx.run("start", State())
 
         spans = f.call_args_list[0].args[0]
         span0, span1, span2, span3 = spans

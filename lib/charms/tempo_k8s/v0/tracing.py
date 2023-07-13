@@ -120,7 +120,6 @@ class TracingRequirerData(BaseModel):  # noqa: D101
         cls, relation: Relation, app: Application, url: str, raw_ingesters: List[RawIngester]
     ):
         """Marshal to relation data."""
-
         ingesters = json.dumps(
             [Ingester(protocol=proto, port=port).dict() for proto, port in raw_ingesters]
         )
@@ -439,7 +438,7 @@ class TracingEndpointProvider(Object):
         relation = self._charm.model.get_relation(self._relation_name)
         if not self._is_ready(relation):
             return
-        return TracingRequirerData.load(cast(Relation, relation))
+        return TracingRequirerData.load(relation)
 
     def _get_ingester(self, protocol: IngesterProtocol):
         ep = self.endpoints

@@ -9,7 +9,7 @@ from subprocess import CalledProcessError, getoutput
 from typing import List
 
 import yaml
-from charms.tempo_k8s.v0.tracing import Ingester, RawIngester
+from charms.tempo_k8s.v0.tracing import RawIngester
 from ops.pebble import Layer
 
 
@@ -20,8 +20,9 @@ class Tempo:
     wal_path = "/etc/tempo_wal"
     log_path = "/var/log/tempo.log"
 
-    def __init__(self, port: int = 3200,
-                 grpc_listen_port: int = 9096, local_host: str = "0.0.0.0"):
+    def __init__(
+        self, port: int = 3200, grpc_listen_port: int = 9096, local_host: str = "0.0.0.0"
+    ):
         self.tempo_port = port
 
         # default grpc listen port is 9095, but that conflicts with promtail.
@@ -75,6 +76,7 @@ class Tempo:
                 # be found there: https://github.com/open-telemetry/opentelemetry-collector/tree/overlord/receiver
                 #
                 # for a production deployment you should only enable the receivers you need!
+                # todo: provider should request specific protocols in its app databag, and tempo should only activate the receivers it needs.
                 "distributor": {
                     "receivers": {
                         "jaeger": {
@@ -91,7 +93,7 @@ class Tempo:
                     }
                 },
                 # the length of time after a trace has not received spans to consider it complete and flush it
-                # cut the head block when it his this number of traces or ...
+                # cut the head block when it hits this number of traces or ...
                 #   this much time passes
                 "ingester": {
                     "trace_idle_period": "10s",
@@ -112,7 +114,7 @@ class Tempo:
                 # see https://grafana.com/docs/tempo/latest/configuration/#storage
                 "storage": {
                     "trace": {
-                        # FIXME: only good for testing# backend configuration to use;
+                        # FIXME: not good for production! backend configuration to use;
                         #  one of "gcs", "s3", "azure" or "local"
                         "backend": "local",
                         "local": {"path": "/traces"},
