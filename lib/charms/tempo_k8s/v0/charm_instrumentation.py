@@ -88,9 +88,7 @@ LIBAPI = 0
 # to 0 if you are raising the major API version
 LIBPATCH = 5
 
-PYDEPS = [
-    "opentelemetry-exporter-otlp-proto-grpc==1.17.0"
-]
+PYDEPS = ["opentelemetry-exporter-otlp-proto-grpc==1.17.0"]
 
 logger = logging.getLogger("tracing")
 
