@@ -47,8 +47,8 @@ class Tempo:
         """List of service names and port mappings for the kubernetes service patch."""
         # todo allow remapping ports?
         return [
-            (service_name_prefix + ingester_type, ingester_port, ingester_port)
-            for ingester_type, ingester_port in self._supported_ingesters
+            (service_name_prefix + protocol, port, port)
+            for protocol, port in self._supported_ingesters
         ]
 
     @property

@@ -69,7 +69,7 @@ class TempoCharm(CharmBase):
         # )
 
         self._tracing = TracingEndpointRequirer(
-            self, url="http://" + tempo.host, ingesters=tempo.ingesters
+            self, host=tempo.host, ingesters=tempo.ingesters
         )
         self._ingress = IngressPerAppRequirer(self, port=self.tempo.tempo_port)
 

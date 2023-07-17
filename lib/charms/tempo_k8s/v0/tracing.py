@@ -61,14 +61,13 @@ follows
 """  # noqa: W505
 import json
 import logging
-from itertools import starmap
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Tuple, cast
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Tuple, cast, MutableMapping
 
 import pydantic
 from ops.charm import CharmBase, CharmEvents, RelationEvent, RelationRole
 from ops.framework import EventSource, Object
 from ops.model import Application, ModelError, Relation
-from pydantic import AnyHttpUrl, BaseModel, Json
+from pydantic import AnyHttpUrl, BaseModel
 
 # The unique Charmhub library identifier, never change it
 LIBID = "12977e9aa0b34367903d8afeb8c3d85d"
@@ -92,45 +91,67 @@ IngesterProtocol = Literal["otlp_grpc", "otlp_http", "zipkin", "tempo"]
 RawIngester = Tuple[IngesterProtocol, int]
 
 
+class TracingError(RuntimeError):
+    """Base class for custom errors raised by this library."""
+
+
+class DataValidationError(TracingError):
+    """Raised when data validation fails on IPU relation data."""
+
+
+class DatabagModel(BaseModel):
+    """Base databag model."""
+    _NEST_UNDER = None
+
+    @classmethod
+    def load(cls, databag: MutableMapping):
+        """Load this model from a Juju databag."""
+        if cls._NEST_UNDER:
+            return cls.parse_obj(json.loads(databag[cls._NEST_UNDER]))
+
+        data = {}
+
+        for key, value in cls.__fields__.items():  # type: ignore
+            raw_value = databag.get(value.alias or key)
+            if raw_value is None:
+                continue  # if this was a required field, when we call(cls**data) we will catch it
+
+            if value.type_ is str:
+                parsed = raw_value
+            elif hasattr(value.type_, "parse_raw"):
+                parsed = value.type_.parse_raw(raw_value)
+            else:
+                # todo: will this deserialize nested models?
+                parsed = json.loads(raw_value)
+            data[key] = parsed
+
+        try:
+            return cls(**data)  # type: ignore
+        except pydantic.ValidationError as e:
+            msg = f"failed to validate remote unit databag: {databag}"
+            logger.error(msg, exc_info=True)
+            raise DataValidationError(msg) from e
+
+    def dump(self, databag: MutableMapping):
+        """Write the contents of this model to Juju databag."""
+        if self._NEST_UNDER:
+            databag[self._NEST_UNDER] = self.json()
+
+        dct = self.dict()
+        for key, field in self.__fields__.items():  # type: ignore
+            value = dct[key]
+            databag[field.alias or key] = json.dumps(value)
+
+
 # todo use models from charm-relation-interfaces
 class Ingester(BaseModel):  # noqa: D101
     protocol: IngesterProtocol
-    port: str
+    port: int
 
 
-class TracingRequirerData(BaseModel):  # noqa: D101
-    url: AnyHttpUrl
+class TracingRequirerAppData(DatabagModel):  # noqa: D101
+    host: str
     ingesters: List[Ingester]
-
-    @classmethod
-    def load(cls, relation: Relation) -> Optional["TracingRequirerData"]:
-        """Unmarshal relation data."""
-        try:
-            app = cast(Application, relation.app)  # assume caller did their duty
-            app_databag = relation.data[app]
-            url = app_databag["url"]
-            ingesters = [Ingester(**i) for i in json.loads(app_databag["ingesters"])]
-            return cls(url=cast(AnyHttpUrl, url), ingesters=ingesters)
-        except Exception as e:
-            logger.error(e, exc_info=True)
-            return None
-
-    @classmethod
-    def dump(
-        cls, relation: Relation, app: Application, url: str, raw_ingesters: List[RawIngester]
-    ):
-        """Marshal to relation data."""
-        ingesters = json.dumps(
-            [Ingester(protocol=proto, port=port).dict() for proto, port in raw_ingesters]
-        )
-        try:
-            cls(url=url, ingesters=ingesters)
-        except pydantic.ValidationError:
-            logger.error(f"error validating {url}/{raw_ingesters}")
-            raise
-        databag = relation.data[app]
-        databag["url"] = url
-        databag["ingesters"] = ingesters
 
 
 class _AutoSnapshotEvent(RelationEvent):
@@ -187,10 +208,10 @@ class RelationInterfaceMismatchError(Exception):
     """Raised if the relation with the given name has an unexpected interface."""
 
     def __init__(
-        self,
-        relation_name: str,
-        expected_relation_interface: str,
-        actual_relation_interface: str,
+            self,
+            relation_name: str,
+            expected_relation_interface: str,
+            actual_relation_interface: str,
     ):
         self.relation_name = relation_name
         self.expected_relation_interface = expected_relation_interface
@@ -208,10 +229,10 @@ class RelationRoleMismatchError(Exception):
     """Raised if the relation with the given name has a different role than expected."""
 
     def __init__(
-        self,
-        relation_name: str,
-        expected_relation_role: RelationRole,
-        actual_relation_role: RelationRole,
+            self,
+            relation_name: str,
+            expected_relation_role: RelationRole,
+            actual_relation_role: RelationRole,
     ):
         self.relation_name = relation_name
         self.expected_relation_interface = expected_relation_role
@@ -224,10 +245,10 @@ class RelationRoleMismatchError(Exception):
 
 
 def _validate_relation_by_interface_and_direction(
-    charm: CharmBase,
-    relation_name: str,
-    expected_relation_interface: str,
-    expected_relation_role: RelationRole,
+        charm: CharmBase,
+        relation_name: str,
+        expected_relation_interface: str,
+        expected_relation_role: RelationRole,
 ):
     """Validate a relation.
 
@@ -285,11 +306,11 @@ class TracingEndpointRequirer(Object):
     """Class representing a trace ingester service."""
 
     def __init__(
-        self,
-        charm: CharmBase,
-        url: str,
-        ingesters: List[RawIngester],
-        relation_name: str = DEFAULT_RELATION_NAME,
+            self,
+            charm: CharmBase,
+            host: str,
+            ingesters: List[RawIngester],
+            relation_name: str = DEFAULT_RELATION_NAME,
     ):
         """Initialize.
 
@@ -314,20 +335,12 @@ class TracingEndpointRequirer(Object):
 
         super().__init__(charm, relation_name)
         self._charm = charm
-        self._url = url
+        self._host = host
         self._ingesters = ingesters
         self._relation_name = relation_name
         events = self._charm.on[relation_name]
         self.framework.observe(events.relation_created, self._on_relation_event)
         self.framework.observe(events.relation_joined, self._on_relation_event)
-
-    def _marshal(self) -> Dict[Any, Any]:
-        """Marshal data that should be transmitted over relation data."""
-        data = {
-            "url": self._url,
-            "ingesters": json.dumps([ing.dict() for ing in self._ingesters]),
-        }
-        return data
 
     def _on_relation_event(self, _):
         # Generic relation event handler.
@@ -335,14 +348,17 @@ class TracingEndpointRequirer(Object):
         try:
             if self._charm.unit.is_leader():
                 for relation in self._charm.model.relations[self._relation_name]:
-                    TracingRequirerData.dump(relation, self._charm.app, self._url, self._ingesters)
+                    TracingRequirerAppData(
+                        host=self._host,
+                        ingesters=[{"port": port, "protocol": protocol} for protocol, port in self._ingesters]
+                    ).dump(relation.data[self._charm.app])
 
         except ModelError as e:
             # args are bytes
             msg = e.args[0]
             if isinstance(msg, bytes):
                 if msg.startswith(
-                    b"ERROR cannot read relation application " b"settings: permission denied"
+                        b"ERROR cannot read relation application settings: permission denied"
                 ):
                     logger.error(
                         f"encountered error {e} while attempting to update_relation_data."
@@ -355,10 +371,10 @@ class TracingEndpointRequirer(Object):
 class EndpointChangedEvent(_AutoSnapshotEvent):
     """Event representing a change in one of the ingester endpoints."""
 
-    __args__ = ("url", "ingesters")
+    __args__ = ("host", "ingesters")
 
     if TYPE_CHECKING:
-        url = ""  # type: str
+        host = ""  # type: str
         ingesters = []  # type: List[Ingester]
 
 
@@ -374,9 +390,9 @@ class TracingEndpointProvider(Object):
     on = TracingEndpointEvents()  # type: ignore
 
     def __init__(
-        self,
-        charm: CharmBase,
-        relation_name: str = DEFAULT_RELATION_NAME,
+            self,
+            charm: CharmBase,
+            relation_name: str = DEFAULT_RELATION_NAME,
     ):
         """Construct a tracing provider for a Tempo charm.
 
@@ -425,20 +441,21 @@ class TracingEndpointProvider(Object):
 
     def _on_tracing_relation_changed(self, event):
         """Notify the providers that there is new endpoint information available."""
-        if not self._is_ready(event.relation):
+        relation = event.relation
+        if not self._is_ready(relation):
             return
 
-        data = TracingRequirerData.load(event.relation)
+        data = TracingRequirerAppData.load(relation.data[relation.app])
         if data:
-            self.on.endpoint_changed.emit(event.relation, data.url, data.ingesters)  # type: ignore
+            self.on.endpoint_changed.emit(relation, data.url, data.ingesters)  # type: ignore
 
     @property
-    def endpoints(self) -> Optional[TracingRequirerData]:
+    def endpoints(self) -> Optional[TracingRequirerAppData]:
         """Unmarshalled relation data."""
         relation = self._charm.model.get_relation(self._relation_name)
         if not self._is_ready(relation):
             return
-        return TracingRequirerData.load(relation)
+        return TracingRequirerAppData.load(relation.data[relation.app])
 
     def _get_ingester(self, protocol: IngesterProtocol):
         ep = self.endpoints

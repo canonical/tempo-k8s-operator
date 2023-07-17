@@ -1,3 +1,4 @@
+import json
 import socket
 from pathlib import Path
 
@@ -38,5 +39,5 @@ def test_tempo_endpoint_published(context):
         '{"protocol": "otlp_grpc", "port": "4317"}, '
         '{"protocol": "otlp_http", "port": "4318"}, '
         '{"protocol": "zipkin", "port": "9411"}]',
-        "url": "http://" + socket.getfqdn(),
+        "host": json.dumps(socket.getfqdn()),
     }
