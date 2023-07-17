@@ -10,6 +10,12 @@ lib_pydeps = [
     "pydantic<2.0"
 ]
 
+[build]
+build-base = "/tmp/build"
+
+[egg_info]
+egg-base = "/tmp"
+
 # Testing tools configuration
 [tool.coverage.run]
 branch = true

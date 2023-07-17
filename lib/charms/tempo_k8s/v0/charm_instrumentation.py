@@ -12,15 +12,15 @@ in real time from the Grafana dashboard the execution flow of your charm.
 To start using this library, you need to do two things:
 1) decorate your charm class with
 
-`@trace_charm(tempo_endpoint="tempo_endpoint")`
+`@trace_charm(tempo_endpoint_getter="tempo_endpoint_getter")`
 
-2) add to your charm a "tempo_endpoint" (you can name this attribute whatever you like) property
+2) add to your charm a "tempo_endpoint_getter" (you can name this attribute whatever you like) property
 that returns a tempo otlp grpc endpoint. If you are using the `TracingEndpointProvider` as
 `self.tracing = TracingEndpointProvider(self)`, the implementation would be:
 
 ```
     @property
-    def tempo_endpoint(self) -> Optional[str]:
+    def tempo_endpoint_getter(self) -> Optional[str]:
         '''Tempo endpoint for charm tracing'''
         return self.tracing.otlp_grpc_endpoint
 ```
@@ -49,21 +49,32 @@ import logging
 import os
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import Any, Callable, Generator, Optional, Type, TypeVar, Union, cast
+from typing import (
+    Any,
+    Callable,
+    Generator,
+    Optional,
+    Sequence,
+    Type,
+    TypeVar,
+    Union,
+    cast,
+)
 
 import opentelemetry
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import Span, TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
-from opentelemetry.trace import INVALID_SPAN, Tracer
-from opentelemetry.trace import get_current_span as otlp_get_current_span
 from opentelemetry.trace import (
+    INVALID_SPAN,
+    Tracer,
     get_tracer,
     get_tracer_provider,
     set_span_in_context,
     set_tracer_provider,
 )
+from opentelemetry.trace import get_current_span as otlp_get_current_span
 from ops.charm import CharmBase
 from ops.framework import Framework
 
@@ -75,7 +86,7 @@ LIBAPI = 0
 
 # Increment this PATCH version before using `charmcraft publish-lib` or reset
 # to 0 if you are raising the major API version
-LIBPATCH = 4
+LIBPATCH = 5
 
 PYDEPS = ["opentelemetry-exporter-otlp-proto-grpc==1.17.0"]
 
@@ -146,7 +157,9 @@ class UntraceableObjectError(TracingError):
 
 
 def _setup_root_span_initializer(
-    charm: Type[CharmBase], tempo_endpoint: str, service_name: Optional[str] = None
+    charm: Type[CharmBase],
+    tempo_endpoint_getter: Callable[[CharmBase], Optional[str]],
+    service_name: Optional[str] = None,
 ):
     """Patch the charm's initializer."""
     original_init = charm.__init__
@@ -171,27 +184,34 @@ def _setup_root_span_initializer(
             attributes={
                 "service.name": _service_name,
                 "compose_service": _service_name,
-                "charm_type": type(self).__name__
-                # todo: shove juju topology in here?
+                "charm_type": type(self).__name__,
+                # juju topology
+                "juju_unit": self.unit.name,
+                "juju_application": self.app.name,
+                "juju_model": self.model.name,
+                "juju_model_uuid": self.model.uuid,
             }
         )
         provider = TracerProvider(resource=resource)
 
-        tempo = getattr(self, tempo_endpoint)
-        if tempo is None:
+        if isinstance(tempo_endpoint_getter, property):
+            tempo_endpoint = tempo_endpoint_getter.__get__(self)
+        else:  # method or callable
+            tempo_endpoint = tempo_endpoint_getter(self)
+
+        if tempo_endpoint is None:
             logger.warning(
-                f"{charm}.{tempo_endpoint} returned {tempo}; " f"continuing with tracing DISABLED."
+                f"{charm}.{tempo_endpoint_getter} returned None; continuing with tracing DISABLED."
             )
             return
-
-        elif not isinstance(tempo, str):
+        elif not isinstance(tempo_endpoint, str):
             raise TypeError(
-                f"{charm}.{tempo_endpoint} should return a tempo endpoint (string); "
-                f"got {tempo} instead."
+                f"{charm}.{tempo_endpoint_getter} should return a tempo endpoint (string); "
+                f"got {tempo_endpoint} instead."
             )
         else:
-            logger.debug(f"Setting up span exporter to endpoint: {tempo}")
-            exporter = OTLPSpanExporter(endpoint=tempo)
+            logger.debug(f"Setting up span exporter to endpoint: {tempo_endpoint}")
+            exporter = OTLPSpanExporter(endpoint=tempo_endpoint)
 
         processor = BatchSpanProcessor(exporter)
         provider.add_span_processor(processor)
@@ -207,7 +227,9 @@ def _setup_root_span_initializer(
         # we need to manually set the root span as current.
         span = _tracer.start_span("charm exec", attributes={"juju.dispatch_path": dispatch_path})
         ctx = set_span_in_context(span)
-        root_trace_id = span.get_span_context().trace_id
+
+        # log a trace id so we can look it up in tempo.
+        root_trace_id = hex(span.get_span_context().trace_id)[2:]  # strip 0x prefix
         logger.debug(f"Starting root trace with id={root_trace_id!r}.")
 
         span_token = opentelemetry.context.attach(ctx)  # type: ignore
@@ -241,27 +263,45 @@ def _setup_root_span_initializer(
     charm.__init__ = wrap_init
 
 
-def trace_charm(tempo_endpoint: str, service_name: Optional[str] = None) -> Callable[[_C], _C]:
+def autoinstrument(
+    charm_type: Type[CharmBase],
+    tempo_endpoint_getter: Union[Callable[[CharmBase], Optional[str]], property],
+    service_name: Optional[str] = None,
+    extra_types: Sequence[type] = (),
+) -> Type[CharmBase]:
     """Set up tracing on this charm class.
 
-    Use this decorator to get out-of-the-box traces for all events emitted on this charm and all
+    Use this function to get out-of-the-box traces for all events emitted on this charm and all
     method calls on instances of this class.
+
+    Usage:
+
+    >>> from charms.tempo_k8s.v0.charm_instrumentation import autoinstrument
+    >>> from ops.main import main
+    >>> autoinstrument(
+    >>>         MyCharm,
+    >>>         tempo_endpoint_getter=MyCharm.tempo_otlp_grpc_endpoint,
+    >>>         service_name="MyCharm",
+    >>>         extra_types=(Foo, Bar)
+    >>> )
+    >>> main(MyCharm)
+
+    :param charm_type: the CharmBase subclass to autoinstrument.
+    :param tempo_endpoint_getter: method or property on the charm type that returns an
+        optional tempo url. If None, tracing will be effectively disabled. Else, traces will be
+        pushed to that endpoint.
+    :param service_name: service name tag to attach to all traces generated by this charm.
+        Defaults to the juju application name this charm is deployed under.
+    :param extra_types: pass any number of types that you also wish to autoinstrument.
+        For example, charm libs, relation endpoint wrappers, workload abstractions, ...
     """
+    logger.info(f"instrumenting {charm_type}")
+    _setup_root_span_initializer(charm_type, tempo_endpoint_getter, service_name=service_name)
+    trace_type(charm_type)
+    for type_ in extra_types:
+        trace_type(type_)
 
-    def _decorator(charm: _C) -> _C:
-        logger.info(f"instrumenting {charm}")
-        # check that it is in dir(charm).
-        if not hasattr(charm, tempo_endpoint):
-            raise RuntimeError(
-                f"you passed tempo_endpoint={tempo_endpoint} to "
-                f"@trace_charm; but {charm}.{tempo_endpoint} was not found."
-            )
-
-        _setup_root_span_initializer(charm, tempo_endpoint, service_name=service_name)
-        trace_type(charm)
-        return charm
-
-    return _decorator
+    return charm_type
 
 
 def trace_type(cls: _T) -> _T:
@@ -279,9 +319,17 @@ def trace_type(cls: _T) -> _T:
             logger.info("skipping (dunder)")
             continue
 
-        setattr(cls, name, trace_function(method))
+        setattr(cls, name, trace_method(method))
 
     return cls
+
+
+def trace_method(method: _F) -> _F:
+    """Trace this method.
+
+    A span will be opened when this method is called and closed when it returns.
+    """
+    return _trace_callable(method, "method")
 
 
 def trace_function(function: _F) -> _F:
@@ -289,13 +337,18 @@ def trace_function(function: _F) -> _F:
 
     A span will be opened when this function is called and closed when it returns.
     """
-    logger.info(f"instrumenting {function}")
+    return _trace_callable(function, "function")
 
-    # sig = inspect.signature(function)
-    @functools.wraps(function)
+
+def _trace_callable(callable: _F, qualifier: str) -> _F:
+    logger.info(f"instrumenting {callable}")
+
+    # sig = inspect.signature(callable)
+    @functools.wraps(callable)
     def wrapped_function(*args, **kwargs):  # type: ignore
-        with _span("method call: " + function.__name__):  # type: ignore
-            return function(*args, **kwargs)  # type: ignore
+        name = getattr(callable, "__qualname__", getattr(callable, "__name__", str(callable)))
+        with _span(f"{qualifier} call: {name}"):  # type: ignore
+            return callable(*args, **kwargs)  # type: ignore
 
     # wrapped_function.__signature__ = sig
     return wrapped_function  # type: ignore

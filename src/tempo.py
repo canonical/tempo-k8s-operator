@@ -9,7 +9,7 @@ from subprocess import CalledProcessError, getoutput
 from typing import List
 
 import yaml
-from charms.tempo_k8s.v0.tracing import Ingester
+from charms.tempo_k8s.v0.tracing import RawIngester
 from ops.pebble import Layer
 
 
@@ -20,8 +20,9 @@ class Tempo:
     wal_path = "/etc/tempo_wal"
     log_path = "/var/log/tempo.log"
 
-    def __init__(self, port: int = 3200,
-                 grpc_listen_port: int = 9096, local_host: str = "0.0.0.0"):
+    def __init__(
+        self, port: int = 3200, grpc_listen_port: int = 9096, local_host: str = "0.0.0.0"
+    ):
         self.tempo_port = port
 
         # default grpc listen port is 9095, but that conflicts with promtail.
@@ -35,7 +36,7 @@ class Tempo:
 
         self._local_hostname = local_host
 
-        self._supported_ingesters = (
+        self._supported_ingesters: List[RawIngester] = (
             ("tempo", self.tempo_port),
             ("otlp_grpc", self.otlp_grpc_port),
             ("otlp_http", self.otlp_http_port),
@@ -56,9 +57,9 @@ class Tempo:
         return socket.getfqdn()
 
     @property
-    def ingesters(self) -> List[Ingester]:
+    def ingesters(self) -> List[RawIngester]:
         """All ingesters supported by this Tempo client."""
-        return [Ingester(type=_type, port=str(port)) for _type, port in self._supported_ingesters]
+        return [(protocol, port) for protocol, port in self._supported_ingesters]
 
     def get_config(self) -> str:
         """Generate the Tempo configuration."""
@@ -75,6 +76,7 @@ class Tempo:
                 # be found there: https://github.com/open-telemetry/opentelemetry-collector/tree/overlord/receiver
                 #
                 # for a production deployment you should only enable the receivers you need!
+                # todo: provider should request specific protocols in its app databag, and tempo should only activate the receivers it needs.
                 "distributor": {
                     "receivers": {
                         "jaeger": {
@@ -91,7 +93,7 @@ class Tempo:
                     }
                 },
                 # the length of time after a trace has not received spans to consider it complete and flush it
-                # cut the head block when it his this number of traces or ...
+                # cut the head block when it hits this number of traces or ...
                 #   this much time passes
                 "ingester": {
                     "trace_idle_period": "10s",
@@ -112,7 +114,7 @@ class Tempo:
                 # see https://grafana.com/docs/tempo/latest/configuration/#storage
                 "storage": {
                     "trace": {
-                        # FIXME: only good for testing# backend configuration to use;
+                        # FIXME: not good for production! backend configuration to use;
                         #  one of "gcs", "s3", "azure" or "local"
                         "backend": "local",
                         "local": {"path": "/traces"},

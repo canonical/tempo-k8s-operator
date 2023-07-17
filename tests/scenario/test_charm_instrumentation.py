@@ -4,9 +4,9 @@ from unittest.mock import patch
 import pytest
 from charms.tempo_k8s.v0.charm_instrumentation import (
     CHARM_TRACING_ENABLED,
+    autoinstrument,
     get_current_span,
     trace,
-    trace_charm,
 )
 from ops import EventBase, EventSource, Framework
 from ops.charm import CharmBase, CharmEvents
@@ -17,6 +17,9 @@ os.environ[CHARM_TRACING_ENABLED] = "1"
 
 @pytest.fixture(autouse=True)
 def cleanup():
+    # if any other test module disabled it...
+    os.environ[CHARM_TRACING_ENABLED] = "1"
+
     def patched_set_tracer_provider(tracer_provider, log):
         import opentelemetry
 
@@ -26,13 +29,15 @@ def cleanup():
         yield
 
 
-@trace_charm("tempo")
 class MyCharmSimple(CharmBase):
     META = {"name": "frank"}
 
     @property
     def tempo(self):
         return "foo.bar:80"
+
+
+autoinstrument(MyCharmSimple, MyCharmSimple.tempo)
 
 
 def test_base_tracer_endpoint(caplog):
@@ -50,7 +55,41 @@ def test_base_tracer_endpoint(caplog):
         assert span.resource.attributes["charm_type"] == "MyCharmSimple"
 
 
-@trace_charm("tempo")
+class SubObject:
+    def foo(self):
+        return "bar"
+
+
+class MyCharmSubObject(CharmBase):
+    META = {"name": "frank"}
+
+    def __init__(self, framework: Framework):
+        super().__init__(framework)
+        self.subobj = SubObject()
+        framework.observe(self.on.start, self._on_start)
+
+    def _on_start(self, _):
+        self.subobj.foo()
+
+    @property
+    def tempo(self):
+        return "foo.bar:80"
+
+
+autoinstrument(MyCharmSubObject, MyCharmSubObject.tempo, extra_types=[SubObject])
+
+
+def test_subobj_tracer_endpoint(caplog):
+    import opentelemetry
+
+    with patch("opentelemetry.exporter.otlp.proto.grpc.exporter.OTLPExporterMixin._export") as f:
+        f.return_value = opentelemetry.sdk.metrics._internal.export.MetricExportResult.SUCCESS
+        ctx = Context(MyCharmSubObject, meta=MyCharmSubObject.META)
+        ctx.run("start", State())
+        spans = f.call_args_list[0].args[0]
+        assert spans[0].name == "method call: SubObject.foo"
+
+
 class MyCharmInitAttr(CharmBase):
     META = {"name": "frank"}
 
@@ -61,6 +100,9 @@ class MyCharmInitAttr(CharmBase):
     @property
     def tempo(self):
         return self._tempo
+
+
+autoinstrument(MyCharmInitAttr, MyCharmInitAttr.tempo)
 
 
 def test_init_attr(caplog):
@@ -77,13 +119,15 @@ def test_init_attr(caplog):
         assert span.resource.attributes["charm_type"] == "MyCharmInitAttr"
 
 
-@trace_charm("tempo")
 class MyCharmSimpleDisabled(CharmBase):
     META = {"name": "frank"}
 
     @property
     def tempo(self):
         return None
+
+
+autoinstrument(MyCharmSimpleDisabled, MyCharmSimpleDisabled.tempo)
 
 
 def test_base_tracer_endpoint_disabled(caplog):
@@ -103,7 +147,6 @@ def _my_fn(foo):
     return foo + 1
 
 
-@trace_charm("tempo")
 class MyCharmSimpleEvent(CharmBase):
     META = {"name": "frank"}
 
@@ -129,6 +172,9 @@ class MyCharmSimpleEvent(CharmBase):
         return "foo.bar:80"
 
 
+autoinstrument(MyCharmSimpleEvent, MyCharmSimpleEvent.tempo)
+
+
 def test_base_tracer_endpoint_event(caplog):
     import opentelemetry
 
@@ -139,9 +185,9 @@ def test_base_tracer_endpoint_event(caplog):
 
         spans = f.call_args_list[0].args[0]
         span0, span1, span2, span3 = spans
-        assert span0.name == "method call: _my_fn"
+        assert span0.name == "function call: _my_fn"
 
-        assert span1.name == "method call: _on_start"
+        assert span1.name == "method call: MyCharmSimpleEvent._on_start"
 
         assert span2.name == "event: start"
         evt = span2.events[0]
@@ -153,7 +199,24 @@ def test_base_tracer_endpoint_event(caplog):
             assert span.resource.attributes["service.name"] == "frank"
 
 
-@trace_charm("tempo")
+def test_juju_topology_injection(caplog):
+    import opentelemetry
+
+    with patch("opentelemetry.exporter.otlp.proto.grpc.exporter.OTLPExporterMixin._export") as f:
+        f.return_value = opentelemetry.sdk.metrics._internal.export.MetricExportResult.SUCCESS
+        ctx = Context(MyCharmSimpleEvent, meta=MyCharmSimpleEvent.META)
+        state = ctx.run("start", State())
+
+        spans = f.call_args_list[0].args[0]
+
+        for span in spans:
+            # topology
+            assert span.resource.attributes["juju_unit"] == "frank/0"
+            assert span.resource.attributes["juju_application"] == "frank"
+            assert span.resource.attributes["juju_model"] == state.model.name
+            assert span.resource.attributes["juju_model_uuid"] == state.model.uuid
+
+
 class MyCharmWithMethods(CharmBase):
     META = {"name": "frank"}
 
@@ -180,6 +243,9 @@ class MyCharmWithMethods(CharmBase):
         return "foo.bar:80"
 
 
+autoinstrument(MyCharmWithMethods, MyCharmWithMethods.tempo)
+
+
 def test_base_tracer_endpoint_methods(caplog):
     import opentelemetry
 
@@ -191,10 +257,10 @@ def test_base_tracer_endpoint_methods(caplog):
         spans = f.call_args_list[0].args[0]
         span_names = [span.name for span in spans]
         assert span_names == [
-            "method call: a",
-            "method call: b",
-            "method call: c",
-            "method call: _on_start",
+            "method call: MyCharmWithMethods.a",
+            "method call: MyCharmWithMethods.b",
+            "method call: MyCharmWithMethods.c",
+            "method call: MyCharmWithMethods._on_start",
             "event: start",
             "charm exec",
         ]
@@ -208,7 +274,6 @@ class MyEvents(CharmEvents):
     foo = EventSource(Foo)
 
 
-@trace_charm("tempo")
 class MyCharmWithCustomEvents(CharmBase):
     on = MyEvents()
 
@@ -230,6 +295,9 @@ class MyCharmWithCustomEvents(CharmBase):
         return "foo.bar:80"
 
 
+autoinstrument(MyCharmWithCustomEvents, MyCharmWithCustomEvents.tempo)
+
+
 def test_base_tracer_endpoint_custom_event(caplog):
     import opentelemetry
 
@@ -241,9 +309,9 @@ def test_base_tracer_endpoint_custom_event(caplog):
         spans = f.call_args_list[0].args[0]
         span_names = [span.name for span in spans]
         assert span_names == [
-            "method call: _on_foo",
+            "method call: MyCharmWithCustomEvents._on_foo",
             "event: foo",
-            "method call: _on_start",
+            "method call: MyCharmWithCustomEvents._on_start",
             "event: start",
             "charm exec",
         ]
