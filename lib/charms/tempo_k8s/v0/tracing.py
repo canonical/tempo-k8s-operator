@@ -61,13 +61,13 @@ follows
 """  # noqa: W505
 import json
 import logging
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Tuple, cast, MutableMapping
+from typing import TYPE_CHECKING, List, Literal, MutableMapping, Optional, Tuple, cast
 
 import pydantic
 from ops.charm import CharmBase, CharmEvents, RelationEvent, RelationRole
 from ops.framework import EventSource, Object
-from ops.model import Application, ModelError, Relation
-from pydantic import AnyHttpUrl, BaseModel
+from ops.model import ModelError, Relation
+from pydantic import BaseModel
 
 # The unique Charmhub library identifier, never change it
 LIBID = "12977e9aa0b34367903d8afeb8c3d85d"
@@ -101,6 +101,7 @@ class DataValidationError(TracingError):
 
 class DatabagModel(BaseModel):
     """Base databag model."""
+
     _NEST_UNDER = None
 
     @classmethod
@@ -208,10 +209,10 @@ class RelationInterfaceMismatchError(Exception):
     """Raised if the relation with the given name has an unexpected interface."""
 
     def __init__(
-            self,
-            relation_name: str,
-            expected_relation_interface: str,
-            actual_relation_interface: str,
+        self,
+        relation_name: str,
+        expected_relation_interface: str,
+        actual_relation_interface: str,
     ):
         self.relation_name = relation_name
         self.expected_relation_interface = expected_relation_interface
@@ -229,10 +230,10 @@ class RelationRoleMismatchError(Exception):
     """Raised if the relation with the given name has a different role than expected."""
 
     def __init__(
-            self,
-            relation_name: str,
-            expected_relation_role: RelationRole,
-            actual_relation_role: RelationRole,
+        self,
+        relation_name: str,
+        expected_relation_role: RelationRole,
+        actual_relation_role: RelationRole,
     ):
         self.relation_name = relation_name
         self.expected_relation_interface = expected_relation_role
@@ -245,10 +246,10 @@ class RelationRoleMismatchError(Exception):
 
 
 def _validate_relation_by_interface_and_direction(
-        charm: CharmBase,
-        relation_name: str,
-        expected_relation_interface: str,
-        expected_relation_role: RelationRole,
+    charm: CharmBase,
+    relation_name: str,
+    expected_relation_interface: str,
+    expected_relation_role: RelationRole,
 ):
     """Validate a relation.
 
@@ -306,11 +307,11 @@ class TracingEndpointRequirer(Object):
     """Class representing a trace ingester service."""
 
     def __init__(
-            self,
-            charm: CharmBase,
-            host: str,
-            ingesters: List[RawIngester],
-            relation_name: str = DEFAULT_RELATION_NAME,
+        self,
+        charm: CharmBase,
+        host: str,
+        ingesters: List[RawIngester],
+        relation_name: str = DEFAULT_RELATION_NAME,
     ):
         """Initialize.
 
@@ -350,7 +351,10 @@ class TracingEndpointRequirer(Object):
                 for relation in self._charm.model.relations[self._relation_name]:
                     TracingRequirerAppData(
                         host=self._host,
-                        ingesters=[{"port": port, "protocol": protocol} for protocol, port in self._ingesters]
+                        ingesters=[
+                            {"port": port, "protocol": protocol}
+                            for protocol, port in self._ingesters
+                        ],
                     ).dump(relation.data[self._charm.app])
 
         except ModelError as e:
@@ -358,7 +362,7 @@ class TracingEndpointRequirer(Object):
             msg = e.args[0]
             if isinstance(msg, bytes):
                 if msg.startswith(
-                        b"ERROR cannot read relation application settings: permission denied"
+                    b"ERROR cannot read relation application settings: permission denied"
                 ):
                     logger.error(
                         f"encountered error {e} while attempting to update_relation_data."
@@ -390,9 +394,9 @@ class TracingEndpointProvider(Object):
     on = TracingEndpointEvents()  # type: ignore
 
     def __init__(
-            self,
-            charm: CharmBase,
-            relation_name: str = DEFAULT_RELATION_NAME,
+        self,
+        charm: CharmBase,
+        relation_name: str = DEFAULT_RELATION_NAME,
     ):
         """Construct a tracing provider for a Tempo charm.
 

@@ -19,7 +19,6 @@ from ops.charm import CharmBase, WorkloadEvent
 from ops.framework import StoredState
 from ops.main import main
 from ops.model import ActiveStatus
-
 from tempo import Tempo
 
 logger = logging.getLogger(__name__)
@@ -68,9 +67,7 @@ class TempoCharm(CharmBase):
         #     self, jobs=[{"static_configs": [{"targets": ["*:4080"]}]}]
         # )
 
-        self._tracing = TracingEndpointRequirer(
-            self, host=tempo.host, ingesters=tempo.ingesters
-        )
+        self._tracing = TracingEndpointRequirer(self, host=tempo.host, ingesters=tempo.ingesters)
         self._ingress = IngressPerAppRequirer(self, port=self.tempo.tempo_port)
 
     def _on_tempo_pebble_ready(self, event: WorkloadEvent):
