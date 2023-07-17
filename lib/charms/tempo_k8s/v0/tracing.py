@@ -109,7 +109,7 @@ class TracingRequirerData(BaseModel):  # noqa: D101
             app = cast(Application, relation.app)  # assume caller did their duty
             app_databag = relation.data[app]
             url = app_databag["url"]
-            ingesters = list(starmap(Ingester, json.loads(app_databag["ingesters"])))
+            ingesters = [Ingester(**i) for i in json.loads(app_databag["ingesters"])]
             return cls(url=cast(AnyHttpUrl, url), ingesters=ingesters)
         except Exception as e:
             logger.error(e, exc_info=True)
