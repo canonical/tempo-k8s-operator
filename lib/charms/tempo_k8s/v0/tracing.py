@@ -448,7 +448,7 @@ class TracingEndpointProvider(Object):
             otlp_grpc_ingester_port = next(
                 filter(lambda i: i.protocol == protocol, ep.ingesters)
             ).port
-            return f"http://{ep.url}:{otlp_grpc_ingester_port}"
+            return f"{ep.url}:{otlp_grpc_ingester_port}"
         except StopIteration:
             logger.error(f"no ingester found with protocol={protocol!r}")
             return None
