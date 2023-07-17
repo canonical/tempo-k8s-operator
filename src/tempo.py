@@ -47,7 +47,7 @@ class Tempo:
         """List of service names and port mappings for the kubernetes service patch."""
         # todo allow remapping ports?
         return [
-            (service_name_prefix + protocol, port, port)
+            ((service_name_prefix + protocol).replace('_', '-'), port, port)
             for protocol, port in self._supported_ingesters
         ]
 
