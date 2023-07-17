@@ -100,7 +100,7 @@ class Ingester(BaseModel):  # noqa: D101
 
 class TracingRequirerData(BaseModel):  # noqa: D101
     url: AnyHttpUrl
-    ingesters: Json[List[Ingester]]
+    ingesters: List[Ingester]
 
     @classmethod
     def load(cls, relation: Relation) -> Optional["TracingRequirerData"]:
