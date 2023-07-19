@@ -36,20 +36,7 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
-  "links": [
-    {
-      "asDropdown": true,
-      "icon": "external link",
-      "includeVars": true,
-      "keepTime": true,
-      "tags": [
-        "tempo"
-      ],
-      "targetBlank": false,
-      "title": "Tempo Dashboards",
-      "type": "dashboards"
-    }
-  ],
+  "links": [],
   "liveNow": false,
   "panels": [
     {
@@ -146,7 +133,7 @@
             "uid": "${prometheusds}"
           },
           "editorMode": "code",
-          "expr": "sum by (juju_unit) (rate(process_cpu_seconds_total{juju_application=~\"$juju_application\",juju_model=~\"$juju_model\",juju_model_uuid=~\"$juju_model_uuid\",juju_unit=~\"$juju_unit\",juju_charm=\"tempo-k8s\"}[5m]))",
+          "expr": "sum by(juju_unit) (rate(process_cpu_seconds_total{juju_application=~\"$juju_application\",juju_model=~\"$juju_model\",juju_model_uuid=~\"$juju_model_uuid\",juju_unit=~\"$juju_unit\"}[5m]))",
           "legendFormat": "__auto",
           "range": true,
           "refId": "A"
@@ -384,7 +371,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "P0899610D3ECDF9EC"
+        "uid": "${prometheusds}"
       },
       "fieldConfig": {
         "defaults": {
@@ -461,10 +448,10 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "P0899610D3ECDF9EC"
+            "uid": "${prometheusds}"
           },
           "editorMode": "code",
-          "expr": "sum by (juju_unit) (rate(tempo_ingester_flush_duration_seconds_sum{juju_application=~\"$juju_application\", juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_unit=~\"$juju_unit\"}[5m]))",
+          "expr": "sum by (juju_unit) (rate(tempo_ingester_flush_duration_seconds_sum{juju_application=~\"$juju_application\", juju_model=~\"$juju_model\", juju_model_uuid=~\"$juju_model_uuid\", juju_unit=~\"$juju_unit\"}[5m]))\n",
           "legendFormat": "__auto",
           "range": true,
           "refId": "A"
@@ -812,7 +799,7 @@
             "uid": "${prometheusds}"
           },
           "editorMode": "code",
-          "expr": "sum by (protocol) (tempo_tcp_connections{})",
+          "expr": "sum by(protocol) (tempo_tcp_connections{juju_application=~\"$juju_application\",juju_model=~\"$juju_model\",juju_model_uuid=~\"$juju_model_uuid\",juju_unit=~\"$juju_unit\"})",
           "legendFormat": "__auto",
           "range": true,
           "refId": "A"
@@ -917,7 +904,7 @@
             "uid": "${prometheusds}"
           },
           "editorMode": "code",
-          "expr": "sum by (status) (tempodb_backend_objects_total{juju_application=~\"$juju_application\",juju_model=~\"$juju_model\",juju_model_uuid=~\"$juju_model_uuid\",juju_unit=~\"$juju_unit\"})",
+          "expr": "sum by(status) (tempodb_backend_objects_total{juju_application=~\"$juju_application\",juju_model=~\"$juju_model\",juju_model_uuid=~\"$juju_model_uuid\",juju_unit=~\"$juju_unit\"})",
           "legendFormat": "__auto",
           "range": true,
           "refId": "A"
@@ -1134,7 +1121,7 @@
             "uid": "${prometheusds}"
           },
           "editorMode": "code",
-          "expr": "sum by (status) (tempodb_backend_bytes_total{juju_application=~\"$juju_application\",juju_model=~\"$juju_model\",juju_model_uuid=~\"$juju_model_uuid\",juju_unit=~\"$juju_unit\"})",
+          "expr": "sum by(status) (tempodb_backend_bytes_total{juju_application=~\"$juju_application\",juju_model=~\"$juju_model\",juju_model_uuid=~\"$juju_model_uuid\",juju_unit=~\"$juju_unit\"})",
           "legendFormat": "__auto",
           "range": true,
           "refId": "A"
@@ -1229,7 +1216,7 @@
             "uid": "${prometheusds}"
           },
           "editorMode": "code",
-          "expr": "sum by (level) (tempodb_compaction_bytes_written_total{juju_application=~\"$juju_application\",juju_model=~\"$juju_model\",juju_model_uuid=~\"$juju_model_uuid\",juju_unit=~\"$juju_unit\"})",
+          "expr": "sum by(level) (tempodb_compaction_bytes_written_total{juju_application=~\"$juju_application\",juju_model=~\"$juju_model\",juju_model_uuid=~\"$juju_model_uuid\",juju_unit=~\"$juju_unit\"})",
           "legendFormat": "__auto",
           "range": true,
           "refId": "A"
@@ -1489,6 +1476,29 @@
         },
         "hide": 0,
         "includeAll": true,
+        "label": "Loki datasource",
+        "multi": true,
+        "name": "lokids",
+        "options": [],
+        "query": "loki",
+        "queryValue": "",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "type": "datasource"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "hide": 0,
+        "includeAll": true,
         "label": "Prometheus datasource",
         "multi": true,
         "name": "prometheusds",
@@ -1503,13 +1513,9 @@
       {
         "allValue": ".*",
         "current": {
-          "selected": true,
-          "text": [
-            "All"
-          ],
-          "value": [
-            "$__all"
-          ]
+          "selected": false,
+          "text": "All",
+          "value": "$__all"
         },
         "datasource": {
           "uid": "${prometheusds}"
@@ -1538,13 +1544,9 @@
       {
         "allValue": ".*",
         "current": {
-          "selected": true,
-          "text": [
-            "All"
-          ],
-          "value": [
-            "$__all"
-          ]
+          "selected": false,
+          "text": "All",
+          "value": "$__all"
         },
         "datasource": {
           "uid": "${prometheusds}"

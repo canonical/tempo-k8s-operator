@@ -77,7 +77,7 @@ LIBAPI = 0
 
 # Increment this PATCH version before using `charmcraft publish-lib` or reset
 # to 0 if you are raising the major API version
-LIBPATCH = 1
+LIBPATCH = 2
 
 PYDEPS = ["pydantic<2.0"]
 
@@ -110,24 +110,10 @@ class DatabagModel(BaseModel):
         if cls._NEST_UNDER:
             return cls.parse_obj(json.loads(databag[cls._NEST_UNDER]))
 
-        data = {}
-
-        for key, value in cls.__fields__.items():  # type: ignore
-            raw_value = databag.get(value.alias or key)
-            if raw_value is None:
-                continue  # if this was a required field, when we call(cls**data) we will catch it
-
-            if value.type_ is str:
-                parsed = raw_value
-            elif hasattr(value.type_, "parse_raw"):
-                parsed = value.type_.parse_raw(raw_value)
-            else:
-                # todo: will this deserialize nested models?
-                parsed = json.loads(raw_value)
-            data[key] = parsed
+        data = {k: json.loads(v) for k, v in databag.items()}
 
         try:
-            return cls(**data)  # type: ignore
+            return cls.parse_raw(json.dumps(data))  # type: ignore
         except pydantic.ValidationError as e:
             msg = f"failed to validate remote unit databag: {databag}"
             logger.error(msg, exc_info=True)
@@ -352,7 +338,7 @@ class TracingEndpointRequirer(Object):
                     TracingRequirerAppData(
                         host=self._host,
                         ingesters=[
-                            {"port": port, "protocol": protocol}
+                            Ingester(port=port, protocol=protocol)
                             for protocol, port in self._ingesters
                         ],
                     ).dump(relation.data[self._charm.app])
@@ -375,11 +361,15 @@ class TracingEndpointRequirer(Object):
 class EndpointChangedEvent(_AutoSnapshotEvent):
     """Event representing a change in one of the ingester endpoints."""
 
-    __args__ = ("host", "ingesters")
+    __args__ = ("host", "_ingesters")
 
     if TYPE_CHECKING:
         host = ""  # type: str
         ingesters = []  # type: List[Ingester]
+
+    @property
+    def ingesters(self):
+        return [Ingester(**i) for i in self._ingesters]
 
 
 class TracingEndpointEvents(CharmEvents):
@@ -451,7 +441,7 @@ class TracingEndpointProvider(Object):
 
         data = TracingRequirerAppData.load(relation.data[relation.app])
         if data:
-            self.on.endpoint_changed.emit(relation, data.url, data.ingesters)  # type: ignore
+            self.on.endpoint_changed.emit(relation, data.host, [i.dict() for i in data.ingesters])  # type: ignore
 
     @property
     def endpoints(self) -> Optional[TracingRequirerAppData]:
@@ -466,10 +456,10 @@ class TracingEndpointProvider(Object):
         if not ep:
             return None
         try:
-            otlp_grpc_ingester_port = next(
+            ingester: Ingester = next(
                 filter(lambda i: i.protocol == protocol, ep.ingesters)
-            ).port
-            return f"{ep.url}:{otlp_grpc_ingester_port}"
+            )
+            return f"{ep.host}:{ingester.port}"
         except StopIteration:
             logger.error(f"no ingester found with protocol={protocol!r}")
             return None

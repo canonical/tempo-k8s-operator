@@ -19,6 +19,7 @@ from ops.charm import CharmBase, WorkloadEvent
 from ops.framework import StoredState
 from ops.main import main
 from ops.model import ActiveStatus
+
 from tempo import Tempo
 
 logger = logging.getLogger(__name__)
