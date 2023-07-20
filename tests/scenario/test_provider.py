@@ -40,14 +40,13 @@ def test_requirer_api(context):
     )
     state = State(leader=True, relations=[tracing])
 
-    def post_event(charm:MyCharm):
+    def post_event(charm: MyCharm):
         assert charm.tracing.otlp_grpc_endpoint == f"{host}:4317"
         assert charm.tracing.otlp_http_endpoint == f"{host}:4318"
         assert charm.tracing.otlp_http_endpoint == f"{host}:4318"
 
     with _charm_tracing_disabled():
-        out = context.run(tracing.changed_event, state,
-                          post_event=post_event)
+        context.run(tracing.changed_event, state, post_event=post_event)
 
     rchanged, epchanged = context.emitted_events
     assert isinstance(epchanged, EndpointChangedEvent)

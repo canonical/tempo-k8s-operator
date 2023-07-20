@@ -369,6 +369,7 @@ class EndpointChangedEvent(_AutoSnapshotEvent):
 
     @property
     def ingesters(self):
+        """Cast ingesters back from dict."""
         return [Ingester(**i) for i in self._ingesters]
 
 
@@ -456,9 +457,7 @@ class TracingEndpointProvider(Object):
         if not ep:
             return None
         try:
-            ingester: Ingester = next(
-                filter(lambda i: i.protocol == protocol, ep.ingesters)
-            )
+            ingester: Ingester = next(filter(lambda i: i.protocol == protocol, ep.ingesters))
             return f"{ep.host}:{ingester.port}"
         except StopIteration:
             logger.error(f"no ingester found with protocol={protocol!r}")
