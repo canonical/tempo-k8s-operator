@@ -321,3 +321,49 @@ def test_base_tracer_endpoint_custom_event(caplog):
             assert span.parent
             assert span.parent.trace_id
         assert len({(span.parent.trace_id if span.parent else 0) for span in spans}) == 2
+
+
+class MyCharmWithStaticMethods(CharmBase):
+    META = {"name": "frank"}
+
+    def __init__(self, fw):
+        super().__init__(fw)
+        fw.observe(self.on.start, self._on_start)
+
+    @staticmethod
+    def static():
+        pass
+
+    def _on_start(self, _):
+        self.static()
+
+    @property
+    def tempo(self):
+        return "foo.bar:80"
+
+
+autoinstrument(MyCharmWithStaticMethods, MyCharmWithStaticMethods.tempo)
+
+
+def test_static_method_calls(caplog):
+    import opentelemetry
+
+    with patch("opentelemetry.exporter.otlp.proto.grpc.exporter.OTLPExporterMixin._export") as f:
+        f.return_value = opentelemetry.sdk.metrics._internal.export.MetricExportResult.SUCCESS
+        ctx = Context(MyCharmWithStaticMethods, meta=MyCharmWithStaticMethods.META)
+        ctx.run("start", State())
+
+        spans = f.call_args_list[0].args[0]
+        span_names = [span.name for span in spans]
+        assert span_names == [
+            "(static) method call: MyCharmWithStaticMethods.static",
+            "method call: MyCharmWithStaticMethods._on_start",
+            "event: start",
+            "charm exec",
+        ]
+        # only the charm exec span is a root
+        assert not spans[-1].parent
+        for span in spans[:-1]:
+            assert span.parent
+            assert span.parent.trace_id
+        assert len({(span.parent.trace_id if span.parent else 0) for span in spans}) == 2

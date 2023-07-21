@@ -66,15 +66,14 @@ from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExport
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import Span, TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.trace import INVALID_SPAN, Tracer
+from opentelemetry.trace import get_current_span as otlp_get_current_span
 from opentelemetry.trace import (
-    INVALID_SPAN,
-    Tracer,
     get_tracer,
     get_tracer_provider,
     set_span_in_context,
     set_tracer_provider,
 )
-from opentelemetry.trace import get_current_span as otlp_get_current_span
 from ops.charm import CharmBase
 from ops.framework import Framework
 
@@ -86,7 +85,7 @@ LIBAPI = 0
 
 # Increment this PATCH version before using `charmcraft publish-lib` or reset
 # to 0 if you are raising the major API version
-LIBPATCH = 5
+LIBPATCH = 4
 
 PYDEPS = ["opentelemetry-exporter-otlp-proto-grpc==1.17.0"]
 
@@ -316,20 +315,21 @@ def trace_type(cls: _T) -> _T:
         logger.info(f"discovered {method}")
 
         if method.__name__.startswith("__"):
-            logger.info("skipping (dunder)")
+            logger.info(f"skipping {method} (dunder)")
             continue
 
-        setattr(cls, name, trace_method(method))
+        isstatic = isinstance(inspect.getattr_static(cls, method.__name__), staticmethod)
+        setattr(cls, name, trace_method(method, static=isstatic))
 
     return cls
 
 
-def trace_method(method: _F) -> _F:
+def trace_method(method: _F, static: bool = False) -> _F:
     """Trace this method.
 
     A span will be opened when this method is called and closed when it returns.
     """
-    return _trace_callable(method, "method")
+    return _trace_callable(method, "method", static=static)
 
 
 def trace_function(function: _F) -> _F:
@@ -340,14 +340,16 @@ def trace_function(function: _F) -> _F:
     return _trace_callable(function, "function")
 
 
-def _trace_callable(callable: _F, qualifier: str) -> _F:
+def _trace_callable(callable: _F, qualifier: str, static: bool = False) -> _F:
     logger.info(f"instrumenting {callable}")
 
     # sig = inspect.signature(callable)
     @functools.wraps(callable)
     def wrapped_function(*args, **kwargs):  # type: ignore
         name = getattr(callable, "__qualname__", getattr(callable, "__name__", str(callable)))
-        with _span(f"{qualifier} call: {name}"):  # type: ignore
+        with _span(f"{'(static) ' if static else ''}{qualifier} call: {name}"):  # type: ignore
+            if static:
+                return callable(*args[1:], **kwargs)  # type: ignore
             return callable(*args, **kwargs)  # type: ignore
 
     # wrapped_function.__signature__ = sig
