@@ -99,6 +99,7 @@ class DataValidationError(TracingError):
     """Raised when data validation fails on IPU relation data."""
 
 
+# todo: use fully-encoded json fields like Traefik does. MUCH neater
 class DatabagModel(BaseModel):
     """Base databag model."""
 
