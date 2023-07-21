@@ -1,3 +1,4 @@
+import json
 import socket
 from pathlib import Path
 
@@ -34,9 +35,9 @@ def test_tempo_endpoint_published(context):
 
     tracing_out = out.get_relations(tracing.endpoint)[0]
     assert tracing_out.local_app_data == {
-        "ingesters": '[{"protocol": "tempo", "port": "3200"}, '
-        '{"protocol": "otlp_grpc", "port": "4317"}, '
-        '{"protocol": "otlp_http", "port": "4318"}, '
-        '{"protocol": "zipkin", "port": "9411"}]',
-        "url": "http://" + socket.getfqdn(),
+        "ingesters": '[{"protocol": "tempo", "port": 3200}, '
+        '{"protocol": "otlp_grpc", "port": 4317}, '
+        '{"protocol": "otlp_http", "port": 4318}, '
+        '{"protocol": "zipkin", "port": 9411}]',
+        "host": json.dumps(socket.getfqdn()),
     }

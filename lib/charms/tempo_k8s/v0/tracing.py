@@ -61,14 +61,13 @@ follows
 """  # noqa: W505
 import json
 import logging
-from itertools import starmap
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Tuple, cast
+from typing import TYPE_CHECKING, List, Literal, MutableMapping, Optional, Tuple, cast
 
 import pydantic
 from ops.charm import CharmBase, CharmEvents, RelationEvent, RelationRole
 from ops.framework import EventSource, Object
-from ops.model import Application, ModelError, Relation
-from pydantic import AnyHttpUrl, BaseModel, Json
+from ops.model import ModelError, Relation
+from pydantic import BaseModel
 
 # The unique Charmhub library identifier, never change it
 LIBID = "12977e9aa0b34367903d8afeb8c3d85d"
@@ -78,7 +77,7 @@ LIBAPI = 0
 
 # Increment this PATCH version before using `charmcraft publish-lib` or reset
 # to 0 if you are raising the major API version
-LIBPATCH = 1
+LIBPATCH = 3
 
 PYDEPS = ["pydantic<2.0"]
 
@@ -92,45 +91,55 @@ IngesterProtocol = Literal["otlp_grpc", "otlp_http", "zipkin", "tempo"]
 RawIngester = Tuple[IngesterProtocol, int]
 
 
+class TracingError(RuntimeError):
+    """Base class for custom errors raised by this library."""
+
+
+class DataValidationError(TracingError):
+    """Raised when data validation fails on IPU relation data."""
+
+
+# todo: use fully-encoded json fields like Traefik does. MUCH neater
+class DatabagModel(BaseModel):
+    """Base databag model."""
+
+    _NEST_UNDER = None
+
+    @classmethod
+    def load(cls, databag: MutableMapping):
+        """Load this model from a Juju databag."""
+        if cls._NEST_UNDER:
+            return cls.parse_obj(json.loads(databag[cls._NEST_UNDER]))
+
+        data = {k: json.loads(v) for k, v in databag.items()}
+
+        try:
+            return cls.parse_raw(json.dumps(data))  # type: ignore
+        except pydantic.ValidationError as e:
+            msg = f"failed to validate remote unit databag: {databag}"
+            logger.error(msg, exc_info=True)
+            raise DataValidationError(msg) from e
+
+    def dump(self, databag: MutableMapping):
+        """Write the contents of this model to Juju databag."""
+        if self._NEST_UNDER:
+            databag[self._NEST_UNDER] = self.json()
+
+        dct = self.dict()
+        for key, field in self.__fields__.items():  # type: ignore
+            value = dct[key]
+            databag[field.alias or key] = json.dumps(value)
+
+
 # todo use models from charm-relation-interfaces
 class Ingester(BaseModel):  # noqa: D101
     protocol: IngesterProtocol
-    port: str
+    port: int
 
 
-class TracingRequirerData(BaseModel):  # noqa: D101
-    url: AnyHttpUrl
-    ingesters: Json[List[Ingester]]
-
-    @classmethod
-    def load(cls, relation: Relation) -> Optional["TracingRequirerData"]:
-        """Unmarshal relation data."""
-        try:
-            app = cast(Application, relation.app)  # assume caller did their duty
-            app_databag = relation.data[app]
-            url = app_databag["url"]
-            ingesters = list(starmap(Ingester, json.loads(app_databag["ingesters"])))
-            return cls(url=cast(AnyHttpUrl, url), ingesters=ingesters)
-        except Exception as e:
-            logger.error(e, exc_info=True)
-            return None
-
-    @classmethod
-    def dump(
-        cls, relation: Relation, app: Application, url: str, raw_ingesters: List[RawIngester]
-    ):
-        """Marshal to relation data."""
-        ingesters = json.dumps(
-            [Ingester(protocol=proto, port=port).dict() for proto, port in raw_ingesters]
-        )
-        try:
-            cls(url=url, ingesters=ingesters)
-        except pydantic.ValidationError:
-            logger.error(f"error validating {url}/{raw_ingesters}")
-            raise
-        databag = relation.data[app]
-        databag["url"] = url
-        databag["ingesters"] = ingesters
+class TracingRequirerAppData(DatabagModel):  # noqa: D101
+    host: str
+    ingesters: List[Ingester]
 
 
 class _AutoSnapshotEvent(RelationEvent):
@@ -287,7 +296,7 @@ class TracingEndpointRequirer(Object):
     def __init__(
         self,
         charm: CharmBase,
-        url: str,
+        host: str,
         ingesters: List[RawIngester],
         relation_name: str = DEFAULT_RELATION_NAME,
     ):
@@ -314,20 +323,12 @@ class TracingEndpointRequirer(Object):
 
         super().__init__(charm, relation_name)
         self._charm = charm
-        self._url = url
+        self._host = host
         self._ingesters = ingesters
         self._relation_name = relation_name
         events = self._charm.on[relation_name]
         self.framework.observe(events.relation_created, self._on_relation_event)
         self.framework.observe(events.relation_joined, self._on_relation_event)
-
-    def _marshal(self) -> Dict[Any, Any]:
-        """Marshal data that should be transmitted over relation data."""
-        data = {
-            "url": self._url,
-            "ingesters": json.dumps([ing.dict() for ing in self._ingesters]),
-        }
-        return data
 
     def _on_relation_event(self, _):
         # Generic relation event handler.
@@ -335,14 +336,20 @@ class TracingEndpointRequirer(Object):
         try:
             if self._charm.unit.is_leader():
                 for relation in self._charm.model.relations[self._relation_name]:
-                    TracingRequirerData.dump(relation, self._charm.app, self._url, self._ingesters)
+                    TracingRequirerAppData(
+                        host=self._host,
+                        ingesters=[
+                            Ingester(port=port, protocol=protocol)
+                            for protocol, port in self._ingesters
+                        ],
+                    ).dump(relation.data[self._charm.app])
 
         except ModelError as e:
             # args are bytes
             msg = e.args[0]
             if isinstance(msg, bytes):
                 if msg.startswith(
-                    b"ERROR cannot read relation application " b"settings: permission denied"
+                    b"ERROR cannot read relation application settings: permission denied"
                 ):
                     logger.error(
                         f"encountered error {e} while attempting to update_relation_data."
@@ -355,11 +362,16 @@ class TracingEndpointRequirer(Object):
 class EndpointChangedEvent(_AutoSnapshotEvent):
     """Event representing a change in one of the ingester endpoints."""
 
-    __args__ = ("url", "ingesters")
+    __args__ = ("host", "_ingesters")
 
     if TYPE_CHECKING:
-        url = ""  # type: str
+        host = ""  # type: str
         ingesters = []  # type: List[Ingester]
+
+    @property
+    def ingesters(self):
+        """Cast ingesters back from dict."""
+        return [Ingester(**i) for i in self._ingesters]
 
 
 class TracingEndpointEvents(CharmEvents):
@@ -425,30 +437,29 @@ class TracingEndpointProvider(Object):
 
     def _on_tracing_relation_changed(self, event):
         """Notify the providers that there is new endpoint information available."""
-        if not self._is_ready(event.relation):
+        relation = event.relation
+        if not self._is_ready(relation):
             return
 
-        data = TracingRequirerData.load(event.relation)
+        data = TracingRequirerAppData.load(relation.data[relation.app])
         if data:
-            self.on.endpoint_changed.emit(event.relation, data.url, data.ingesters)  # type: ignore
+            self.on.endpoint_changed.emit(relation, data.host, [i.dict() for i in data.ingesters])  # type: ignore
 
     @property
-    def endpoints(self) -> Optional[TracingRequirerData]:
+    def endpoints(self) -> Optional[TracingRequirerAppData]:
         """Unmarshalled relation data."""
         relation = self._charm.model.get_relation(self._relation_name)
         if not self._is_ready(relation):
             return
-        return TracingRequirerData.load(relation)
+        return TracingRequirerAppData.load(relation.data[relation.app])
 
     def _get_ingester(self, protocol: IngesterProtocol):
         ep = self.endpoints
         if not ep:
             return None
         try:
-            otlp_grpc_ingester_port = next(
-                filter(lambda i: i.protocol == protocol, ep.ingesters)
-            ).port
-            return f"http://{ep.url}:{otlp_grpc_ingester_port}"
+            ingester: Ingester = next(filter(lambda i: i.protocol == protocol, ep.ingesters))
+            return f"{ep.host}:{ingester.port}"
         except StopIteration:
             logger.error(f"no ingester found with protocol={protocol!r}")
             return None
