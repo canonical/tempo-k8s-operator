@@ -12,15 +12,15 @@ in real time from the Grafana dashboard the execution flow of your charm.
 To start using this library, you need to do two things:
 1) decorate your charm class with
 
-`@trace_charm(tempo_endpoint_getter="tempo_endpoint_getter")`
+`@trace_charm(tracing_endpoint="my_tracing_endpoint")`
 
-2) add to your charm a "tempo_endpoint_getter" (you can name this attribute whatever you like) property
-that returns a tempo otlp grpc endpoint. If you are using the `TracingEndpointProvider` as
-`self.tracing = TracingEndpointProvider(self)`, the implementation would be:
+2) add to your charm a "my_tracing_endpoint" (you can name this attribute whatever you like) **property**
+that returns an otlp grpc endpoint url. If you are using the `TracingEndpointProvider` as
+`self.tracing = TracingEndpointProvider(self)`, the implementation could be:
 
 ```
     @property
-    def tempo_endpoint_getter(self) -> Optional[str]:
+    def my_tracing_endpoint(self) -> Optional[str]:
         '''Tempo endpoint for charm tracing'''
         return self.tracing.otlp_grpc_endpoint
 ```
@@ -85,7 +85,7 @@ LIBAPI = 0
 
 # Increment this PATCH version before using `charmcraft publish-lib` or reset
 # to 0 if you are raising the major API version
-LIBPATCH = 4
+LIBPATCH = 5
 
 PYDEPS = ["opentelemetry-exporter-otlp-proto-grpc==1.17.0"]
 
@@ -156,9 +156,9 @@ class UntraceableObjectError(TracingError):
 
 
 def _setup_root_span_initializer(
-    charm: Type[CharmBase],
-    tempo_endpoint_getter: Callable[[CharmBase], Optional[str]],
-    service_name: Optional[str] = None,
+        charm: Type[CharmBase],
+        tracing_endpoint_getter: Callable[[CharmBase], Optional[str]],
+        service_name: Optional[str] = None,
 ):
     """Patch the charm's initializer."""
     original_init = charm.__init__
@@ -193,24 +193,24 @@ def _setup_root_span_initializer(
         )
         provider = TracerProvider(resource=resource)
 
-        if isinstance(tempo_endpoint_getter, property):
-            tempo_endpoint = tempo_endpoint_getter.__get__(self)
+        if isinstance(tracing_endpoint_getter, property):
+            tracing_endpoint = tracing_endpoint_getter.__get__(self)
         else:  # method or callable
-            tempo_endpoint = tempo_endpoint_getter(self)
+            tracing_endpoint = tracing_endpoint_getter(self)
 
-        if tempo_endpoint is None:
+        if tracing_endpoint is None:
             logger.warning(
-                f"{charm}.{tempo_endpoint_getter} returned None; continuing with tracing DISABLED."
+                f"{charm}.{tracing_endpoint_getter} returned None; continuing with tracing DISABLED."
             )
             return
-        elif not isinstance(tempo_endpoint, str):
+        elif not isinstance(tracing_endpoint, str):
             raise TypeError(
-                f"{charm}.{tempo_endpoint_getter} should return a tempo endpoint (string); "
-                f"got {tempo_endpoint} instead."
+                f"{charm}.{tracing_endpoint_getter} should return a tempo endpoint (string); "
+                f"got {tracing_endpoint} instead."
             )
         else:
-            logger.debug(f"Setting up span exporter to endpoint: {tempo_endpoint}")
-            exporter = OTLPSpanExporter(endpoint=tempo_endpoint)
+            logger.debug(f"Setting up span exporter to endpoint: {tracing_endpoint}")
+            exporter = OTLPSpanExporter(endpoint=tracing_endpoint)
 
         processor = BatchSpanProcessor(exporter)
         provider.add_span_processor(processor)
@@ -262,11 +262,56 @@ def _setup_root_span_initializer(
     charm.__init__ = wrap_init
 
 
-def autoinstrument(
-    charm_type: Type[CharmBase],
-    tempo_endpoint_getter: Union[Callable[[CharmBase], Optional[str]], property],
-    service_name: Optional[str] = None,
-    extra_types: Sequence[type] = (),
+def trace_charm(tracing_endpoint: str,
+                service_name: Optional[str] = None,
+                extra_types: Sequence[type] = ()):
+    """Decorator to autoinstrument a charm.
+
+    Use this function to get out-of-the-box traces for all events emitted on this charm and all
+    method calls on instances of this class.
+
+    Usage:
+    >>> from charms.tempo_k8s.v0.charm_instrumentation import trace_charm
+    >>> from charms.tempo_k8s.v0.tracing import TracingEndpointProvider
+    >>> from ops import CharmBase
+    >>>
+    >>> @trace_charm(
+    >>>         tracing_endpoint="tempo_otlp_grpc_endpoint",
+    >>> )
+    >>> class MyCharm(CharmBase):
+    >>>     
+    >>>     def __init__(self, framework: Framework):
+    >>>         ...
+    >>>         self.tempo = TracingEndpointProvider(self)
+    >>>
+    >>>     @property
+    >>>     def tempo_otlp_grpc_endpoint(self) -> Optional[str]:
+    >>>         return self.tempo.otlp_grpc_endpoint
+    >>>     
+
+    :param tracing_endpoint: name of a property on the charm type that returns an
+        optional tempo url. If None, tracing will be effectively disabled. Else, traces will be
+        pushed to that endpoint.
+    :param service_name: service name tag to attach to all traces generated by this charm.
+        Defaults to the juju application name this charm is deployed under.
+    :param extra_types: pass any number of types that you also wish to autoinstrument.
+        For example, charm libs, relation endpoint wrappers, workload abstractions, ...
+    """
+    def _decorator(charm_type: Type[CharmBase]):
+        """Decorator to autoinstrument the wrapped charmbase type."""
+        _autoinstrument(charm_type,
+                       tracing_endpoint_getter=getattr(charm_type, tracing_endpoint),
+                       service_name=service_name,
+                       extra_types=extra_types)
+
+    return _decorator
+
+
+def _autoinstrument(
+        charm_type: Type[CharmBase],
+        tracing_endpoint_getter: Union[Callable[[CharmBase], Optional[str]], property],
+        service_name: Optional[str] = None,
+        extra_types: Sequence[type] = (),
 ) -> Type[CharmBase]:
     """Set up tracing on this charm class.
 
@@ -279,14 +324,14 @@ def autoinstrument(
     >>> from ops.main import main
     >>> autoinstrument(
     >>>         MyCharm,
-    >>>         tempo_endpoint_getter=MyCharm.tempo_otlp_grpc_endpoint,
+    >>>         tracing_endpoint_getter=MyCharm.tempo_otlp_grpc_endpoint,
     >>>         service_name="MyCharm",
     >>>         extra_types=(Foo, Bar)
     >>> )
     >>> main(MyCharm)
 
     :param charm_type: the CharmBase subclass to autoinstrument.
-    :param tempo_endpoint_getter: method or property on the charm type that returns an
+    :param tracing_endpoint_getter: method or property on the charm type that returns an
         optional tempo url. If None, tracing will be effectively disabled. Else, traces will be
         pushed to that endpoint.
     :param service_name: service name tag to attach to all traces generated by this charm.
@@ -295,7 +340,7 @@ def autoinstrument(
         For example, charm libs, relation endpoint wrappers, workload abstractions, ...
     """
     logger.info(f"instrumenting {charm_type}")
-    _setup_root_span_initializer(charm_type, tempo_endpoint_getter, service_name=service_name)
+    _setup_root_span_initializer(charm_type, tracing_endpoint_getter, service_name=service_name)
     trace_type(charm_type)
     for type_ in extra_types:
         trace_type(type_)
