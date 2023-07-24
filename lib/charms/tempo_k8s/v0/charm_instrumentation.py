@@ -93,6 +93,7 @@ PYDEPS = ["opentelemetry-exporter-otlp-proto-grpc==1.17.0"]
 logger = logging.getLogger("tracing")
 
 tracer: ContextVar[Tracer] = ContextVar("tracer")
+_GetterType = Union[Callable[[CharmBase], Optional[str]], property]
 
 CHARM_TRACING_ENABLED = "CHARM_TRACING_ENABLED"
 
@@ -157,9 +158,9 @@ class UntraceableObjectError(TracingError):
 
 
 def _setup_root_span_initializer(
-    charm: Type[CharmBase],
-    tracing_endpoint_getter: Callable[[CharmBase], Optional[str]],
-    service_name: Optional[str] = None,
+        charm: Type[CharmBase],
+        tracing_endpoint_getter: _GetterType,
+        service_name: Optional[str] = None,
 ):
     """Patch the charm's initializer."""
     original_init = charm.__init__
@@ -264,7 +265,7 @@ def _setup_root_span_initializer(
 
 
 def trace_charm(
-    tracing_endpoint: str, service_name: Optional[str] = None, extra_types: Sequence[type] = ()
+        tracing_endpoint: str, service_name: Optional[str] = None, extra_types: Sequence[type] = ()
 ):
     """Autoinstrument the decorated charm with tracing telemetry.
 
@@ -313,10 +314,10 @@ def trace_charm(
 
 
 def _autoinstrument(
-    charm_type: Type[CharmBase],
-    tracing_endpoint_getter: Union[Callable[[CharmBase], Optional[str]], property],
-    service_name: Optional[str] = None,
-    extra_types: Sequence[type] = (),
+        charm_type: Type[CharmBase],
+        tracing_endpoint_getter: _GetterType,
+        service_name: Optional[str] = None,
+        extra_types: Sequence[type] = (),
 ) -> Type[CharmBase]:
     """Set up tracing on this charm class.
 

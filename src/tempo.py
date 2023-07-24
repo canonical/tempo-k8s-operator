@@ -6,7 +6,7 @@
 
 import socket
 from subprocess import CalledProcessError, getoutput
-from typing import List
+from typing import List, Tuple
 
 import yaml
 from charms.tempo_k8s.v0.tracing import RawIngester
@@ -36,7 +36,7 @@ class Tempo:
 
         self._local_hostname = local_host
 
-        self._supported_ingesters: List[RawIngester] = (
+        self._supported_ingesters: Tuple[RawIngester, ...] = (
             ("tempo", self.tempo_port),
             ("otlp_grpc", self.otlp_grpc_port),
             ("otlp_http", self.otlp_http_port),

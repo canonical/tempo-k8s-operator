@@ -61,7 +61,7 @@ follows
 """  # noqa: W505
 import json
 import logging
-from typing import TYPE_CHECKING, List, Literal, MutableMapping, Optional, Tuple, cast
+from typing import TYPE_CHECKING, List, Literal, MutableMapping, Optional, Tuple, cast, Dict, Any
 
 import pydantic
 from ops.charm import CharmBase, CharmEvents, RelationEvent, RelationRole
@@ -77,7 +77,7 @@ LIBAPI = 0
 
 # Increment this PATCH version before using `charmcraft publish-lib` or reset
 # to 0 if you are raising the major API version
-LIBPATCH = 3
+LIBPATCH = 4
 
 PYDEPS = ["pydantic<2.0"]
 
@@ -366,10 +366,10 @@ class EndpointChangedEvent(_AutoSnapshotEvent):
 
     if TYPE_CHECKING:
         host = ""  # type: str
-        ingesters = []  # type: List[Ingester]
+        _ingesters = []  # type: List[dict]
 
     @property
-    def ingesters(self):
+    def ingesters(self) -> List[Ingester]:
         """Cast ingesters back from dict."""
         return [Ingester(**i) for i in self._ingesters]
 
@@ -430,6 +430,9 @@ class TracingEndpointProvider(Object):
         if not relation:
             logger.error("no relation")
             return False
+        if relation.data is None:
+            logger.error("relation data is None")
+            return False
         if not relation.app:
             logger.error(f"{relation} event received but there is no relation.app")
             return False
@@ -451,7 +454,7 @@ class TracingEndpointProvider(Object):
         relation = self._charm.model.get_relation(self._relation_name)
         if not self._is_ready(relation):
             return
-        return TracingRequirerAppData.load(relation.data[relation.app])
+        return TracingRequirerAppData.load(relation.data[relation.app])  # type: ignore
 
     def _get_ingester(self, protocol: IngesterProtocol):
         ep = self.endpoints
