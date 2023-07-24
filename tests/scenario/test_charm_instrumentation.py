@@ -4,7 +4,7 @@ from unittest.mock import patch
 import pytest
 from charms.tempo_k8s.v0.charm_instrumentation import (
     CHARM_TRACING_ENABLED,
-    autoinstrument,
+    _autoinstrument as autoinstrument,
     get_current_span,
     trace,
 )

@@ -8,8 +8,9 @@ from charm import TempoCharm
 
 @pytest.fixture
 def tempo_charm():
-    with patch("charm.KubernetesServicePatch"), patch("lightkube.core.client.GenericSyncClient"):
-        yield TempoCharm
+    with patch("charm.KubernetesServicePatch"):
+        with patch("lightkube.core.client.GenericSyncClient"):
+            yield TempoCharm
 
 
 @pytest.fixture(scope="function")
