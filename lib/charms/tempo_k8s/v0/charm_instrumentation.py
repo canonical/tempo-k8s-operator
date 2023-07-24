@@ -66,14 +66,15 @@ from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExport
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import Span, TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
-from opentelemetry.trace import INVALID_SPAN, Tracer
-from opentelemetry.trace import get_current_span as otlp_get_current_span
 from opentelemetry.trace import (
+    INVALID_SPAN,
+    Tracer,
     get_tracer,
     get_tracer_provider,
     set_span_in_context,
     set_tracer_provider,
 )
+from opentelemetry.trace import get_current_span as otlp_get_current_span
 from ops.charm import CharmBase
 from ops.framework import Framework
 
@@ -265,7 +266,7 @@ def _setup_root_span_initializer(
 def trace_charm(
     tracing_endpoint: str, service_name: Optional[str] = None, extra_types: Sequence[type] = ()
 ):
-    """Decorator to autoinstrument a charm.
+    """Autoinstrument the decorated charm with tracing telemetry.
 
     Use this function to get out-of-the-box traces for all events emitted on this charm and all
     method calls on instances of this class.
@@ -299,7 +300,7 @@ def trace_charm(
     """
 
     def _decorator(charm_type: Type[CharmBase]):
-        """Decorator to autoinstrument the wrapped charmbase type."""
+        """Autoinstrument the wrapped charmbase type."""
         _autoinstrument(
             charm_type,
             tracing_endpoint_getter=getattr(charm_type, tracing_endpoint),
