@@ -229,7 +229,7 @@ def _setup_root_span_initializer(
         ctx = set_span_in_context(span)
 
         # log a trace id so we can look it up in tempo.
-        root_trace_id = hex(span.get_span_context().trace_id)[2:]  # strip 0x prefix
+        root_trace_id = hex(span.get_span_context().trace_id)[2:]  # strip 0x hex prefix
         logger.debug(f"Starting root trace with id={root_trace_id!r}.")
 
         span_token = opentelemetry.context.attach(ctx)  # type: ignore
