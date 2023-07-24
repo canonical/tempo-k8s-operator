@@ -13,10 +13,10 @@ from charms.grafana_k8s.v0.grafana_source import GrafanaSourceProvider
 from charms.loki_k8s.v0.loki_push_api import LogProxyConsumer
 from charms.observability_libs.v0.kubernetes_service_patch import KubernetesServicePatch
 from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
+from charms.tempo_k8s.v0.charm_instrumentation import trace_charm
 from charms.tempo_k8s.v0.tracing import TracingEndpointRequirer
 from charms.traefik_k8s.v2.ingress import IngressPerAppRequirer
 from ops.charm import CharmBase, WorkloadEvent
-from ops.framework import StoredState
 from ops.main import main
 from ops.model import ActiveStatus
 from tempo import Tempo
@@ -24,14 +24,15 @@ from tempo import Tempo
 logger = logging.getLogger(__name__)
 
 
+@trace_charm(
+    tracing_endpoint="tempo_otlp_grpc_endpoint",
+    extra_types=(Tempo, TracingEndpointRequirer),
+)
 class TempoCharm(CharmBase):
     """Charmed Operator for Tempo; a distributed tracing backend."""
 
-    _stored = StoredState()
-
     def __init__(self, *args):
         super().__init__(*args)
-        self._stored.set_default(initial_admin_password="")
         tempo_pebble_ready_event = self.on.tempo_pebble_ready  # type:ignore
         self.framework.observe(tempo_pebble_ready_event, self._on_tempo_pebble_ready)
         self.framework.observe(self.on.update_status, self._on_update_status)
@@ -39,7 +40,7 @@ class TempoCharm(CharmBase):
 
         # configure this tempo as a datasource in grafana
         self.grafana_source_provider = GrafanaSourceProvider(
-            self, source_type="tempo", source_port=tempo.tempo_port
+            self, source_type="tempo", source_port=str(tempo.tempo_port)
         )
 
         # # Patch the juju-created Kubernetes service to contain the right ports
@@ -142,12 +143,4 @@ class TempoCharm(CharmBase):
 
 
 if __name__ == "__main__":  # pragma: nocover
-    from charms.tempo_k8s.v0.charm_instrumentation import autoinstrument
-
-    autoinstrument(
-        TempoCharm,
-        tempo_endpoint_getter=TempoCharm.tempo_otlp_grpc_endpoint,
-        service_name="TempoCharm",
-        extra_types=(Tempo, TracingEndpointRequirer),
-    )
     main(TempoCharm)

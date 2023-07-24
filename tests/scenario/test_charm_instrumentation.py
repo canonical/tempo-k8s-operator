@@ -4,10 +4,10 @@ from unittest.mock import patch
 import pytest
 from charms.tempo_k8s.v0.charm_instrumentation import (
     CHARM_TRACING_ENABLED,
-    autoinstrument,
     get_current_span,
     trace,
 )
+from charms.tempo_k8s.v0.charm_instrumentation import _autoinstrument as autoinstrument
 from ops import EventBase, EventSource, Framework
 from ops.charm import CharmBase, CharmEvents
 from scenario import Context, State
