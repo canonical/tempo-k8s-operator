@@ -8,10 +8,6 @@ import logging
 import re
 from typing import Optional
 
-from ops.charm import CharmBase, WorkloadEvent
-from ops.main import main
-from ops.model import ActiveStatus
-
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
 from charms.grafana_k8s.v0.grafana_source import GrafanaSourceProvider
 from charms.loki_k8s.v0.loki_push_api import LogProxyConsumer
@@ -20,6 +16,10 @@ from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
 from charms.tempo_k8s.v0.charm_instrumentation import trace_charm
 from charms.tempo_k8s.v0.tracing import TracingEndpointRequirer
 from charms.traefik_k8s.v2.ingress import IngressPerAppRequirer
+from ops.charm import CharmBase, WorkloadEvent
+from ops.main import main
+from ops.model import ActiveStatus
+
 from tempo import Tempo
 
 logger = logging.getLogger(__name__)
