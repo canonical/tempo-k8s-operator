@@ -331,7 +331,9 @@ def trace_charm(
     >>>     def tempo_otlp_grpc_endpoint(self) -> Optional[str]:
     >>>         return self.tempo.otlp_grpc_endpoint
     >>>
-
+    :param server_cert: method or property on the charm type that returns an
+        optional tls certificate to be used when sending traces to a remote server.
+        If it returns None, an _insecure_ connection will be used.
     :param tracing_endpoint: name of a property on the charm type that returns an
         optional tempo url. If None, tracing will be effectively disabled. Else, traces will be
         pushed to that endpoint.
@@ -369,9 +371,9 @@ def _autoinstrument(
 
     Usage:
 
-    >>> from charms.tempo_k8s.v0.charm_instrumentation import autoinstrument
+    >>> from charms.tempo_k8s.v0.charm_instrumentation import _autoinstrument
     >>> from ops.main import main
-    >>> autoinstrument(
+    >>> _autoinstrument(
     >>>         MyCharm,
     >>>         tracing_endpoint_getter=MyCharm.tempo_otlp_grpc_endpoint,
     >>>         service_name="MyCharm",
@@ -380,6 +382,8 @@ def _autoinstrument(
     >>> main(MyCharm)
 
     :param charm_type: the CharmBase subclass to autoinstrument.
+    :param server_cert_getter: method or property on the charm type that returns an
+        optional tls certificate to be used when sending traces to a remote server.
     :param tracing_endpoint_getter: method or property on the charm type that returns an
         optional tempo url. If None, tracing will be effectively disabled. Else, traces will be
         pushed to that endpoint.
