@@ -195,8 +195,7 @@ def _get_server_cert(server_cert_getter, self, charm):
             f"{charm}.{server_cert_getter} should return a valid tls cert (string); "
             f"got {server_cert} instead."
         )
-    else:
-        logger.debug(f"Setting up span exporter cert: {server_cert[:100]}")
+    logger.debug(f"Certificate successfully retrieved.")  # todo: some more validation?
     return server_cert
 
 
