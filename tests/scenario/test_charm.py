@@ -38,6 +38,8 @@ def test_tempo_endpoint_published(context):
         "ingesters": '[{"protocol": "tempo", "port": 3200}, '
         '{"protocol": "otlp_grpc", "port": 4317}, '
         '{"protocol": "otlp_http", "port": 4318}, '
-        '{"protocol": "zipkin", "port": 9411}]',
+        '{"protocol": "zipkin", "port": 9411}, '
+        '{"protocol": "jaeger_http_thrift", "port": 14268}, '
+        '{"protocol": "jaeger_grpc", "port": 14250}]',
         "host": json.dumps(socket.getfqdn()),
     }
