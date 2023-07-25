@@ -166,7 +166,8 @@ def _get_tracing_endpoint(tracing_endpoint_getter, self, charm):
 
     if tracing_endpoint is None:
         logger.warning(
-            f"{charm}.{tracing_endpoint_getter.__name__} returned None; continuing with tracing DISABLED."
+            f"{charm}.{getattr(tracing_endpoint_getter, '__qualname__', str(tracing_endpoint_getter))} "
+            f"returned None; continuing with tracing DISABLED."
         )
         return
     elif not isinstance(tracing_endpoint, str):
@@ -360,7 +361,7 @@ def trace_charm(
 def _autoinstrument(
     charm_type: Type[CharmBase],
     tracing_endpoint_getter: _GetterType,
-    server_cert_getter: Optional[_GetterType],
+    server_cert_getter: Optional[_GetterType]=None,
     service_name: Optional[str] = None,
     extra_types: Sequence[type] = (),
 ) -> Type[CharmBase]:
