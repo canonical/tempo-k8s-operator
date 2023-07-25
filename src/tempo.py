@@ -33,7 +33,8 @@ class Tempo:
         self.otlp_grpc_port = 4317
         self.otlp_http_port = 4318
         self.zipkin_port = 9411
-
+        self.jaeger_http_thrift_port = 14268
+        self.jaeger_grpc_port = 14250
         self._local_hostname = local_host
 
         self._supported_ingesters: Tuple[RawIngester, ...] = (
@@ -41,6 +42,8 @@ class Tempo:
             ("otlp_grpc", self.otlp_grpc_port),
             ("otlp_http", self.otlp_http_port),
             ("zipkin", self.zipkin_port),
+            ("jaeger_http_thrift", self.jaeger_http_thrift_port),
+            ("jaeger_grpc", self.jaeger_grpc_port),
         )
 
     def get_requested_ports(self, service_name_prefix: str):
