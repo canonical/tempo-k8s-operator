@@ -201,10 +201,10 @@ def _get_server_cert(server_cert_getter, self, charm):
 
 
 def _setup_root_span_initializer(
-        charm: Type[CharmBase],
-        tracing_endpoint_getter: _GetterType,
-        server_cert_getter: _GetterType,
-        service_name: Optional[str] = None,
+    charm: Type[CharmBase],
+    tracing_endpoint_getter: _GetterType,
+    server_cert_getter: Optional[_GetterType],
+    service_name: Optional[str] = None,
 ):
     """Patch the charm's initializer."""
     original_init = charm.__init__
@@ -242,11 +242,15 @@ def _setup_root_span_initializer(
         if not tracing_endpoint:
             return
 
-        server_cert = _get_server_cert(server_cert_getter, self, charm)
-
+        server_cert: Optional[str] = (
+            _get_server_cert(server_cert_getter, self, charm) if server_cert_getter else None
+        )
         credentials = ChannelCredentials(server_cert) if server_cert else None
         insecure = None if credentials else True
-        exporter = OTLPSpanExporter(endpoint=tracing_endpoint, credentials=credentials, insecure=insecure, timeout=2)
+
+        exporter = OTLPSpanExporter(
+            endpoint=tracing_endpoint, credentials=credentials, insecure=insecure, timeout=2
+        )
 
         processor = BatchSpanProcessor(exporter)
         provider.add_span_processor(processor)
@@ -299,7 +303,10 @@ def _setup_root_span_initializer(
 
 
 def trace_charm(
-        tracing_endpoint: str, server_cert: str, service_name: Optional[str] = None, extra_types: Sequence[type] = ()
+    tracing_endpoint: str,
+    server_cert: Optional[str] = None,
+    service_name: Optional[str] = None,
+    extra_types: Sequence[type] = (),
 ):
     """Autoinstrument the decorated charm with tracing telemetry.
 
@@ -339,7 +346,7 @@ def trace_charm(
         _autoinstrument(
             charm_type,
             tracing_endpoint_getter=getattr(charm_type, tracing_endpoint),
-            server_cert_getter=getattr(charm_type, server_cert),
+            server_cert_getter=getattr(charm_type, server_cert) if server_cert else None,
             service_name=service_name,
             extra_types=extra_types,
         )
@@ -349,11 +356,11 @@ def trace_charm(
 
 
 def _autoinstrument(
-        charm_type: Type[CharmBase],
-        tracing_endpoint_getter: _GetterType,
-        server_cert_getter: _GetterType,
-        service_name: Optional[str] = None,
-        extra_types: Sequence[type] = (),
+    charm_type: Type[CharmBase],
+    tracing_endpoint_getter: _GetterType,
+    server_cert_getter: Optional[_GetterType],
+    service_name: Optional[str] = None,
+    extra_types: Sequence[type] = (),
 ) -> Type[CharmBase]:
     """Set up tracing on this charm class.
 
@@ -382,8 +389,12 @@ def _autoinstrument(
         For example, charm libs, relation endpoint wrappers, workload abstractions, ...
     """
     logger.info(f"instrumenting {charm_type}")
-    _setup_root_span_initializer(charm_type, tracing_endpoint_getter, server_cert_getter=server_cert_getter,
-                                 service_name=service_name)
+    _setup_root_span_initializer(
+        charm_type,
+        tracing_endpoint_getter,
+        server_cert_getter=server_cert_getter,
+        service_name=service_name,
+    )
     trace_type(charm_type)
     for type_ in extra_types:
         trace_type(type_)
