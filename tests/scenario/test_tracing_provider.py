@@ -3,8 +3,12 @@ import socket
 
 import pytest
 from charms.tempo_k8s.v0.charm_instrumentation import _charm_tracing_disabled
-from charms.tempo_k8s.v0.tracing import EndpointChangedEvent, TracingEndpointProvider
-from ops import CharmBase, Framework, RelationChangedEvent
+from charms.tempo_k8s.v0.tracing import (
+    EndpointChangedEvent,
+    EndpointRemovedEvent,
+    TracingEndpointProvider,
+)
+from ops import CharmBase, Framework, RelationBrokenEvent, RelationChangedEvent
 from scenario import Context, Relation, State
 
 
@@ -55,6 +59,7 @@ def test_requirer_api(context):
     assert isinstance(epchanged, EndpointChangedEvent)
     assert epchanged.host == host
     assert epchanged.ingesters[0].protocol == "tempo"
+    assert epchanged.host == host
 
 
 @pytest.mark.parametrize(
@@ -96,3 +101,17 @@ def test_invalid_data(context, data):
     assert len(emitted_events) == 1  # no endpoint_changed emitted
     rchanged = emitted_events[0]
     assert isinstance(rchanged, RelationChangedEvent)
+
+
+def test_broken(context):
+    tracing = Relation("tracing")
+    state = State(leader=True, relations=[tracing])
+
+    with _charm_tracing_disabled():
+        context.run(tracing.broken_event, state)
+
+    emitted_events = context.emitted_events
+    assert len(emitted_events) == 2
+    rchanged, ebroken = emitted_events
+    assert isinstance(rchanged, RelationBrokenEvent)
+    assert isinstance(ebroken, EndpointRemovedEvent)

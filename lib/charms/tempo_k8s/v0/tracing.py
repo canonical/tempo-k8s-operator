@@ -64,7 +64,13 @@ import logging
 from typing import TYPE_CHECKING, List, Literal, MutableMapping, Optional, Tuple, cast
 
 import pydantic
-from ops.charm import CharmBase, CharmEvents, RelationEvent, RelationRole
+from ops.charm import (
+    CharmBase,
+    CharmEvents,
+    RelationBrokenEvent,
+    RelationEvent,
+    RelationRole,
+)
 from ops.framework import EventSource, Object
 from ops.model import ModelError, Relation
 from pydantic import BaseModel
@@ -359,6 +365,10 @@ class TracingEndpointRequirer(Object):
             raise
 
 
+class EndpointRemovedEvent(RelationBrokenEvent):
+    """Event representing a change in one of the ingester endpoints."""
+
+
 class EndpointChangedEvent(_AutoSnapshotEvent):
     """Event representing a change in one of the ingester endpoints."""
 
@@ -378,6 +388,7 @@ class TracingEndpointEvents(CharmEvents):
     """TracingEndpointProvider events."""
 
     endpoint_changed = EventSource(EndpointChangedEvent)
+    endpoint_removed = EventSource(EndpointRemovedEvent)
 
 
 class TracingEndpointProvider(Object):
@@ -425,6 +436,7 @@ class TracingEndpointProvider(Object):
 
         events = self._charm.on[self._relation_name]
         self.framework.observe(events.relation_changed, self._on_tracing_relation_changed)
+        self.framework.observe(events.relation_broken, self._on_tracing_relation_broken)
 
     def _is_ready(self, relation: Optional[Relation]):
         if not relation:
@@ -452,6 +464,11 @@ class TracingEndpointProvider(Object):
         data = TracingRequirerAppData.load(relation.data[relation.app])
         if data:
             self.on.endpoint_changed.emit(relation, data.host, [i.dict() for i in data.ingesters])  # type: ignore
+
+    def _on_tracing_relation_broken(self, event: RelationBrokenEvent):
+        """Notify the providers that the endpoint is broken."""
+        relation = event.relation
+        self.on.endpoint_removed.emit(relation)
 
     @property
     def endpoints(self) -> Optional[TracingRequirerAppData]:
