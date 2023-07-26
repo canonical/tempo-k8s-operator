@@ -50,7 +50,7 @@ def test_requirer_api(context):
         assert charm.tracing.otlp_http_endpoint == f"{host}:4318"
 
         rel = charm.model.get_relation("tracing")
-        assert charm.tracing._is_ready(rel)
+        assert charm.tracing.is_ready(rel)
 
     with _charm_tracing_disabled():
         context.run(tracing.changed_event, state, post_event=post_event)
@@ -92,7 +92,7 @@ def test_invalid_data(context, data):
 
     def post_event(charm: MyCharm):
         rel = charm.model.get_relation("tracing")
-        assert not charm.tracing._is_ready(rel)
+        assert not charm.tracing.is_ready(rel)
 
     with _charm_tracing_disabled():
         context.run(tracing.changed_event, state, post_event=post_event)
