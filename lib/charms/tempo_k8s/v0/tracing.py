@@ -438,7 +438,13 @@ class TracingEndpointProvider(Object):
         self.framework.observe(events.relation_changed, self._on_tracing_relation_changed)
         self.framework.observe(events.relation_broken, self._on_tracing_relation_broken)
 
-    def _is_ready(self, relation: Optional[Relation]):
+    @property
+    def relation(self) -> Relation:
+        return self._charm.model.get_relation(self._relation_name)
+
+    def is_ready(self, relation: Optional[Relation] = None):
+        relation = relation or self.relation
+
         if not relation:
             logger.error("no relation")
             return False
@@ -458,7 +464,7 @@ class TracingEndpointProvider(Object):
     def _on_tracing_relation_changed(self, event):
         """Notify the providers that there is new endpoint information available."""
         relation = event.relation
-        if not self._is_ready(relation):
+        if not self.is_ready(relation):
             return
 
         data = TracingRequirerAppData.load(relation.data[relation.app])
@@ -473,8 +479,8 @@ class TracingEndpointProvider(Object):
     @property
     def endpoints(self) -> Optional[TracingRequirerAppData]:
         """Unmarshalled relation data."""
-        relation = self._charm.model.get_relation(self._relation_name)
-        if not self._is_ready(relation):
+        relation = self.relation
+        if not self.is_ready(relation):
             return
         return TracingRequirerAppData.load(relation.data[relation.app])  # type: ignore
 
