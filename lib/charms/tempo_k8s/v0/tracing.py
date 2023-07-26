@@ -440,9 +440,14 @@ class TracingEndpointProvider(Object):
 
     @property
     def relation(self) -> Relation:
+        """The tracing relation associated with this endpoint.
+
+        Assumes tracing has limit 1.
+        """
         return self._charm.model.get_relation(self._relation_name)
 
     def is_ready(self, relation: Optional[Relation] = None):
+        """Is this endpoint ready?"""
         relation = relation or self.relation
 
         if not relation:
