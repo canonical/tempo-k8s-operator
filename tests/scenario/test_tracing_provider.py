@@ -98,9 +98,10 @@ def test_invalid_data(context, data):
         context.run(tracing.changed_event, state, post_event=post_event)
 
     emitted_events = context.emitted_events
-    assert len(emitted_events) == 1  # no endpoint_changed emitted
-    rchanged = emitted_events[0]
+    assert len(emitted_events) == 2
+    rchanged, rremoved = emitted_events
     assert isinstance(rchanged, RelationChangedEvent)
+    assert isinstance(rremoved, EndpointRemovedEvent)
 
 
 def test_broken(context):
