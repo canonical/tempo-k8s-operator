@@ -470,11 +470,11 @@ class TracingEndpointProvider(Object):
         """Notify the providers that there is new endpoint information available."""
         relation = event.relation
         if not self.is_ready(relation):
+            self.on.endpoint_removed.emit(relation)  # type: ignore
             return
 
         data = TracingRequirerAppData.load(relation.data[relation.app])
-        if data:
-            self.on.endpoint_changed.emit(relation, data.host, [i.dict() for i in data.ingesters])  # type: ignore
+        self.on.endpoint_changed.emit(relation, data.host, [i.dict() for i in data.ingesters])  # type: ignore
 
     def _on_tracing_relation_broken(self, event: RelationBrokenEvent):
         """Notify the providers that the endpoint is broken."""
