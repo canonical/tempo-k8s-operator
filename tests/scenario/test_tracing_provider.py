@@ -4,7 +4,7 @@ import socket
 import pytest
 from charms.tempo_k8s.v0.charm_instrumentation import _charm_tracing_disabled
 from charms.tempo_k8s.v0.tracing import EndpointChangedEvent, TracingEndpointProvider
-from ops import CharmBase, Framework
+from ops import CharmBase, Framework, RelationChangedEvent
 from scenario import Context, Relation, State
 
 
@@ -45,6 +45,9 @@ def test_requirer_api(context):
         assert charm.tracing.otlp_http_endpoint == f"{host}:4318"
         assert charm.tracing.otlp_http_endpoint == f"{host}:4318"
 
+        rel = charm.model.get_relation("tracing")
+        assert charm.tracing._is_ready(rel)
+
     with _charm_tracing_disabled():
         context.run(tracing.changed_event, state, post_event=post_event)
 
@@ -52,3 +55,44 @@ def test_requirer_api(context):
     assert isinstance(epchanged, EndpointChangedEvent)
     assert epchanged.host == host
     assert epchanged.ingesters[0].protocol == "tempo"
+
+
+@pytest.mark.parametrize(
+    "data",
+    (
+        {
+            "ingesters": '[{"protocol": "tempo", "port": 3200}]',
+            "bar": "baz",
+        },
+        {
+            "host": "foo.com",
+            "bar": "baz",
+        },
+        {
+            "ingesters": '[{"burp": "barp", "port": 3200}]',
+            "host": "foo.com",
+        },
+        {
+            "ingesters": '[{"protocol": "tempo", "burp": "borp"}]',
+            "host": "foo.com",
+        },
+    ),
+)
+def test_invalid_data(context, data):
+    tracing = Relation(
+        "tracing",
+        remote_app_data=data,
+    )
+    state = State(leader=True, relations=[tracing])
+
+    def post_event(charm: MyCharm):
+        rel = charm.model.get_relation("tracing")
+        assert not charm.tracing._is_ready(rel)
+
+    with _charm_tracing_disabled():
+        context.run(tracing.changed_event, state, post_event=post_event)
+
+    emitted_events = context.emitted_events
+    assert len(emitted_events) == 1  # no endpoint_changed emitted
+    rchanged = emitted_events[0]
+    assert isinstance(rchanged, RelationChangedEvent)
