@@ -14,7 +14,7 @@ from charms.loki_k8s.v0.loki_push_api import LogProxyConsumer
 from charms.observability_libs.v0.kubernetes_service_patch import KubernetesServicePatch
 from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
 from charms.tempo_k8s.v0.charm_instrumentation import trace_charm
-from charms.tempo_k8s.v0.tracing import TracingEndpointRequirer
+from charms.tempo_k8s.v0.tracing import TracingEndpointProvider
 from charms.traefik_k8s.v2.ingress import IngressPerAppRequirer
 from ops.charm import CharmBase, WorkloadEvent
 from ops.main import main
@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 @trace_charm(
     tracing_endpoint="tempo_otlp_grpc_endpoint",
-    extra_types=(Tempo, TracingEndpointRequirer),
+    extra_types=(Tempo, TracingEndpointProvider),
 )
 class TempoCharm(CharmBase):
     """Charmed Operator for Tempo; a distributed tracing backend."""
@@ -68,7 +68,7 @@ class TempoCharm(CharmBase):
         #     self, jobs=[{"static_configs": [{"targets": ["*:4080"]}]}]
         # )
 
-        self._tracing = TracingEndpointRequirer(self, host=tempo.host, ingesters=tempo.ingesters)
+        self._tracing = TracingEndpointProvider(self, host=tempo.host, ingesters=tempo.ingesters)
         self._ingress = IngressPerAppRequirer(self, port=self.tempo.tempo_port)
 
     def _on_tempo_pebble_ready(self, event: WorkloadEvent):

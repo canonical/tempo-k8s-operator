@@ -6,7 +6,7 @@ from charms.tempo_k8s.v0.charm_instrumentation import _charm_tracing_disabled
 from charms.tempo_k8s.v0.tracing import (
     EndpointChangedEvent,
     EndpointRemovedEvent,
-    TracingEndpointProvider,
+    TracingEndpointRequirer,
 )
 from ops import CharmBase, Framework, RelationBrokenEvent, RelationChangedEvent
 from scenario import Context, Relation, State
@@ -15,7 +15,7 @@ from scenario import Context, Relation, State
 class MyCharm(CharmBase):
     def __init__(self, framework: Framework):
         super().__init__(framework)
-        self.tracing = TracingEndpointProvider(self)
+        self.tracing = TracingEndpointRequirer(self)
         framework.observe(self.tracing.on.endpoint_changed, self._on_endpoint_changed)
 
     def _on_endpoint_changed(self, e):
@@ -26,7 +26,7 @@ class MyCharm(CharmBase):
 def context():
     return Context(
         charm_type=MyCharm,
-        meta={"name": "jolly", "provides": {"tracing": {"interface": "tracing", "limit": 1}}},
+        meta={"name": "jolly", "requires": {"tracing": {"interface": "tracing", "limit": 1}}},
     )
 
 

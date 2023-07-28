@@ -31,12 +31,12 @@ provides:
     interface: grafana_datasource
   metrics-endpoint:
     interface: prometheus_scrape
+  tracing:
+    interface: tracing
 
 requires:
   logging:
     interface: loki_push_api
-  tracing:
-    interface: tracing
   ingress:
     interface: ingress
     limit: 1

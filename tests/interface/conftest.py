@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 import pytest
 from charm import TempoCharm
+from charms.tempo_k8s.v0.charm_instrumentation import _charm_tracing_disabled
 from interface_tester import InterfaceTester
 from ops.pebble import Layer
 from scenario.state import Container, State
@@ -18,34 +19,33 @@ from scenario.state import Container, State
 @pytest.fixture
 def interface_tester(interface_tester: InterfaceTester):
     with patch("charm.KubernetesServicePatch"):
-        interface_tester.configure(
-            charm_type=TempoCharm,
-            state_template=State(
-                leader=True,
-                containers=[
-                    # unless the traefik service reports active, the
-                    # charm won't publish the ingress url.
-                    Container(
-                        name="tempo",
-                        can_connect=True,
-                        layers={
-                            "foo": Layer(
-                                {
-                                    "summary": "foo",
-                                    "description": "bar",
-                                    "services": {
-                                        "tempo": {
-                                            "startup": "enabled",
-                                            "current": "active",
-                                            "name": "tempo",
-                                        }
-                                    },
-                                    "checks": {},
-                                }
-                            )
-                        },
-                    )
-                ],
-            ),
-        )
-        yield interface_tester
+        with _charm_tracing_disabled():
+            interface_tester.configure(
+                charm_type=TempoCharm,
+                state_template=State(
+                    leader=True,
+                    containers=[
+                        Container(
+                            name="tempo",
+                            can_connect=True,
+                            layers={
+                                "foo": Layer(
+                                    {
+                                        "summary": "foo",
+                                        "description": "bar",
+                                        "services": {
+                                            "tempo": {
+                                                "startup": "enabled",
+                                                "current": "active",
+                                                "name": "tempo",
+                                            }
+                                        },
+                                        "checks": {},
+                                    }
+                                )
+                            },
+                        )
+                    ],
+                ),
+            )
+            yield interface_tester
