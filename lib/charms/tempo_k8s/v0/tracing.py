@@ -105,6 +105,10 @@ class DataValidationError(TracingError):
     """Raised when data validation fails on IPU relation data."""
 
 
+class AmbiguousRelationUsageError(TracingError):
+    """Raised when one wrongly assumes that there can only be one relation on an endpoint."""
+
+
 # todo: use fully-encoded json fields like Traefik does. MUCH neater
 class DatabagModel(BaseModel):
     """Base databag model."""
@@ -431,6 +435,9 @@ class TracingEndpointProvider(Object):
         )
 
         super().__init__(charm, relation_name)
+
+        self._is_single_endpoint = charm.meta.relations[relation_name].limit == 1
+
         self._charm = charm
         self._relation_name = relation_name
 
@@ -439,22 +446,32 @@ class TracingEndpointProvider(Object):
         self.framework.observe(events.relation_broken, self._on_tracing_relation_broken)
 
     @property
-    def relation(self) -> Relation:
-        """The tracing relation associated with this endpoint.
+    def relations(self) -> List[Relation]:
+        """The tracing relations associated with this endpoint."""
+        return self._charm.model.relations[self._relation_name]
 
-        Assumes tracing has limit 1.
-        """
-        return self._charm.model.get_relation(self._relation_name)
+    @property
+    def _relation(self) -> Relation:
+        """If this wraps a single endpoint, the relation bound to it, if any."""
+        if not self._is_single_endpoint:
+            objname = type(self).__name__
+            raise AmbiguousRelationUsageError(
+                f"This {objname} wraps a {self._relation_name} endpoint that has "
+                "limit != 1. We can't determine what relation, of the possibly many, you are "
+                f"talking about. Please pass a relation instance while calling {objname}, "
+                "or set limit=1 in the charm metadata."
+            )
+        relations = self.relations
+        return relations[0] if relations else None
 
     def is_ready(self, relation: Optional[Relation] = None):
         """Is this endpoint ready?"""
-        relation = relation or self.relation
-
+        relation = relation or self._relation
         if not relation:
-            logger.error("no relation")
+            logger.error(f"no relation on {self._relation_name}: tracing not ready")
             return False
         if relation.data is None:
-            logger.error("relation data is None")
+            logger.error(f"relation data is None for {relation}")
             return False
         if not relation.app:
             logger.error(f"{relation} event received but there is no relation.app")
@@ -481,16 +498,16 @@ class TracingEndpointProvider(Object):
         relation = event.relation
         self.on.endpoint_removed.emit(relation)
 
-    @property
-    def endpoints(self) -> Optional[TracingRequirerAppData]:
+    def get_all_endpoints(
+        self, relation: Optional[Relation] = None
+    ) -> Optional[TracingRequirerAppData]:
         """Unmarshalled relation data."""
-        relation = self.relation
-        if not self.is_ready(relation):
+        if not self.is_ready(relation or self._relation):
             return
         return TracingRequirerAppData.load(relation.data[relation.app])  # type: ignore
 
-    def _get_ingester(self, protocol: IngesterProtocol):
-        ep = self.endpoints
+    def _get_ingester(self, relation: Relation, protocol: IngesterProtocol):
+        ep = self.get_all_endpoints(relation)
         if not ep:
             return None
         try:
@@ -500,22 +517,18 @@ class TracingEndpointProvider(Object):
             logger.error(f"no ingester found with protocol={protocol!r}")
             return None
 
-    @property
-    def otlp_grpc_endpoint(self) -> Optional[str]:
+    def otlp_grpc_endpoint(self, relation: Optional[Relation] = None) -> Optional[str]:
         """Ingester endpoint for the ``otlp_grpc`` protocol."""
-        return self._get_ingester("otlp_grpc")
+        return self._get_ingester(relation or self._relation, protocol="otlp_grpc")
 
-    @property
-    def otlp_http_endpoint(self) -> Optional[str]:
+    def otlp_http_endpoint(self, relation: Optional[Relation] = None) -> Optional[str]:
         """Ingester endpoint for the ``otlp_http`` protocol."""
-        return self._get_ingester("otlp_http")
+        return self._get_ingester(relation or self._relation, protocol="otlp_http")
 
-    @property
-    def zipkin_endpoint(self) -> Optional[str]:
+    def zipkin_endpoint(self, relation: Optional[Relation] = None) -> Optional[str]:
         """Ingester endpoint for the ``zipkin`` protocol."""
-        return self._get_ingester("zipkin")
+        return self._get_ingester(relation or self._relation, protocol="zipkin")
 
-    @property
-    def tempo_endpoint(self) -> Optional[str]:
+    def tempo_endpoint(self, relation: Optional[Relation] = None) -> Optional[str]:
         """Ingester endpoint for the ``tempo`` protocol."""
-        return self._get_ingester("tempo")
+        return self._get_ingester(relation or self._relation, protocol="tempo")

@@ -26,7 +26,7 @@ class MyCharm(CharmBase):
 def context():
     return Context(
         charm_type=MyCharm,
-        meta={"name": "jolly", "provides": {"tracing": {"interface": "tracing"}}},
+        meta={"name": "jolly", "provides": {"tracing": {"interface": "tracing", "limit": 1}}},
     )
 
 
@@ -45,9 +45,9 @@ def test_requirer_api(context):
     state = State(leader=True, relations=[tracing])
 
     def post_event(charm: MyCharm):
-        assert charm.tracing.otlp_grpc_endpoint == f"{host}:4317"
-        assert charm.tracing.otlp_http_endpoint == f"{host}:4318"
-        assert charm.tracing.otlp_http_endpoint == f"{host}:4318"
+        assert charm.tracing.otlp_grpc_endpoint() == f"{host}:4317"
+        assert charm.tracing.otlp_http_endpoint() == f"{host}:4318"
+        assert charm.tracing.otlp_http_endpoint() == f"{host}:4318"
 
         rel = charm.model.get_relation("tracing")
         assert charm.tracing.is_ready(rel)
