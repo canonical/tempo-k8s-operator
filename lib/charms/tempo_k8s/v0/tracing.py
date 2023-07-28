@@ -92,7 +92,9 @@ logger = logging.getLogger(__name__)
 DEFAULT_RELATION_NAME = "tracing"
 RELATION_INTERFACE_NAME = "tracing"
 
-IngesterProtocol = Literal["otlp_grpc", "otlp_http", "zipkin", "tempo"]
+IngesterProtocol = Literal[
+    "otlp_grpc", "otlp_http", "zipkin", "tempo", "jaeger_http_thrift", "jaeger_grpc"
+]
 
 RawIngester = Tuple[IngesterProtocol, int]
 
@@ -532,3 +534,13 @@ class TracingEndpointProvider(Object):
     def tempo_endpoint(self, relation: Optional[Relation] = None) -> Optional[str]:
         """Ingester endpoint for the ``tempo`` protocol."""
         return self._get_ingester(relation or self._relation, protocol="tempo")
+
+    @property
+    def jaeger_http_thrift_endpoint(self) -> Optional[str]:
+        """Ingester endpoint for the ``jaeger_http_thrift`` protocol."""
+        return self._get_ingester("jaeger_http_thrift")
+
+    @property
+    def jaeger_grpc_endpoint(self) -> Optional[str]:
+        """Ingester endpoint for the ``jaeger_grpc`` protocol."""
+        return self._get_ingester("jaeger_grpc")
