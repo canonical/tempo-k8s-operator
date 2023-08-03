@@ -1,5 +1,5 @@
 # pin importlib-metadata version else charmcraft pack will fail to resolve the dependencies for the pydeps-installed otlp library
-importlib-metadata==6.8.0
+importlib-metadata~=6.0.0
 ops < 2.5.0  # https://github.com/canonical/ops-scenario/issues/48
 jsonschema==4.17.0
 lightkube==0.11.0
