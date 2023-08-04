@@ -1,10 +1,10 @@
-from charms.tempo_k8s.v0.tracing import Ingester, TracingRequirerAppData
+from charms.tempo_k8s.v0.tracing import Ingester, TracingProviderAppData
 
 
 def test_tracing_requirer_app_data():
     host = "tempo-k8s-0.tempo-k8s-endpoints.testing.svc.cluster.local"
 
-    appdata = TracingRequirerAppData(
+    appdata = TracingProviderAppData(
         host=host,
         ingesters=[
             Ingester(protocol="tempo", port=3200),
@@ -21,5 +21,5 @@ def test_tracing_requirer_app_data():
         '{"protocol": "otlp_http", "port": 4318}, {"protocol": "zipkin", "port": 9411}]',
     }
 
-    td = TracingRequirerAppData.load(databag)
+    td = TracingProviderAppData.load(databag)
     assert td == appdata
