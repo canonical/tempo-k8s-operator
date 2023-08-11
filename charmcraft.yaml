@@ -10,13 +10,3 @@ bases:
       - name: "ubuntu"
         channel: "22.04"
 
-parts:
-  charm:
-    charm-binary-python-packages:
-      - "jsonschema==4.17.0"
-      - "pydantic < 2"
-      - "importlib-metadata~=6.0.0"
-      - "opentelemetry-exporter-otlp-proto-grpc==1.17.0"
-      - grpcio
-      - grpcio-tools
-
