@@ -5,7 +5,7 @@ jsonschema==4.17.0
 lightkube==0.11.0
 lightkube-models==1.24.1.4
 
-
 # pydeps inherited from charm libs
 opentelemetry-exporter-otlp-proto-grpc
 pydantic < 2
+cosl

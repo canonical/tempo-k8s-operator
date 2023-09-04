@@ -2,7 +2,7 @@ import json
 import socket
 
 import pytest
-from charms.tempo_k8s.v0.charm_instrumentation import _charm_tracing_disabled
+from charms.tempo_k8s.v0.charm_tracing import charm_tracing_disabled
 from charms.tempo_k8s.v0.tracing import (
     EndpointChangedEvent,
     EndpointRemovedEvent,
@@ -52,7 +52,7 @@ def test_requirer_api(context):
         rel = charm.model.get_relation("tracing")
         assert charm.tracing.is_ready(rel)
 
-    with _charm_tracing_disabled():
+    with charm_tracing_disabled():
         context.run(tracing.changed_event, state, post_event=post_event)
 
     rchanged, epchanged = context.emitted_events
@@ -94,7 +94,7 @@ def test_invalid_data(context, data):
         rel = charm.model.get_relation("tracing")
         assert not charm.tracing.is_ready(rel)
 
-    with _charm_tracing_disabled():
+    with charm_tracing_disabled():
         context.run(tracing.changed_event, state, post_event=post_event)
 
     emitted_events = context.emitted_events
@@ -108,7 +108,7 @@ def test_broken(context):
     tracing = Relation("tracing")
     state = State(leader=True, relations=[tracing])
 
-    with _charm_tracing_disabled():
+    with charm_tracing_disabled():
         context.run(tracing.broken_event, state)
 
     emitted_events = context.emitted_events
