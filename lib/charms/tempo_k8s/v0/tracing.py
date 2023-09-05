@@ -63,6 +63,8 @@ import json
 import logging
 from typing import (
     TYPE_CHECKING,
+    Any,
+    Dict,
     List,
     Literal,
     MutableMapping,
@@ -91,7 +93,7 @@ LIBAPI = 0
 
 # Increment this PATCH version before using `charmcraft publish-lib` or reset
 # to 0 if you are raising the major API version
-LIBPATCH = 7
+LIBPATCH = 8
 
 PYDEPS = ["pydantic<2.0"]
 
