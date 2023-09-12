@@ -484,7 +484,7 @@ class TracingEndpointRequirer(Object):
         """Is this endpoint ready?"""
         relation = relation or self._relation
         if not relation:
-            logger.error(f"no relation on {self._relation_name}: tracing not ready")
+            logger.debug(f"no relation on {self._relation_name !r}: tracing not ready")
             return False
         if relation.data is None:
             logger.error(f"relation data is None for {relation}")
