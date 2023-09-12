@@ -3,12 +3,11 @@
 from unittest.mock import patch
 
 import pytest
+from charm import TempoCharm
 from charms.tempo_k8s.v0.charm_instrumentation import _charm_tracing_disabled
 from interface_tester import InterfaceTester
 from ops.pebble import Layer
 from scenario.state import Container, State
-
-from charm import TempoCharm
 
 
 # Interface tests are centrally hosted at https://github.com/canonical/charm-relation-interfaces.

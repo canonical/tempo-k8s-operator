@@ -61,17 +61,7 @@ follows
 """  # noqa: W505
 import json
 import logging
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Dict,
-    List,
-    Literal,
-    MutableMapping,
-    Optional,
-    Tuple,
-    cast,
-)
+from typing import TYPE_CHECKING, List, Literal, MutableMapping, Optional, Tuple, cast
 
 import pydantic
 from ops.charm import (
@@ -484,7 +474,7 @@ class TracingEndpointRequirer(Object):
         """Is this endpoint ready?"""
         relation = relation or self._relation
         if not relation:
-            logger.error(f"no relation on {self._relation_name}: tracing not ready")
+            logger.info(f"no relation on {self._relation_name !r}: tracing not ready")
             return False
         if relation.data is None:
             logger.error(f"relation data is None for {relation}")
