@@ -6,9 +6,6 @@ import logging
 from pathlib import Path
 from typing import List, Optional
 
-import opentelemetry
-from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
-from charms.tempo_k8s.v0.charm_instrumentation import trace_charm
 from charms.tempo_k8s.v0.tempo_scrape import TracingEndpointProvider
 from ops.charm import CharmBase, PebbleReadyEvent
 from ops.main import main
@@ -20,6 +17,9 @@ from ops.model import (
     WaitingStatus,
 )
 from ops.pebble import Layer
+
+from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
+from charms.tempo_k8s.v0.charm_tracing import trace_charm
 
 logger = logging.getLogger(__name__)
 TRACING_APP_NAME = "TempoTesterCharm"
