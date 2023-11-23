@@ -83,7 +83,7 @@ from ops.charm import (
 )
 from ops.framework import EventSource, Object
 from ops.model import ModelError, Relation
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 # The unique Charmhub library identifier, never change it
 LIBID = "12977e9aa0b34367903d8afeb8c3d85d"
@@ -93,9 +93,9 @@ LIBAPI = 0
 
 # Increment this PATCH version before using `charmcraft publish-lib` or reset
 # to 0 if you are raising the major API version
-LIBPATCH = 7
+LIBPATCH = 8
 
-PYDEPS = ["pydantic<2.0"]
+PYDEPS = ["pydantic>=2"]
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +107,7 @@ IngesterProtocol = Literal[
 ]
 
 RawIngester = Tuple[IngesterProtocol, int]
+BUILTIN_JUJU_KEYS = {"ingress-address", "private-address", "egress-subnets"}
 
 
 class TracingError(RuntimeError):
@@ -121,36 +122,60 @@ class AmbiguousRelationUsageError(TracingError):
     """Raised when one wrongly assumes that there can only be one relation on an endpoint."""
 
 
-# todo: use fully-encoded json fields like Traefik does. MUCH neater
 class DatabagModel(BaseModel):
     """Base databag model."""
 
-    _NEST_UNDER = None
+    model_config = ConfigDict(
+        # Allow instantiating this class by field name (instead of forcing alias).
+        populate_by_name=True,
+        # Custom config key: whether to nest the whole datastructure (as json)
+        # under a field or spread it out at the toplevel.
+        _NEST_UNDER=None,
+    )  # type: ignore
+    """Pydantic config."""
 
     @classmethod
     def load(cls, databag: MutableMapping):
         """Load this model from a Juju databag."""
-        if cls._NEST_UNDER:
-            return cls.parse_obj(json.loads(databag[cls._NEST_UNDER]))
+        nest_under = cls.model_config.get("_NEST_UNDER")
+        if nest_under:
+            return cls.parse_obj(json.loads(databag[nest_under]))
 
-        data = {k: json.loads(v) for k, v in databag.items()}
+        try:
+            data = {k: json.loads(v) for k, v in databag.items() if k not in BUILTIN_JUJU_KEYS}
+        except json.JSONDecodeError as e:
+            msg = f"invalid databag contents: expecting json. {databag}"
+            logger.error(msg)
+            raise DataValidationError(msg) from e
 
         try:
             return cls.parse_raw(json.dumps(data))  # type: ignore
         except pydantic.ValidationError as e:
-            msg = f"failed to validate remote unit databag: {databag}"
+            msg = f"failed to validate databag: {databag}"
             logger.error(msg, exc_info=True)
             raise DataValidationError(msg) from e
 
-    def dump(self, databag: MutableMapping):
-        """Write the contents of this model to Juju databag."""
-        if self._NEST_UNDER:
-            databag[self._NEST_UNDER] = self.json()
+    def dump(self, databag: Optional[MutableMapping] = None, clear: bool = True):
+        """Write the contents of this model to Juju databag.
 
-        dct = self.dict()
-        for key, field in self.__fields__.items():  # type: ignore
+        :param databag: the databag to write the data to.
+        :param clear: ensure the databag is cleared before writing it.
+        """
+        if clear and databag:
+            databag.clear()
+
+        if databag is None:
+            databag = {}
+        nest_under = self.model_config.get("_NEST_UNDER")
+        if nest_under:
+            databag[nest_under] = self.json()
+
+        dct = self.model_dump()
+        for key, field in self.model_fields.items():  # type: ignore
             value = dct[key]
             databag[field.alias or key] = json.dumps(value)
+
+        return databag
 
 
 # todo use models from charm-relation-interfaces
@@ -494,7 +519,7 @@ class TracingEndpointRequirer(Object):
             return False
         try:
             TracingProviderAppData.load(relation.data[relation.app])
-        except (json.JSONDecodeError, pydantic.ValidationError):
+        except (json.JSONDecodeError, pydantic.ValidationError, DataValidationError):
             logger.info(f"failed validating relation data for {relation}")
             return False
         return True
