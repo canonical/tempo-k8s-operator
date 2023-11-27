@@ -6,7 +6,6 @@ import logging
 from pathlib import Path
 from typing import List, Optional
 
-from charms.tempo_k8s.v0.tempo_scrape import TracingEndpointProvider
 from ops.charm import CharmBase, PebbleReadyEvent
 from ops.main import main
 from ops.model import (
@@ -18,6 +17,7 @@ from ops.model import (
 )
 from ops.pebble import Layer
 
+from charms.tempo_k8s.v0.tracing import TracingEndpointRequirer
 from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
 from charms.tempo_k8s.v0.charm_tracing import trace_charm
 
@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 TRACING_APP_NAME = "TempoTesterCharm"
 
 
-@trace_charm(tempo_endpoint="tempo", service_name=TRACING_APP_NAME)
+@trace_charm(tracing_endpoint="tempo_otlp_grpc_endpoint", service_name=TRACING_APP_NAME)
 class TempoTesterCharm(CharmBase):
     """Charm the service."""
 
@@ -40,7 +40,7 @@ class TempoTesterCharm(CharmBase):
         self.container: Container = self.unit.get_container(self._container_name)
 
         self.metrics = MetricsEndpointProvider(self)
-        self.tracing = TracingEndpointProvider(self)
+        self.tracing = TracingEndpointRequirer(self)
         # Core lifecycle events
         self.framework.observe(self.on.config_changed, self._update)
 
@@ -99,9 +99,9 @@ class TempoTesterCharm(CharmBase):
             "PORT": self.config["port"],
             "HOST": self.config["host"],
             "APP_NAME": self.app.name,
-            "TEMPO_ENDPOINT": self.tracing.otlp_grpc_endpoint or "",
+            "TEMPO_ENDPOINT": str(self.tracing.otlp_grpc_endpoint) or "",
         }
-        logging.info(f"Initing pebdble layer with env: {str(env)}")
+        logging.info(f"Initing pebble layer with env: {str(env)}")
 
         if self.unit.name.split("/")[1] == "0":
             env["PEERS"] = peers = ";".join(self.peers)
@@ -249,6 +249,12 @@ class TempoTesterCharm(CharmBase):
             ]
 
         return addresses
+
+    def tempo_otlp_grpc_endpoint(self) -> Optional[str]:
+        """Endpoint at which the charm tracing information will be forwarded."""
+        # the charm container and the tempo workload container have apparently the same
+        # IP, so we can talk to tempo at localhost.
+        return self.tracing.otlp_grpc_endpoint()
 
 
 if __name__ == "__main__":

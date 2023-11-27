@@ -18,11 +18,13 @@ resources:
     upstream-source: python:slim-buster
 
 provides:
-  tracing:
-    interface: tracing
-    limit: 1
   metrics-endpoint:
     interface: prometheus_scrape
+    limit: 1
+
+requires:
+  tracing:
+    interface: tracing
     limit: 1
 
 peers:
