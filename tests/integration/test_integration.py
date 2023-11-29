@@ -19,14 +19,15 @@ async def test_build_and_deploy(ops_test: OpsTest):
     # Given a fresh build of the charm
     # When deploying it together with the tester
     # Then applications should eventually be created
-    charms = await ops_test.build_charms(".", "./tests/integration/tester/")
+    tempo_charm = await ops_test.build_charm(".")
+    tester_charm = await ops_test.build_charm("./tests/integration/tester/")
     resources = {"tempo-image": METADATA["resources"]["tempo-image"]["upstream-source"]}
     resources_tester = {"workload": TESTER_METADATA["resources"]["workload"]["upstream-source"]}
 
     await asyncio.gather(
-        ops_test.model.deploy(charms[APP_NAME], resources=resources, application_name=APP_NAME),
+        ops_test.model.deploy(tempo_charm, resources=resources, application_name=APP_NAME),
         ops_test.model.deploy(
-            charms[TESTER_APP_NAME],
+            tester_charm,
             resources=resources_tester,
             application_name=TESTER_APP_NAME,
             num_units=3,
