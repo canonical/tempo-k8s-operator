@@ -24,27 +24,21 @@ async def test_build_and_deploy(ops_test: OpsTest):
     resources_tester = {"workload": TESTER_METADATA["resources"]["workload"]["upstream-source"]}
 
     await asyncio.gather(
+        ops_test.model.deploy(charms[APP_NAME], resources=resources, application_name=APP_NAME),
         ops_test.model.deploy(
-            charms[APP_NAME], resources=resources, application_name=APP_NAME
-        ),
-        ops_test.model.deploy(
-            charms[TESTER_APP_NAME], resources=resources_tester, application_name=TESTER_APP_NAME, num_units=3
+            charms[TESTER_APP_NAME],
+            resources=resources_tester,
+            application_name=TESTER_APP_NAME,
+            num_units=3,
         ),
     )
 
     await asyncio.gather(
         ops_test.model.wait_for_idle(
-            apps=[APP_NAME],
-            status="active",
-            raise_on_blocked=True,
-            timeout=1000
+            apps=[APP_NAME], status="active", raise_on_blocked=True, timeout=1000
         ),
         # for tester, depending on the result of race with tempo it's either waiting or active
-        ops_test.model.wait_for_idle(
-            apps=[TESTER_APP_NAME],
-            raise_on_blocked=True,
-            timeout=1000
-        ),
+        ops_test.model.wait_for_idle(apps=[TESTER_APP_NAME], raise_on_blocked=True, timeout=1000),
     )
 
     assert ops_test.model.applications[APP_NAME].units[0].workload_status == "active"
@@ -61,7 +55,7 @@ async def test_relate(ops_test: OpsTest):
         status="active",
         # tester first receives an empty databag and goes to error state, then restarts
         raise_on_error=False,
-        timeout=1000
+        timeout=1000,
     )
 
 
