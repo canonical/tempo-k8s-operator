@@ -220,6 +220,10 @@ class TempoTesterCharm(CharmBase):
             self.unit.status = MaintenanceStatus("waiting for IP address...")
             return
 
+        if not self.tracing.is_ready():
+            self.unit.status = WaitingStatus("waiting for tracing to be ready...")
+            return
+
         # In the case of a single unit deployment, no 'RelationJoined' event is emitted, so
         # setting IP here.
         # Store private address in unit's peer relation data bucket. This is still needed because
@@ -252,8 +256,6 @@ class TempoTesterCharm(CharmBase):
 
     def tempo_otlp_grpc_endpoint(self) -> Optional[str]:
         """Endpoint at which the charm tracing information will be forwarded."""
-        # the charm container and the tempo workload container have apparently the same
-        # IP, so we can talk to tempo at localhost.
         return self.tracing.otlp_grpc_endpoint()
 
 

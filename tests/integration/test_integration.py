@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pytest
 import yaml
-
 from pytest_operator.plugin import OpsTest
 
 METADATA = yaml.safe_load(Path("./metadata.yaml").read_text())
@@ -14,11 +13,12 @@ TESTER_APP_NAME = TESTER_METADATA["name"]
 
 logger = logging.getLogger(__name__)
 
+
 @pytest.mark.abort_on_fail
 async def test_build_and_deploy(ops_test: OpsTest):
     # Given a fresh build of the charm
-    # When deploying it together with the tester and relating both charms
-    # Then relation should eventually be created
+    # When deploying it together with the tester
+    # Then applications should eventually be created
     charms = await ops_test.build_charms(".", "./tests/integration/tester/")
     resources = {"tempo-image": METADATA["resources"]["tempo-image"]["upstream-source"]}
     resources_tester = {"workload": TESTER_METADATA["resources"]["workload"]["upstream-source"]}
@@ -32,25 +32,66 @@ async def test_build_and_deploy(ops_test: OpsTest):
         ),
     )
 
-    await ops_test.model.wait_for_idle(
-        apps=[APP_NAME, TESTER_APP_NAME],
-        status="active",
-        raise_on_blocked=True,
-        timeout=1000
+    await asyncio.gather(
+        ops_test.model.wait_for_idle(
+            apps=[APP_NAME],
+            status="active",
+            raise_on_blocked=True,
+            timeout=1000
+        ),
+        # for tester, depending on the result of race with tempo it's either waiting or active
+        ops_test.model.wait_for_idle(
+            apps=[TESTER_APP_NAME],
+            raise_on_blocked=True,
+            timeout=1000
+        ),
     )
 
-    assert ops_test.model.applications[TESTER_APP_NAME].units[0].workload_status == "active"
     assert ops_test.model.applications[APP_NAME].units[0].workload_status == "active"
+
 
 @pytest.mark.abort_on_fail
 async def test_relate(ops_test: OpsTest):
+    # given a deployed charm
+    # when relating it together with the tester
+    # then relation should appear
     await ops_test.model.add_relation(APP_NAME + ":tracing", TESTER_APP_NAME + ":tracing")
-    await ops_test.model.wait_for_idle([APP_NAME, TESTER_APP_NAME])
+    await ops_test.model.wait_for_idle(
+        apps=[APP_NAME, TESTER_APP_NAME],
+        status="active",
+        # tester first receives an empty databag and goes to error state, then restarts
+        raise_on_error=False,
+        timeout=1000
+    )
 
-# TODO validate traces appear after relating
+
+@pytest.mark.abort_on_fail
+async def test_verify_traces(ops_test: OpsTest):
+    # given a relation between charms
+    # when traces endpoint is queried
+    # then it should contain traces from tester charm
+    status = await ops_test.model.get_status()
+    app = status["applications"][APP_NAME]
+    logger.info(app.public_address)
+    endpoint = app.public_address + ":3200/api/search"
+    cmd = [
+        "curl",
+        endpoint,
+    ]
+    rc, stdout, stderr = await ops_test.run(*cmd)
+    logger.info("%s: %s", endpoint, (rc, stdout, stderr))
+    assert rc == 0, (
+        f"curl exited with rc={rc} for {endpoint}; "
+        f"non-zero return code means curl encountered a >= 400 HTTP code; "
+        f"cmd={cmd}"
+    )
+    assert "TempoTesterCharm" in stdout
+
 
 @pytest.mark.abort_on_fail
 async def test_remove_relation(ops_test: OpsTest):
+    # given related charms
+    # when relation is removed
+    # then both charms should become active again
     await ops_test.juju("remove-relation", APP_NAME + ":tracing", TESTER_APP_NAME + ":tracing")
     await ops_test.model.wait_for_idle([APP_NAME, TESTER_APP_NAME], status="active")
-
