@@ -34,8 +34,9 @@ source .tox/unit/bin/activate
 tox -e fmt           # update your code according to linting rules
 tox -e lint          # code style
 tox -e unit          # unit tests
+tox -e scenario      # scenario tests
 tox -e integration   # integration tests
-tox                  # runs 'lint' and 'unit' environments
+tox                  # runs 'lint', 'scenario' and 'unit' environments
 ```
 
 ## Build charm

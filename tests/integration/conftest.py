@@ -1,6 +1,8 @@
 # Copyright 2021 Canonical Ltd.
 # See LICENSE file for licensing details.
 import logging
+import os
+import shutil
 from pathlib import Path
 
 import yaml
@@ -25,3 +27,16 @@ def tempo_metadata(ops_test: OpsTest):
 @fixture(scope="module")
 def tempo_oci_image(ops_test: OpsTest, tempo_metadata):
     return tempo_metadata["resources"]["tempo-image"]["upstream-source"]
+
+
+@fixture(scope="module", autouse=True)
+def copy_tempo_library_into_tester_charm(ops_test):
+    """Ensure the tester charm has the libraries it uses."""
+    libraries = [
+        "tempo_k8s/v0/charm_tracing.py",
+        "tempo_k8s/v0/tracing.py",
+    ]
+    for lib in libraries:
+        install_path = f"tests/integration/tester/lib/charms/{lib}"
+        os.makedirs(os.path.dirname(install_path), exist_ok=True)
+        shutil.copyfile(f"lib/charms/{lib}", install_path)
