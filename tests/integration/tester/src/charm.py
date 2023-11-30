@@ -255,7 +255,10 @@ class TempoTesterCharm(CharmBase):
 
     def tempo_otlp_grpc_endpoint(self) -> Optional[str]:
         """Endpoint at which the charm tracing information will be forwarded."""
-        return self.tracing.otlp_grpc_endpoint()
+        if self.tracing.is_ready():
+            return self.tracing.otlp_grpc_endpoint()
+        else:
+            return None
 
 
 if __name__ == "__main__":

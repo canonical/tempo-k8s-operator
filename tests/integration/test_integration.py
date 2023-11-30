@@ -54,8 +54,6 @@ async def test_relate(ops_test: OpsTest):
     await ops_test.model.wait_for_idle(
         apps=[APP_NAME, TESTER_APP_NAME],
         status="active",
-        # tester first receives an empty databag and goes to error state, then restarts
-        raise_on_error=False,
         timeout=1000,
     )
 
