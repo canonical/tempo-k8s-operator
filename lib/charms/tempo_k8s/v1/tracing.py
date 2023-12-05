@@ -89,11 +89,11 @@ from pydantic import BaseModel, ConfigDict
 LIBID = "12977e9aa0b34367903d8afeb8c3d85d"
 
 # Increment this major API version when introducing breaking changes
-LIBAPI = 0
+LIBAPI = 1
 
 # Increment this PATCH version before using `charmcraft publish-lib` or reset
 # to 0 if you are raising the major API version
-LIBPATCH = 8
+LIBPATCH = 0
 
 PYDEPS = ["pydantic>=2"]
 
