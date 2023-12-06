@@ -16,7 +16,7 @@ object only requires instantiating it, typically in the constructor of your char
 `tracing` interface.
  The `TracingEndpointRequirer` object may be instantiated as follows
 
-    from charms.tempo_k8s.v0.tracing import TracingEndpointRequirer
+    from charms.tempo_k8s.v1.tracing import TracingEndpointRequirer
 
     def __init__(self, *args):
         super().__init__(*args)
@@ -48,7 +48,7 @@ default value.
 For example a Tempo charm may instantiate the `TracingEndpointProvider` in its constructor as
 follows
 
-    from charms.tempo_k8s.v0.tracing import TracingEndpointProvider
+    from charms.tempo_k8s.v1.tracing import TracingEndpointProvider
 
     def __init__(self, *args):
         super().__init__(*args)

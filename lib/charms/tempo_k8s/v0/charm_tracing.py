@@ -314,7 +314,7 @@ def trace_charm(
 
     Usage:
     >>> from charms.tempo_k8s.v0.charm_tracing import trace_charm
-    >>> from charms.tempo_k8s.v0.tracing import TracingEndpointProvider
+    >>> from charms.tempo_k8s.v1.tracing import TracingEndpointProvider
     >>> from ops import CharmBase
     >>>
     >>> @trace_charm(
