@@ -1,4 +1,4 @@
-from charms.tempo_k8s.v0.tracing import Ingester, TracingProviderAppData
+from charms.tempo_k8s.v1.tracing import Ingester, TracingProviderAppData
 
 
 def test_tracing_requirer_app_data():

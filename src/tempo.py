@@ -9,7 +9,7 @@ from subprocess import CalledProcessError, getoutput
 from typing import List, Tuple
 
 import yaml
-from charms.tempo_k8s.v0.tracing import RawIngester
+from charms.tempo_k8s.v1.tracing import RawIngester
 from ops.pebble import Layer
 
 

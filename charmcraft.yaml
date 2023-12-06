@@ -10,3 +10,8 @@ bases:
       - name: "ubuntu"
         channel: "22.04"
 
+parts:
+  charm:
+    charm-binary-python-packages:
+      - "pydantic>=2"
+      - "opentelemetry-exporter-otlp-proto-grpc==1.17.0"

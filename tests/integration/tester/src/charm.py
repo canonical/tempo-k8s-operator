@@ -8,7 +8,7 @@ from typing import List, Optional
 
 from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
 from charms.tempo_k8s.v0.charm_tracing import trace_charm
-from charms.tempo_k8s.v0.tracing import TracingEndpointRequirer
+from charms.tempo_k8s.v1.tracing import TracingEndpointRequirer
 from ops.charm import CharmBase, PebbleReadyEvent
 from ops.main import main
 from ops.model import (

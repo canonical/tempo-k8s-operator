@@ -3,7 +3,7 @@ import socket
 
 import pytest
 from charms.tempo_k8s.v0.charm_tracing import charm_tracing_disabled
-from charms.tempo_k8s.v0.tracing import (
+from charms.tempo_k8s.v1.tracing import (
     EndpointChangedEvent,
     EndpointRemovedEvent,
     TracingEndpointRequirer,
