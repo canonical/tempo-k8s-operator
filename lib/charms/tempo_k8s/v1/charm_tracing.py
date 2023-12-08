@@ -15,14 +15,14 @@ To start using this library, you need to do two things:
 `@trace_charm(tracing_endpoint="my_tracing_endpoint")`
 
 2) add to your charm a "my_tracing_endpoint" (you can name this attribute whatever you like) **property**
-that returns an otlp grpc endpoint url. If you are using the `TracingEndpointProvider` as
+that returns an otlp http endpoint url. If you are using the `TracingEndpointProvider` as
 `self.tracing = TracingEndpointProvider(self)`, the implementation could be:
 
 ```
     @property
     def my_tracing_endpoint(self) -> Optional[str]:
         '''Tempo endpoint for charm tracing'''
-        return self.tracing.otlp_grpc_endpoint
+        return f"http://{self.tracing.otlp_http_endpoint}/v1/traces"
 ```
 
 At this point your charm will be automatically instrumented so that:
@@ -48,7 +48,7 @@ import inspect
 import logging
 import os
 from contextlib import contextmanager
-from contextvars import ContextVar
+from contextvars import Context, ContextVar, copy_context
 from typing import (
     Any,
     Callable,
@@ -62,19 +62,19 @@ from typing import (
 )
 
 import opentelemetry
-from grpc import ChannelCredentials
-from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import Span, TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
-from opentelemetry.trace import INVALID_SPAN, Tracer
-from opentelemetry.trace import get_current_span as otlp_get_current_span
 from opentelemetry.trace import (
+    INVALID_SPAN,
+    Tracer,
     get_tracer,
     get_tracer_provider,
     set_span_in_context,
     set_tracer_provider,
 )
+from opentelemetry.trace import get_current_span as otlp_get_current_span
 from ops.charm import CharmBase
 from ops.framework import Framework
 
@@ -82,13 +82,14 @@ from ops.framework import Framework
 LIBID = "cb1705dcd1a14ca09b2e60187d1215c7"
 
 # Increment this major API version when introducing breaking changes
-LIBAPI = 0
+LIBAPI = 1
 
 # Increment this PATCH version before using `charmcraft publish-lib` or reset
 # to 0 if you are raising the major API version
-LIBPATCH = 4
 
-PYDEPS = ["opentelemetry-exporter-otlp-proto-grpc==1.17.0"]
+LIBPATCH = 0
+
+PYDEPS = ["opentelemetry-exporter-otlp-proto-http==1.21.0"]
 
 logger = logging.getLogger("tracing")
 
@@ -127,11 +128,32 @@ def get_current_span() -> Union[Span, None]:
     return cast(Span, span)
 
 
+def _get_tracer_from_context(ctx: Context) -> Optional[ContextVar]:
+    try:
+        return next(filter(lambda v: v is not None and v.name == "tracer", ctx.keys()))
+    except StopIteration:
+        return
+
+
 def _get_tracer() -> Optional[Tracer]:
+    """Find tracer in context variable and as a fallback locate it in the full context.
+
+    We need the fallback as `tracer` context variable isn't under the same reference in the instrumented function.
+    """
     try:
         return tracer.get()
     except LookupError:
-        return None
+        try:
+            logger.debug("tracer was not found in config variable, looking up in context")
+            ctx: Context = copy_context()
+            if context_tracer := _get_tracer_from_context(ctx):
+                return context_tracer.get()
+            else:
+                logger.warning("Couldn't find context var for tracer: span will be skipped")
+                return None
+        except LookupError as err:
+            logger.warning(f"Couldn't find tracer: span will be skipped, err: {err}")
+            return None
 
 
 @contextmanager
@@ -141,6 +163,7 @@ def _span(name: str) -> Generator[Optional[Span], Any, Any]:
         with tracer.start_as_current_span(name) as span:
             yield cast(Span, span)
     else:
+        logger.debug(f"no tracer found: {_get_tracer()}")
         yield None
 
 
@@ -192,7 +215,7 @@ def _get_server_cert(server_cert_getter, self, charm):
         return
     elif not isinstance(server_cert, str):
         raise TypeError(
-            f"{charm}.{server_cert_getter} should return a valid tls cert (string); "
+            f"{charm}.{server_cert_getter} should return a valid tls cert path (string); "
             f"got {server_cert} instead."
         )
     logger.debug("Certificate successfully retrieved.")  # todo: some more validation?
@@ -244,11 +267,10 @@ def _setup_root_span_initializer(
         server_cert: Optional[str] = (
             _get_server_cert(server_cert_getter, self, charm) if server_cert_getter else None
         )
-        credentials = ChannelCredentials(server_cert) if server_cert else None
-        insecure = None if credentials else True
 
+        # OTLP HTTP exporter expects a cert file path instead of certificate itself that OTLP GRPC did
         exporter = OTLPSpanExporter(
-            endpoint=tracing_endpoint, credentials=credentials, insecure=insecure, timeout=2
+            endpoint=tracing_endpoint, certificate_file=server_cert, timeout=2
         )
 
         processor = BatchSpanProcessor(exporter)
@@ -313,12 +335,12 @@ def trace_charm(
     method calls on instances of this class.
 
     Usage:
-    >>> from charms.tempo_k8s.v0.charm_tracing import trace_charm
+    >>> from charms.tempo_k8s.v1.charm_tracing import trace_charm
     >>> from charms.tempo_k8s.v1.tracing import TracingEndpointProvider
     >>> from ops import CharmBase
     >>>
     >>> @trace_charm(
-    >>>         tracing_endpoint="tempo_otlp_grpc_endpoint",
+    >>>         tracing_endpoint="tempo_otlp_http_endpoint",
     >>> )
     >>> class MyCharm(CharmBase):
     >>>
@@ -327,11 +349,11 @@ def trace_charm(
     >>>         self.tempo = TracingEndpointProvider(self)
     >>>
     >>>     @property
-    >>>     def tempo_otlp_grpc_endpoint(self) -> Optional[str]:
-    >>>         return self.tempo.otlp_grpc_endpoint
+    >>>     def tempo_otlp_http_endpoint(self) -> Optional[str]:
+    >>>         return self.tempo.otlp_http_endpoint
     >>>
     :param server_cert: method or property on the charm type that returns an
-        optional tls certificate to be used when sending traces to a remote server.
+        optional tls certificate path to be used when sending traces to a remote server.
         If it returns None, an _insecure_ connection will be used.
     :param tracing_endpoint: name of a property on the charm type that returns an
         optional tempo url. If None, tracing will be effectively disabled. Else, traces will be
@@ -370,11 +392,11 @@ def _autoinstrument(
 
     Usage:
 
-    >>> from charms.tempo_k8s.v0.charm_tracing import _autoinstrument
+    >>> from charms.tempo_k8s.v1.charm_tracing import _autoinstrument
     >>> from ops.main import main
     >>> _autoinstrument(
     >>>         MyCharm,
-    >>>         tracing_endpoint_getter=MyCharm.tempo_otlp_grpc_endpoint,
+    >>>         tracing_endpoint_getter=MyCharm.tempo_otlp_http_endpoint,
     >>>         service_name="MyCharm",
     >>>         extra_types=(Foo, Bar)
     >>> )
@@ -382,7 +404,8 @@ def _autoinstrument(
 
     :param charm_type: the CharmBase subclass to autoinstrument.
     :param server_cert_getter: method or property on the charm type that returns an
-        optional tls certificate to be used when sending traces to a remote server.
+        optional tls certificate path to be used when sending traces to a remote server. This
+        needs to be a valid path to a certificate.
     :param tracing_endpoint_getter: method or property on the charm type that returns an
         optional tempo url. If None, tracing will be effectively disabled. Else, traces will be
         pushed to that endpoint.

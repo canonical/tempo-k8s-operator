@@ -1,15 +1,19 @@
+import logging
 import os
 from unittest.mock import patch
 
 import pytest
-from charms.tempo_k8s.v0.charm_tracing import CHARM_TRACING_ENABLED
-from charms.tempo_k8s.v0.charm_tracing import _autoinstrument as autoinstrument
-from charms.tempo_k8s.v0.charm_tracing import get_current_span, trace
+from charms.tempo_k8s.v1.charm_tracing import CHARM_TRACING_ENABLED
+from charms.tempo_k8s.v1.charm_tracing import _autoinstrument as autoinstrument
 from ops import EventBase, EventSource, Framework
 from ops.charm import CharmBase, CharmEvents
 from scenario import Context, State
 
+from lib.charms.tempo_k8s.v1.charm_tracing import get_current_span, trace
+
 os.environ[CHARM_TRACING_ENABLED] = "1"
+
+logger = logging.getLogger(__name__)
 
 
 @pytest.fixture(autouse=True)
@@ -40,8 +44,10 @@ autoinstrument(MyCharmSimple, MyCharmSimple.tempo)
 def test_base_tracer_endpoint(caplog):
     import opentelemetry
 
-    with patch("opentelemetry.exporter.otlp.proto.grpc.exporter.OTLPExporterMixin._export") as f:
-        f.return_value = opentelemetry.sdk.metrics._internal.export.MetricExportResult.SUCCESS
+    with patch(
+        "opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter.export"
+    ) as f:
+        f.return_value = opentelemetry.sdk.trace.export.SpanExportResult.SUCCESS
         ctx = Context(MyCharmSimple, meta=MyCharmSimple.META)
         ctx.run("start", State())
         assert "Setting up span exporter to endpoint: foo.bar:80" in caplog.text
@@ -79,8 +85,10 @@ autoinstrument(MyCharmSubObject, MyCharmSubObject.tempo, extra_types=[SubObject]
 def test_subobj_tracer_endpoint(caplog):
     import opentelemetry
 
-    with patch("opentelemetry.exporter.otlp.proto.grpc.exporter.OTLPExporterMixin._export") as f:
-        f.return_value = opentelemetry.sdk.metrics._internal.export.MetricExportResult.SUCCESS
+    with patch(
+        "opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter.export"
+    ) as f:
+        f.return_value = opentelemetry.sdk.trace.export.SpanExportResult.SUCCESS
         ctx = Context(MyCharmSubObject, meta=MyCharmSubObject.META)
         ctx.run("start", State())
         spans = f.call_args_list[0].args[0]
@@ -105,8 +113,10 @@ autoinstrument(MyCharmInitAttr, MyCharmInitAttr.tempo)
 def test_init_attr(caplog):
     import opentelemetry
 
-    with patch("opentelemetry.exporter.otlp.proto.grpc.exporter.OTLPExporterMixin._export") as f:
-        f.return_value = opentelemetry.sdk.metrics._internal.export.MetricExportResult.SUCCESS
+    with patch(
+        "opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter.export"
+    ) as f:
+        f.return_value = opentelemetry.sdk.trace.export.SpanExportResult.SUCCESS
         ctx = Context(MyCharmInitAttr, meta=MyCharmInitAttr.META)
         ctx.run("start", State())
         assert "Setting up span exporter to endpoint: foo.bar:80" in caplog.text
@@ -130,8 +140,10 @@ autoinstrument(MyCharmSimpleDisabled, MyCharmSimpleDisabled.tempo)
 def test_base_tracer_endpoint_disabled(caplog):
     import opentelemetry
 
-    with patch("opentelemetry.exporter.otlp.proto.grpc.exporter.OTLPExporterMixin._export") as f:
-        f.return_value = opentelemetry.sdk.metrics._internal.export.MetricExportResult.SUCCESS
+    with patch(
+        "opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter.export"
+    ) as f:
+        f.return_value = opentelemetry.sdk.trace.export.SpanExportResult.SUCCESS
         ctx = Context(MyCharmSimpleDisabled, meta=MyCharmSimpleDisabled.META)
         ctx.run("start", State())
 
@@ -175,8 +187,10 @@ autoinstrument(MyCharmSimpleEvent, MyCharmSimpleEvent.tempo)
 def test_base_tracer_endpoint_event(caplog):
     import opentelemetry
 
-    with patch("opentelemetry.exporter.otlp.proto.grpc.exporter.OTLPExporterMixin._export") as f:
-        f.return_value = opentelemetry.sdk.metrics._internal.export.MetricExportResult.SUCCESS
+    with patch(
+        "opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter.export"
+    ) as f:
+        f.return_value = opentelemetry.sdk.trace.export.SpanExportResult.SUCCESS
         ctx = Context(MyCharmSimpleEvent, meta=MyCharmSimpleEvent.META)
         ctx.run("start", State())
 
@@ -199,8 +213,10 @@ def test_base_tracer_endpoint_event(caplog):
 def test_juju_topology_injection(caplog):
     import opentelemetry
 
-    with patch("opentelemetry.exporter.otlp.proto.grpc.exporter.OTLPExporterMixin._export") as f:
-        f.return_value = opentelemetry.sdk.metrics._internal.export.MetricExportResult.SUCCESS
+    with patch(
+        "opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter.export"
+    ) as f:
+        f.return_value = opentelemetry.sdk.trace.export.SpanExportResult.SUCCESS
         ctx = Context(MyCharmSimpleEvent, meta=MyCharmSimpleEvent.META)
         state = ctx.run("start", State())
 
@@ -246,8 +262,10 @@ autoinstrument(MyCharmWithMethods, MyCharmWithMethods.tempo)
 def test_base_tracer_endpoint_methods(caplog):
     import opentelemetry
 
-    with patch("opentelemetry.exporter.otlp.proto.grpc.exporter.OTLPExporterMixin._export") as f:
-        f.return_value = opentelemetry.sdk.metrics._internal.export.MetricExportResult.SUCCESS
+    with patch(
+        "opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter.export"
+    ) as f:
+        f.return_value = opentelemetry.sdk.trace.export.SpanExportResult.SUCCESS
         ctx = Context(MyCharmWithMethods, meta=MyCharmWithMethods.META)
         ctx.run("start", State())
 
@@ -298,8 +316,10 @@ autoinstrument(MyCharmWithCustomEvents, MyCharmWithCustomEvents.tempo)
 def test_base_tracer_endpoint_custom_event(caplog):
     import opentelemetry
 
-    with patch("opentelemetry.exporter.otlp.proto.grpc.exporter.OTLPExporterMixin._export") as f:
-        f.return_value = opentelemetry.sdk.metrics._internal.export.MetricExportResult.SUCCESS
+    with patch(
+        "opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter.export"
+    ) as f:
+        f.return_value = opentelemetry.sdk.trace.export.SpanExportResult.SUCCESS
         ctx = Context(MyCharmWithCustomEvents, meta=MyCharmWithCustomEvents.META)
         ctx.run("start", State())
 

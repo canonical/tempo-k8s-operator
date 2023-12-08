@@ -33,7 +33,7 @@ def tempo_oci_image(ops_test: OpsTest, tempo_metadata):
 def copy_tempo_library_into_tester_charm(ops_test):
     """Ensure the tester charm has the libraries it uses."""
     libraries = [
-        "tempo_k8s/v0/charm_tracing.py",
+        "tempo_k8s/v1/charm_tracing.py",
         "tempo_k8s/v1/tracing.py",
     ]
     for lib in libraries:
