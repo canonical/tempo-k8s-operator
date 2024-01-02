@@ -129,12 +129,10 @@ def get_current_span() -> Union[Span, None]:
 
 
 def _get_tracer_from_context(ctx: Context) -> Optional[ContextVar]:
-    try:
-        tracers = [v for v in ctx if v is not None and v.name == "tracer"]
-        if tracers:
-            return tracers[0]
-    except StopIteration:
-        return
+    tracers = [v for v in ctx if v is not None and v.name == "tracer"]
+    if tracers:
+        return tracers[0]
+    return None
 
 
 def _get_tracer() -> Optional[Tracer]:
