@@ -22,7 +22,10 @@ that returns an otlp http endpoint url. If you are using the `TracingEndpointPro
     @property
     def my_tracing_endpoint(self) -> Optional[str]:
         '''Tempo endpoint for charm tracing'''
-        return f"http://{self.tracing.otlp_http_endpoint}/v1/traces"
+        if self.tracing.is_ready():
+            return self.tracing.otlp_http_endpoint()
+        else:
+            return None
 ```
 
 At this point your charm will be automatically instrumented so that:
@@ -195,8 +198,8 @@ def _get_tracing_endpoint(tracing_endpoint_getter, self, charm):
             f"got {tracing_endpoint} instead."
         )
     else:
-        logger.debug(f"Setting up span exporter to endpoint: {tracing_endpoint}")
-    return tracing_endpoint
+        logger.debug(f"Setting up span exporter to endpoint: {tracing_endpoint}/v1/traces")
+    return f"{tracing_endpoint}/v1/traces"
 
 
 def _get_server_cert(server_cert_getter, self, charm):
@@ -342,11 +345,14 @@ def trace_charm(
     >>>
     >>>     def __init__(self, framework: Framework):
     >>>         ...
-    >>>         self.tempo = TracingEndpointProvider(self)
+    >>>         self.tracing = TracingEndpointProvider(self)
     >>>
     >>>     @property
     >>>     def tempo_otlp_http_endpoint(self) -> Optional[str]:
-    >>>         return self.tempo.otlp_http_endpoint
+    >>>         if self.tracing.is_ready():
+    >>>             return self.tracing.otlp_http_endpoint()
+    >>>         else:
+    >>>             return None
     >>>
     :param server_cert: method or property on the charm type that returns an
         optional tls certificate path to be used when sending traces to a remote server.

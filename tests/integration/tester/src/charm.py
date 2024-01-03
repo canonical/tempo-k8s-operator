@@ -256,7 +256,7 @@ class TempoTesterCharm(CharmBase):
     def tempo_otlp_http_endpoint(self) -> Optional[str]:
         """Endpoint at which the charm tracing information will be forwarded."""
         if self.tracing.is_ready():
-            return f"http://{self.tracing.otlp_http_endpoint()}/v1/traces"
+            return self.tracing.otlp_http_endpoint()
         else:
             return None
 

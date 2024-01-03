@@ -61,17 +61,7 @@ follows
 """  # noqa: W505
 import json
 import logging
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Dict,
-    List,
-    Literal,
-    MutableMapping,
-    Optional,
-    Tuple,
-    cast,
-)
+from typing import TYPE_CHECKING, List, Literal, MutableMapping, Optional, Tuple, cast
 
 import pydantic
 from ops.charm import (
@@ -93,7 +83,7 @@ LIBAPI = 1
 
 # Increment this PATCH version before using `charmcraft publish-lib` or reset
 # to 0 if you are raising the major API version
-LIBPATCH = 1
+LIBPATCH = 2
 
 PYDEPS = ["pydantic>=2"]
 
@@ -547,37 +537,65 @@ class TracingEndpointRequirer(Object):
             return
         return TracingProviderAppData.load(relation.data[relation.app])  # type: ignore
 
-    def _get_ingester(self, relation: Optional[Relation], protocol: IngesterProtocol):
+    def _get_ingester(self, relation: Optional[Relation], protocol: IngesterProtocol, ssl: bool):
         ep = self.get_all_endpoints(relation)
         if not ep:
             return None
         try:
             ingester: Ingester = next(filter(lambda i: i.protocol == protocol, ep.ingesters))
-            return f"{ep.host}:{ingester.port}"
+            if ingester.protocol in ["otlp_grpc", "jaeger_grpc"]:
+                return f"{ep.host}:{ingester.port}"
+            if ssl:
+                return f"https://{ep.host}:{ingester.port}"
+            return f"http://{ep.host}:{ingester.port}"
         except StopIteration:
             logger.error(f"no ingester found with protocol={protocol!r}")
             return None
 
-    def otlp_grpc_endpoint(self, relation: Optional[Relation] = None) -> Optional[str]:
+    def otlp_grpc_endpoint(
+        self, relation: Optional[Relation] = None, ssl: bool = False
+    ) -> Optional[str]:
         """Ingester endpoint for the ``otlp_grpc`` protocol."""
-        return self._get_ingester(relation or self._relation, protocol="otlp_grpc")
+        return self._get_ingester(relation or self._relation, protocol="otlp_grpc", ssl=ssl)
 
-    def otlp_http_endpoint(self, relation: Optional[Relation] = None) -> Optional[str]:
-        """Ingester endpoint for the ``otlp_http`` protocol."""
-        return self._get_ingester(relation or self._relation, protocol="otlp_http")
+    def otlp_http_endpoint(
+        self, relation: Optional[Relation] = None, ssl: bool = False
+    ) -> Optional[str]:
+        """Ingester endpoint for the ``otlp_http`` protocol.
 
-    def zipkin_endpoint(self, relation: Optional[Relation] = None) -> Optional[str]:
-        """Ingester endpoint for the ``zipkin`` protocol."""
-        return self._get_ingester(relation or self._relation, protocol="zipkin")
+        The provided endpoint does not contain the endpoint suffix. If the instrumenting library needs the full path,
+        your endpoint code needs to add the ``/v1/traces`` suffix.
+        """
+        return self._get_ingester(relation or self._relation, protocol="otlp_http", ssl=ssl)
 
-    def tempo_endpoint(self, relation: Optional[Relation] = None) -> Optional[str]:
+    def zipkin_endpoint(
+        self, relation: Optional[Relation] = None, ssl: bool = False
+    ) -> Optional[str]:
+        """Ingester endpoint for the ``zipkin`` protocol.
+
+        The provided endpoint does not contain the endpoint suffix. If the instrumenting library needs the full path,
+        your endpoint code needs to add the ``/api/v2/spans`` suffix.
+        """
+        return self._get_ingester(relation or self._relation, protocol="zipkin", ssl=ssl)
+
+    def tempo_endpoint(
+        self, relation: Optional[Relation] = None, ssl: bool = False
+    ) -> Optional[str]:
         """Ingester endpoint for the ``tempo`` protocol."""
-        return self._get_ingester(relation or self._relation, protocol="tempo")
+        return self._get_ingester(relation or self._relation, protocol="tempo", ssl=ssl)
 
-    def jaeger_http_thrift_endpoint(self, relation: Optional[Relation] = None) -> Optional[str]:
-        """Ingester endpoint for the ``jaeger_http_thrift`` protocol."""
-        return self._get_ingester(relation or self._relation, "jaeger_http_thrift")
+    def jaeger_http_thrift_endpoint(
+        self, relation: Optional[Relation] = None, ssl: bool = False
+    ) -> Optional[str]:
+        """Ingester endpoint for the ``jaeger_http_thrift`` protocol.
 
-    def jaeger_grpc_endpoint(self, relation: Optional[Relation] = None) -> Optional[str]:
+        The provided endpoint does not contain the endpoint suffix. If the instrumenting library needs the full path,
+        your endpoint code needs to add the ``/api/traces`` suffix.
+        """
+        return self._get_ingester(relation or self._relation, "jaeger_http_thrift", ssl=ssl)
+
+    def jaeger_grpc_endpoint(
+        self, relation: Optional[Relation] = None, ssl: bool = False
+    ) -> Optional[str]:
         """Ingester endpoint for the ``jaeger_grpc`` protocol."""
-        return self._get_ingester(relation or self._relation, "jaeger_grpc")
+        return self._get_ingester(relation or self._relation, "jaeger_grpc", ssl=ssl)
