@@ -132,29 +132,13 @@ def get_current_span() -> Union[Span, None]:
     return cast(Span, span)
 
 
-def _get_tracer_from_context(ctx: Context) -> Optional[ContextVar]:
-    tracers = [v for v in ctx if v is not None and v.name == "tracer"]
-    if tracers:
-        return tracers[0]
-    return None
-
-
 def _get_tracer() -> Optional[Tracer]:
     """Find tracer in context variable and as a fallback locate it in the full context."""
     try:
         return tracer.get()
-    except LookupError:
-        try:
-            logger.debug("tracer was not found in context variable, looking up in context")
-            ctx: Context = copy_context()
-            if context_tracer := _get_tracer_from_context(ctx):
-                return context_tracer.get()
-            else:
-                logger.warning("Couldn't find context var for tracer: span will be skipped")
-                return None
-        except LookupError as err:
-            logger.warning(f"Couldn't find tracer: span will be skipped, err: {err}")
-            return None
+    except LookupError as err:
+        logger.warning(f"Couldn't find tracer: span will be skipped, err: {err}")
+        return None
 
 
 @contextmanager
