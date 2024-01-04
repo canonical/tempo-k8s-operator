@@ -139,6 +139,7 @@ class TempoCharm(CharmBase):
         """Endpoint at which the charm tracing information will be forwarded."""
         # the charm container and the tempo workload container have apparently the same
         # IP, so we can talk to tempo at localhost.
+        # TODO switch to HTTPS once SSL support is added
         return f"http://localhost:{self.tempo.otlp_http_port}/v1/traces"
 
 

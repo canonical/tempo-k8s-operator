@@ -61,7 +61,17 @@ follows
 """  # noqa: W505
 import json
 import logging
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, MutableMapping, Optional, Tuple, cast
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Dict,
+    List,
+    Literal,
+    MutableMapping,
+    Optional,
+    Tuple,
+    cast,
+)
 
 import pydantic
 from ops.charm import (
@@ -537,13 +547,17 @@ class TracingEndpointRequirer(Object):
             return
         return TracingProviderAppData.load(relation.data[relation.app])  # type: ignore
 
-    def _get_ingester(self, relation: Optional[Relation], protocol: IngesterProtocol, ssl: bool):
+    def _get_ingester(
+        self, relation: Optional[Relation], protocol: IngesterProtocol, ssl: bool = False
+    ):
         ep = self.get_all_endpoints(relation)
         if not ep:
             return None
         try:
             ingester: Ingester = next(filter(lambda i: i.protocol == protocol, ep.ingesters))
             if ingester.protocol in ["otlp_grpc", "jaeger_grpc"]:
+                if ssl:
+                    logger.warning("unused ssl argument - was the right protocol called?")
                 return f"{ep.host}:{ingester.port}"
             if ssl:
                 return f"https://{ep.host}:{ingester.port}"
@@ -552,11 +566,9 @@ class TracingEndpointRequirer(Object):
             logger.error(f"no ingester found with protocol={protocol!r}")
             return None
 
-    def otlp_grpc_endpoint(
-        self, relation: Optional[Relation] = None, ssl: bool = False
-    ) -> Optional[str]:
+    def otlp_grpc_endpoint(self, relation: Optional[Relation] = None) -> Optional[str]:
         """Ingester endpoint for the ``otlp_grpc`` protocol."""
-        return self._get_ingester(relation or self._relation, protocol="otlp_grpc", ssl=ssl)
+        return self._get_ingester(relation or self._relation, protocol="otlp_grpc")
 
     def otlp_http_endpoint(
         self, relation: Optional[Relation] = None, ssl: bool = False
@@ -594,8 +606,6 @@ class TracingEndpointRequirer(Object):
         """
         return self._get_ingester(relation or self._relation, "jaeger_http_thrift", ssl=ssl)
 
-    def jaeger_grpc_endpoint(
-        self, relation: Optional[Relation] = None, ssl: bool = False
-    ) -> Optional[str]:
+    def jaeger_grpc_endpoint(self, relation: Optional[Relation] = None) -> Optional[str]:
         """Ingester endpoint for the ``jaeger_grpc`` protocol."""
-        return self._get_ingester(relation or self._relation, "jaeger_grpc", ssl=ssl)
+        return self._get_ingester(relation or self._relation, "jaeger_grpc")

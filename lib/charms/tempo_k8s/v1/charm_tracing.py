@@ -15,7 +15,7 @@ To start using this library, you need to do two things:
 `@trace_charm(tracing_endpoint="my_tracing_endpoint")`
 
 2) add to your charm a "my_tracing_endpoint" (you can name this attribute whatever you like) **property**
-that returns an otlp http endpoint url. If you are using the `TracingEndpointProvider` as
+that returns an otlp http/https endpoint url. If you are using the `TracingEndpointProvider` as
 `self.tracing = TracingEndpointProvider(self)`, the implementation could be:
 
 ```
@@ -52,6 +52,7 @@ import logging
 import os
 from contextlib import contextmanager
 from contextvars import Context, ContextVar, copy_context
+from pathlib import Path
 from typing import (
     Any,
     Callable,
@@ -163,7 +164,7 @@ def _span(name: str) -> Generator[Optional[Span], Any, Any]:
         with tracer.start_as_current_span(name) as span:
             yield cast(Span, span)
     else:
-        logger.debug(f"no tracer found: {_get_tracer()}")
+        logger.debug("tracer not found")
         yield None
 
 
@@ -213,9 +214,9 @@ def _get_server_cert(server_cert_getter, self, charm):
             f"{charm}.{server_cert_getter} returned None; continuing with INSECURE connection."
         )
         return
-    elif not isinstance(server_cert, str):
+    elif not isinstance(server_cert, (str, Path)):
         raise TypeError(
-            f"{charm}.{server_cert_getter} should return a valid tls cert path (string); "
+            f"{charm}.{server_cert_getter} should return a valid tls cert path (string | Path)); "
             f"got {server_cert} instead."
         )
     logger.debug("Certificate successfully retrieved.")  # todo: some more validation?
@@ -269,7 +270,9 @@ def _setup_root_span_initializer(
         )
 
         exporter = OTLPSpanExporter(
-            endpoint=tracing_endpoint, certificate_file=server_cert, timeout=2
+            endpoint=tracing_endpoint,
+            certificate_file=str(Path(server_cert).absolute()) if server_cert else None,
+            timeout=2,
         )
 
         processor = BatchSpanProcessor(exporter)
@@ -355,7 +358,7 @@ def trace_charm(
     >>>             return None
     >>>
     :param server_cert: method or property on the charm type that returns an
-        optional tls certificate path to be used when sending traces to a remote server.
+        optional absolute path to a tls certificate to be used when sending traces to a remote server.
         If it returns None, an _insecure_ connection will be used.
     :param tracing_endpoint: name of a property on the charm type that returns an
         optional (fully resolvable) tempo url. If None, tracing will be effectively disabled. Else, traces will be
@@ -406,8 +409,8 @@ def _autoinstrument(
 
     :param charm_type: the CharmBase subclass to autoinstrument.
     :param server_cert_getter: method or property on the charm type that returns an
-        optional tls certificate path to be used when sending traces to a remote server. This
-        needs to be a valid path to a certificate.
+        optional absolute path to a tls certificate to be used when sending traces to a remote server.
+        This needs to be a valid path to a certificate.
     :param tracing_endpoint_getter: method or property on the charm type that returns an
         optional tempo url. If None, tracing will be effectively disabled. Else, traces will be
         pushed to that endpoint.
