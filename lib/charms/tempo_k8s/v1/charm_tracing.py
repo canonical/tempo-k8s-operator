@@ -265,7 +265,7 @@ def _setup_root_span_initializer(
         if not tracing_endpoint:
             return
 
-        server_cert: Optional[str] = (
+        server_cert: Optional[Union[str, Path]] = (
             _get_server_cert(server_cert_getter, self, charm) if server_cert_getter else None
         )
 
