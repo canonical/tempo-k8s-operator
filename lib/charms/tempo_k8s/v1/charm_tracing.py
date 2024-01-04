@@ -214,9 +214,9 @@ def _get_server_cert(server_cert_getter, self, charm):
             f"{charm}.{server_cert_getter} returned None; continuing with INSECURE connection."
         )
         return
-    elif not isinstance(server_cert, (str, Path)):
+    elif not (isinstance(server_cert, (str, Path)) and Path(server_cert).is_absolute()):
         raise TypeError(
-            f"{charm}.{server_cert_getter} should return a valid tls cert path (string | Path)); "
+            f"{charm}.{server_cert_getter} should return a valid tls cert absolute path (string | Path)); "
             f"got {server_cert} instead."
         )
     logger.debug("Certificate successfully retrieved.")  # todo: some more validation?
