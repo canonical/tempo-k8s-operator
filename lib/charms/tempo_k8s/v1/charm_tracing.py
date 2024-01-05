@@ -93,7 +93,7 @@ LIBAPI = 1
 
 LIBPATCH = 0
 
-PYDEPS = ["opentelemetry-exporter-otlp-proto-http==1.21.0"]
+PYDEPS = ["opentelemetry-exporter-otlp-proto-http>=1.21.0"]
 
 logger = logging.getLogger("tracing")
 
@@ -145,7 +145,7 @@ def _get_tracer() -> Optional[Tracer]:
         return tracer.get()
     except LookupError:
         try:
-            logger.debug("tracer was not found in context variable, looking up in context")
+            logger.debug("tracer was not found in context variable, looking up in default context")
             ctx: Context = copy_context()
             if context_tracer := _get_tracer_from_context(ctx):
                 return context_tracer.get()
@@ -214,8 +214,8 @@ def _get_server_cert(server_cert_getter, self, charm):
             f"{charm}.{server_cert_getter} returned None; continuing with INSECURE connection."
         )
         return
-    elif not (isinstance(server_cert, (str, Path)) and Path(server_cert).is_absolute()):
-        raise TypeError(
+    elif not Path(server_cert).is_absolute():
+        raise ValueError(
             f"{charm}.{server_cert_getter} should return a valid tls cert absolute path (string | Path)); "
             f"got {server_cert} instead."
         )

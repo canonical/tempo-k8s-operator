@@ -98,7 +98,7 @@ class TempoTesterCharm(CharmBase):
             "PORT": self.config["port"],
             "HOST": self.config["host"],
             "APP_NAME": self.app.name,
-            "TEMPO_ENDPOINT": str(self.tracing.otlp_http_endpoint) or "",
+            "TEMPO_ENDPOINT": str(self.tracing.otlp_http_endpoint or ""),
         }
         logging.info(f"Initing pebble layer with env: {str(env)}")
 
