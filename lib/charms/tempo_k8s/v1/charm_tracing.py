@@ -44,6 +44,16 @@ import opentelemetry
 
 By default, the tracer is named after the charm type. If you wish to override that, you can pass
 a different `service_name` argument to `trace_charm`.
+
+*Upgrading from `v0`:*
+
+If you are upgrading from `charm_tracing` v0, you need to do the following steps (assuming you already
+have the newest version of the library in your charm):
+1) If you have a dependency on `opentelemetry-exporter-otlp-proto-grpc` in your project for charm tracing, replace
+it with `opentelemetry-exporter-otlp-proto-http>=1.21.0`.
+2) Update your `tracing_endpoint` property to point at `self.tracing.otlp_http_endpoint()`
+3) If you were passing a certificate using `server_cert`, you need to change it to provide an *absolute* path to
+the certificate file.
 """
 
 import functools
@@ -70,15 +80,14 @@ from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExport
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import Span, TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.trace import INVALID_SPAN, Tracer
+from opentelemetry.trace import get_current_span as otlp_get_current_span
 from opentelemetry.trace import (
-    INVALID_SPAN,
-    Tracer,
     get_tracer,
     get_tracer_provider,
     set_span_in_context,
     set_tracer_provider,
 )
-from opentelemetry.trace import get_current_span as otlp_get_current_span
 from ops.charm import CharmBase
 from ops.framework import Framework
 
