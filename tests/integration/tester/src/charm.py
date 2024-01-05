@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
-from charms.tempo_k8s.v0.charm_tracing import trace_charm
+from charms.tempo_k8s.v1.charm_tracing import trace_charm
 from charms.tempo_k8s.v1.tracing import TracingEndpointRequirer
 from ops.charm import CharmBase, PebbleReadyEvent
 from ops.main import main
@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 TRACING_APP_NAME = "TempoTesterCharm"
 
 
-@trace_charm(tracing_endpoint="tempo_otlp_grpc_endpoint", service_name=TRACING_APP_NAME)
+@trace_charm(tracing_endpoint="tempo_otlp_http_endpoint", service_name=TRACING_APP_NAME)
 class TempoTesterCharm(CharmBase):
     """Charm the service."""
 
@@ -98,7 +98,7 @@ class TempoTesterCharm(CharmBase):
             "PORT": self.config["port"],
             "HOST": self.config["host"],
             "APP_NAME": self.app.name,
-            "TEMPO_ENDPOINT": str(self.tracing.otlp_grpc_endpoint) or "",
+            "TEMPO_ENDPOINT": str(self.tracing.otlp_http_endpoint or ""),
         }
         logging.info(f"Initing pebble layer with env: {str(env)}")
 
@@ -253,10 +253,10 @@ class TempoTesterCharm(CharmBase):
 
         return addresses
 
-    def tempo_otlp_grpc_endpoint(self) -> Optional[str]:
+    def tempo_otlp_http_endpoint(self) -> Optional[str]:
         """Endpoint at which the charm tracing information will be forwarded."""
         if self.tracing.is_ready():
-            return self.tracing.otlp_grpc_endpoint()
+            return self.tracing.otlp_http_endpoint()
         else:
             return None
 

@@ -2,7 +2,7 @@ import json
 import socket
 
 import pytest
-from charms.tempo_k8s.v0.charm_tracing import charm_tracing_disabled
+from charms.tempo_k8s.v1.charm_tracing import charm_tracing_disabled
 from charms.tempo_k8s.v1.tracing import (
     EndpointChangedEvent,
     EndpointRemovedEvent,
@@ -46,8 +46,7 @@ def test_requirer_api(context):
 
     def post_event(charm: MyCharm):
         assert charm.tracing.otlp_grpc_endpoint() == f"{host}:4317"
-        assert charm.tracing.otlp_http_endpoint() == f"{host}:4318"
-        assert charm.tracing.otlp_http_endpoint() == f"{host}:4318"
+        assert charm.tracing.otlp_http_endpoint() == f"http://{host}:4318"
 
         rel = charm.model.get_relation("tracing")
         assert charm.tracing.is_ready(rel)

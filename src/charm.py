@@ -13,20 +13,19 @@ from charms.grafana_k8s.v0.grafana_source import GrafanaSourceProvider
 from charms.loki_k8s.v0.loki_push_api import LogProxyConsumer
 from charms.observability_libs.v0.kubernetes_service_patch import KubernetesServicePatch
 from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
-from charms.tempo_k8s.v0.charm_tracing import trace_charm
+from charms.tempo_k8s.v1.charm_tracing import trace_charm
 from charms.tempo_k8s.v1.tracing import TracingEndpointProvider
 from charms.traefik_k8s.v2.ingress import IngressPerAppRequirer
 from ops.charm import CharmBase, WorkloadEvent
 from ops.main import main
 from ops.model import ActiveStatus
-
 from tempo import Tempo
 
 logger = logging.getLogger(__name__)
 
 
 @trace_charm(
-    tracing_endpoint="tempo_otlp_grpc_endpoint",
+    tracing_endpoint="tempo_otlp_http_endpoint",
     extra_types=(Tempo, TracingEndpointProvider),
 )
 class TempoCharm(CharmBase):
@@ -136,11 +135,12 @@ class TempoCharm(CharmBase):
             return
         return version
 
-    def tempo_otlp_grpc_endpoint(self) -> Optional[str]:
+    def tempo_otlp_http_endpoint(self) -> Optional[str]:
         """Endpoint at which the charm tracing information will be forwarded."""
         # the charm container and the tempo workload container have apparently the same
         # IP, so we can talk to tempo at localhost.
-        return f"http://localhost:{self.tempo.otlp_grpc_port}/"
+        # TODO switch to HTTPS once SSL support is added
+        return f"http://localhost:{self.tempo.otlp_http_port}/v1/traces"
 
 
 if __name__ == "__main__":  # pragma: nocover

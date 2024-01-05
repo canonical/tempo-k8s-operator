@@ -6,8 +6,8 @@ lightkube==0.11.0
 lightkube-models==1.24.1.4
 
 # PYDEPS
-# lib/charms/tempo_k8s/v0/charm_tracing.py
-opentelemetry-exporter-otlp-proto-grpc
+# lib/charms/tempo_k8s/v1/charm_tracing.py
+opentelemetry-exporter-otlp-proto-http
 # lib/charms/tempo_k8s/v1/tracing.py
 pydantic>=2
 # lib/charms/prometheus_k8s/v0/prometheus_scrape.py
