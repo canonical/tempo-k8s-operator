@@ -49,9 +49,12 @@ a different `service_name` argument to `trace_charm`.
 
 If you are upgrading from `charm_tracing` v0, you need to do the following steps (assuming you already
 have the newest version of the library in your charm):
-1) If you have a dependency on `opentelemetry-exporter-otlp-proto-grpc` in your project for charm tracing, replace
-it with `opentelemetry-exporter-otlp-proto-http>=1.21.0`.
+1) If you have a dependency on `opentelemetry-exporter-otlp-proto-grpc` in your project for charm tracing, replace with:
+
+`opentelemetry-exporter-otlp-proto-http>=1.21.0`.
+
 2) Update your `tracing_endpoint` property to point at `self.tracing.otlp_http_endpoint()`
+
 3) If you were passing a certificate using `server_cert`, you need to change it to provide an *absolute* path to
 the certificate file.
 """
@@ -100,7 +103,7 @@ LIBAPI = 1
 # Increment this PATCH version before using `charmcraft publish-lib` or reset
 # to 0 if you are raising the major API version
 
-LIBPATCH = 0
+LIBPATCH = 1
 
 PYDEPS = ["opentelemetry-exporter-otlp-proto-http>=1.21.0"]
 
