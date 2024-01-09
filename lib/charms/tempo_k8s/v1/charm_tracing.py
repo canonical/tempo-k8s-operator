@@ -63,7 +63,7 @@ to return from `TracingEndpointRequirer.otlp_http_endpoint()` instead of `grpc_h
     @trace_charm(
         tracing_endpoint="my_tracing_endpoint",
     )
-    class TempoCharm(CharmBase):
+    class MyCharm(CharmBase):
 
     ...
 
@@ -84,7 +84,7 @@ needs to be replaced with:
     @trace_charm(
         tracing_endpoint="my_tracing_endpoint",
     )
-    class TempoCharm(CharmBase):
+    class MyCharm(CharmBase):
 
     ...
 
