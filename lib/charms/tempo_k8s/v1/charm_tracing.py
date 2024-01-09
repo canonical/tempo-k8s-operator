@@ -47,13 +47,55 @@ a different `service_name` argument to `trace_charm`.
 
 *Upgrading from `v0`:*
 
-If you are upgrading from `charm_tracing` v0, you need to do the following steps (assuming you already
+If you are upgrading from `charm_tracing` v0, you need to take the following steps (assuming you already
 have the newest version of the library in your charm):
-1) If you have a dependency on `opentelemetry-exporter-otlp-proto-grpc` in your project for charm tracing, replace with:
+1) Add the following dependency to your charm project (or, if your project had a dependency
+on `opentelemetry-exporter-otlp-proto-grpc` only because of `charm_tracing` v0, you can replace it with):
 
 `opentelemetry-exporter-otlp-proto-http>=1.21.0`.
 
-2) Update your `tracing_endpoint` property to point at `self.tracing.otlp_http_endpoint()`
+2) Update the charm method referenced to from `@trace` and `@trace_charm`,
+to return from `TracingEndpointRequirer.otlp_http_endpoint()` instead of `grpc_http`. For example:
+
+```
+    from charms.tempo_k8s.v0.charm_tracing import trace_charm
+
+    @trace_charm(
+        tracing_endpoint="my_tracing_endpoint",
+    )
+    class TempoCharm(CharmBase):
+
+    ...
+
+        @property
+        def my_tracing_endpoint(self) -> Optional[str]:
+            '''Tempo endpoint for charm tracing'''
+            if self.tracing.is_ready():
+                return self.tracing.otlp_grpc_endpoint()
+            else:
+                return None
+```
+
+needs to be replaced with:
+
+```
+    from charms.tempo_k8s.v1.charm_tracing import trace_charm
+
+    @trace_charm(
+        tracing_endpoint="my_tracing_endpoint",
+    )
+    class TempoCharm(CharmBase):
+
+    ...
+
+        @property
+        def my_tracing_endpoint(self) -> Optional[str]:
+            '''Tempo endpoint for charm tracing'''
+            if self.tracing.is_ready():
+                return self.tracing.otlp_http_endpoint()
+            else:
+                return None
+```
 
 3) If you were passing a certificate using `server_cert`, you need to change it to provide an *absolute* path to
 the certificate file.
