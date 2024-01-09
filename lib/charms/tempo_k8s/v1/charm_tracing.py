@@ -49,8 +49,9 @@ a different `service_name` argument to `trace_charm`.
 
 If you are upgrading from `charm_tracing` v0, you need to take the following steps (assuming you already
 have the newest version of the library in your charm):
-1) Add the following dependency to your charm project (or, if your project had a dependency
-on `opentelemetry-exporter-otlp-proto-grpc` only because of `charm_tracing` v0, you can replace it with):
+1) If you need the dependency for your tests, add the following dependency to your charm project
+(or, if your project had a dependency on `opentelemetry-exporter-otlp-proto-grpc` only because
+of `charm_tracing` v0, you can replace it with):
 
 `opentelemetry-exporter-otlp-proto-http>=1.21.0`.
 
