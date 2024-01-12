@@ -205,10 +205,10 @@ def _get_tracer() -> Optional[Tracer]:
             if context_tracer := _get_tracer_from_context(ctx):
                 return context_tracer.get()
             else:
-                logger.warning("Couldn't find context var for tracer: span will be skipped")
+                logger.debug("Couldn't find context var for tracer: span will be skipped")
                 return None
         except LookupError as err:
-            logger.warning(f"Couldn't find tracer: span will be skipped, err: {err}")
+            logger.debug(f"Couldn't find tracer: span will be skipped, err: {err}")
             return None
 
 
