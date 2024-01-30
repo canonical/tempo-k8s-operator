@@ -14,11 +14,17 @@ from charms.loki_k8s.v0.loki_push_api import LogProxyConsumer
 from charms.observability_libs.v0.kubernetes_service_patch import KubernetesServicePatch
 from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
 from charms.tempo_k8s.v1.charm_tracing import trace_charm
-from charms.tempo_k8s.v1.tracing import TracingEndpointProvider
+from charms.tempo_k8s.v1.tracing import (
+    TracingEndpointProvider as TracingEndpointProviderV1,
+)
+from charms.tempo_k8s.v2.tracing import (
+    TracingEndpointProvider as TracingEndpointProviderV2,
+)
 from charms.traefik_k8s.v2.ingress import IngressPerAppRequirer
 from ops.charm import CharmBase, WorkloadEvent
 from ops.main import main
 from ops.model import ActiveStatus
+
 from tempo import Tempo
 
 logger = logging.getLogger(__name__)
@@ -26,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 @trace_charm(
     tracing_endpoint="tempo_otlp_http_endpoint",
-    extra_types=(Tempo, TracingEndpointProvider),
+    extra_types=(Tempo, TracingEndpointProviderV1, TracingEndpointProviderV2),
 )
 class TempoCharm(CharmBase):
     """Charmed Operator for Tempo; a distributed tracing backend."""
@@ -68,8 +74,38 @@ class TempoCharm(CharmBase):
         #     self, jobs=[{"static_configs": [{"targets": ["*:4080"]}]}]
         # )
 
-        self._tracing = TracingEndpointProvider(self, host=tempo.host, ingesters=tempo.ingesters)
+        self._tracing_v1 = TracingEndpointProviderV1(
+            self, host=tempo.host, receivers=tempo.receivers
+        )
+        self._tracing_v2 = TracingEndpointProviderV2(self, host=tempo.host)
         self._ingress = IngressPerAppRequirer(self, port=self.tempo.tempo_port)
+
+    def _requested_receivers(self):
+        """What receivers we should activate, based on the active tracing relations."""
+        tracing_relations = self.model.relations["tracing"]
+        if not tracing_relations:
+            # todo: set waiting status and configure tempo to run without receivers if possible,
+            #  else perhaps postpone starting the workload at all.
+            logger.warning("no tracing relations: Tempo has no receivers configured.")
+            return
+
+        # we start by attempting to determine if the relations are (v0/)v1 or v2
+        v1_relations = []
+        for relation in tracing_relations:
+            if not self._tracing_v2.is_v2(relation):
+                v1_relations.append(relation)
+
+        # if we have any v0/v1 requirer, we'll need to activate all supported endpoints
+        # and publish them.
+        all_receivers = self.tempo.receivers
+        if v1_relations:
+            return all_receivers
+
+        # otherwise, we can take the sum of the requested endpoints from the v2 requirers
+        # and publish only those
+        requested_protocols = self._tracing_v2.requested_protocols()
+        requested_receivers = [i for i in all_receivers if i[0] in requested_protocols]
+        return requested_receivers
 
     def _on_tempo_pebble_ready(self, event: WorkloadEvent):
         container = event.workload
@@ -78,7 +114,7 @@ class TempoCharm(CharmBase):
             return event.defer()
 
         # drop tempo_config.yaml into the container
-        container.push(self.tempo.config_path, self.tempo.get_config())
+        container.push(self.tempo.config_path, self.tempo.get_config(self._requested_receivers()))
 
         container.add_layer("tempo", self.tempo.pebble_layer, combine=True)
         container.replan()

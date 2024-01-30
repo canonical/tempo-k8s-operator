@@ -5,11 +5,12 @@
 """Tempo workload configuration and client."""
 
 import socket
+from collections import defaultdict
 from subprocess import CalledProcessError, getoutput
 from typing import List, Tuple
 
 import yaml
-from charms.tempo_k8s.v1.tracing import RawIngester
+from charms.tempo_k8s.v1.tracing import RawReceiver
 from ops.pebble import Layer
 
 
@@ -37,7 +38,7 @@ class Tempo:
         self.jaeger_grpc_port = 14250
         self._local_hostname = local_host
 
-        self._supported_ingesters: Tuple[RawIngester, ...] = (
+        self._supported_receivers: Tuple[RawReceiver, ...] = (
             ("tempo", self.tempo_port),
             ("otlp_grpc", self.otlp_grpc_port),
             ("otlp_http", self.otlp_http_port),
@@ -51,7 +52,7 @@ class Tempo:
         # todo allow remapping ports?
         return [
             ((service_name_prefix + protocol).replace("_", "-"), port, port)
-            for protocol, port in self._supported_ingesters
+            for protocol, port in self._supported_receivers
         ]
 
     @property
@@ -60,12 +61,16 @@ class Tempo:
         return socket.getfqdn()
 
     @property
-    def ingesters(self) -> List[RawIngester]:
-        """All ingesters supported by this Tempo client."""
-        return [(protocol, port) for protocol, port in self._supported_ingesters]
+    def receivers(self) -> List[RawReceiver]:
+        """All receivers supported by this Tempo client."""
+        return [(protocol, port) for protocol, port in self._supported_receivers]
 
-    def get_config(self) -> str:
-        """Generate the Tempo configuration."""
+    def get_config(self, receivers: List[RawReceiver]) -> str:
+        """Generate the Tempo configuration.
+
+        Only activate the provided receivers.
+        """
+
         return yaml.safe_dump(
             {
                 "auth_enabled": False,
@@ -74,27 +79,9 @@ class Tempo:
                     "http_listen_port": self.tempo_port,
                     "grpc_listen_port": self.grpc_listen_port,
                 },
-                # this configuration will listen on all ports and protocols that tempo is capable of.
-                # the receives all come from the OpenTelemetry collector.  more configuration information can
-                # be found there: https://github.com/open-telemetry/opentelemetry-collector/tree/overlord/receiver
-                #
-                # for a production deployment you should only enable the receivers you need!
-                # todo: provider should request specific protocols in its app databag, and tempo should only activate the receivers it needs.
-                "distributor": {
-                    "receivers": {
-                        "jaeger": {
-                            "protocols": {
-                                "thrift_http": None,
-                                "grpc": None,
-                                "thrift_binary": None,
-                                "thrift_compact": None,
-                            }
-                        },
-                        "zipkin": None,
-                        "otlp": {"protocols": {"http": None, "grpc": None}},
-                        "opencensus": None,
-                    }
-                },
+                # more configuration information can be found at
+                # https://github.com/open-telemetry/opentelemetry-collector/tree/overlord/receiver
+                "distributor": {"receivers": self._build_receivers_config(receivers)},
                 # the length of time after a trace has not received spans to consider it complete and flush it
                 # cut the head block when it hits this number of traces or ...
                 #   this much time passes
@@ -163,3 +150,36 @@ class Tempo:
         except (CalledProcessError, IndexError):
             return False
         return out == "ready"
+
+    @staticmethod
+    def _build_receivers_config(receivers: List[RawReceiver]):
+        protocols = set(r[0] for r in receivers)
+
+        config = {}
+
+        if "zipkin" in protocols:
+            config["zipkin"] = None
+        if "opencensus" in protocols:
+            config["opencensus"] = None
+
+        otlp_config = {}
+        if "otlp_http" in protocols:
+            otlp_config["http"] = None
+        if "otlp_grpc" in protocols:
+            otlp_config["grpc"] = None
+        if otlp_config:
+            config["otlp"] = {"protocols": otlp_config}
+
+        jaeger_config = {}
+        if "jaeger_thrift_http" in protocols:
+            jaeger_config["thrift_http"] = None
+        if "jaeger_grpc" in protocols:
+            jaeger_config["grpc"] = None
+        if "jaeger_thrift_binary" in protocols:
+            jaeger_config["thrift_binary"] = None
+        if "jaeger_thrift_compact" in protocols:
+            jaeger_config["thrift_compact"] = None
+        if jaeger_config:
+            config["jaeger"] = {"protocols": jaeger_config}
+
+        return config

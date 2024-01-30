@@ -7,7 +7,14 @@ def test_tracing_v0_interface(interface_tester: InterfaceTester):
     interface_tester.configure(
         interface_name="tracing",
         interface_version=0,
-        repo="https://github.com/canonical/charm-relation-interfaces",
-        branch="main",
+    )
+    interface_tester.run()
+
+
+def test_tracing_v2_interface(interface_tester: InterfaceTester):
+    interface_tester.configure(
+        interface_name="tracing",
+        interface_version=2,
+        branch="tracing-v2",  # todo remove when CRI:tracing-v2 is merged
     )
     interface_tester.run()

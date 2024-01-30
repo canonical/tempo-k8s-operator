@@ -35,6 +35,7 @@ def copy_tempo_library_into_tester_charm(ops_test):
     libraries = [
         "tempo_k8s/v1/charm_tracing.py",
         "tempo_k8s/v1/tracing.py",
+        "tempo_k8s/v2/tracing.py",
     ]
     for lib in libraries:
         install_path = f"tests/integration/tester/lib/charms/{lib}"

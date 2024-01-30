@@ -12,8 +12,8 @@ Charms seeking to push traces to Tempo, must do so using the `TracingEndpointReq
 object from this charm library. For the simplest use cases, using the `TracingEndpointRequirer`
 object only requires instantiating it, typically in the constructor of your charm. The
 `TracingEndpointRequirer` constructor requires the name of the relation over which a tracing endpoint
- is exposed by the Tempo charm. This relation must use the
-`tracing` interface.
+ is exposed by the Tempo charm, and a list of protocols it intends to send traces with. 
+ This relation must use the `tracing` interface.
  The `TracingEndpointRequirer` object may be instantiated as follows
 
     from charms.tempo_k8s.v1.tracing import TracingEndpointRequirer
@@ -21,18 +21,28 @@ object only requires instantiating it, typically in the constructor of your char
     def __init__(self, *args):
         super().__init__(*args)
         # ...
-        self.tracing = TracingEndpointRequirer(self)
+        self.tracing = TracingEndpointRequirer(self, 
+            protocols=['otlp_grpc', 'otlp_http', 'jaeger_http_thrift']
+        )
         # ...
 
 Note that the first argument (`self`) to `TracingEndpointRequirer` is always a reference to the
 parent charm.
 
-Units of provider charms obtain the tempo endpoint to which they will push their traces by using one
-of these  `TracingEndpointRequirer` attributes, depending on which protocol they support:
-- otlp_grpc_endpoint
-- otlp_http_endpoint
-- zipkin_endpoint
-- tempo_endpoint
+Alternatively to providing the list of requested protocols at init time, the charm can do it at 
+any point in time by calling the 
+`TracingEndpointRequirer.request_protocols(*protocol:str, relation:Optional[Relation])` method. 
+Using this method also allows you to use per-relation protocols.
+
+Units of provider charms obtain the tempo endpoint to which they will push their traces by calling 
+`TracingEndpointRequirer.get_endpoint(protocol: str)`, where `protocol` is, for example:
+- `otlp_grpc`
+- `otlp_http`
+- `zipkin`
+- `tempo`
+
+If the `protocol` is not in the list of protocols that the charm requested at endpoint set-up time, 
+the library will raise an error. 
 
 ## Requirer Library Usage
 
@@ -69,6 +79,7 @@ from typing import (
     Literal,
     MutableMapping,
     Optional,
+    Sequence,
     Tuple,
     cast,
 )
@@ -89,11 +100,11 @@ from pydantic import BaseModel, ConfigDict
 LIBID = "12977e9aa0b34367903d8afeb8c3d85d"
 
 # Increment this major API version when introducing breaking changes
-LIBAPI = 1
+LIBAPI = 2
 
 # Increment this PATCH version before using `charmcraft publish-lib` or reset
 # to 0 if you are raising the major API version
-LIBPATCH = 2
+LIBPATCH = 0
 
 PYDEPS = ["pydantic>=2"]
 
@@ -103,24 +114,19 @@ DEFAULT_RELATION_NAME = "tracing"
 RELATION_INTERFACE_NAME = "tracing"
 
 IngesterProtocol = Literal[
-    "otlp_grpc",
-    "otlp_http",
-    "zipkin",
-    "tempo",
-    "jaeger_http_thrift",
-    "jaeger_grpc",
-    "opencensus",
-    "jaeger_thrift_compact",
-    "jaeger_thrift_http",
-    "jaeger_thrift_binary",
+    "otlp_grpc", "otlp_http", "zipkin", "tempo", "jaeger_http_thrift", "jaeger_grpc"
 ]
 
-RawReceiver = Tuple[IngesterProtocol, int]
+RawIngester = Tuple[IngesterProtocol, int]
 BUILTIN_JUJU_KEYS = {"ingress-address", "private-address", "egress-subnets"}
 
 
-class TracingError(RuntimeError):
+class TracingError(Exception):
     """Base class for custom errors raised by this library."""
+
+
+class NotReadyError(TracingError):
+    """Raised by the provider wrapper if a requirer hasn't published the required data (yet)."""
 
 
 class DataValidationError(TracingError):
@@ -177,7 +183,7 @@ class DatabagModel(BaseModel):
             databag = {}
         nest_under = self.model_config.get("_NEST_UNDER")
         if nest_under:
-            databag[nest_under] = self.json()
+            databag[nest_under] = self.json(by_alias=True)
 
         dct = self.model_dump()
         for key, field in self.model_fields.items():  # type: ignore
@@ -188,8 +194,8 @@ class DatabagModel(BaseModel):
 
 
 # todo use models from charm-relation-interfaces
-class Receiver(BaseModel):  # noqa: D101
-    """Receiver data structure."""
+class Ingester(BaseModel):  # noqa: D101
+    """Ingester data structure."""
 
     protocol: IngesterProtocol
     port: int
@@ -199,7 +205,13 @@ class TracingProviderAppData(DatabagModel):  # noqa: D101
     """Application databag model for the tracing provider."""
 
     host: str
-    receivers: List[Receiver]
+    ingesters: List[Ingester]
+
+
+class TracingRequirerAppData(DatabagModel):  # noqa: D101
+    """Application databag model for the tracing requirer."""
+
+    protocols: List[IngesterProtocol]
 
 
 class _AutoSnapshotEvent(RelationEvent):
@@ -357,13 +369,13 @@ class TracingEndpointProvider(Object):
         self,
         charm: CharmBase,
         host: str,
-        receivers: List[RawReceiver],
         relation_name: str = DEFAULT_RELATION_NAME,
     ):
         """Initialize.
 
         Args:
             charm: a `CharmBase` instance that manages this instance of the Tempo service.
+            host: address of the node hosting the tempo server.
             relation_name: an optional string name of the relation between `charm`
                 and the Tempo charmed service. The default is "tracing".
 
@@ -384,39 +396,71 @@ class TracingEndpointProvider(Object):
         super().__init__(charm, relation_name)
         self._charm = charm
         self._host = host
-        self._receivers = receivers
         self._relation_name = relation_name
-        events = self._charm.on[relation_name]
-        self.framework.observe(events.relation_created, self._on_relation_event)
-        self.framework.observe(events.relation_joined, self._on_relation_event)
 
-    def _on_relation_event(self, _):
-        # Generic relation event handler.
+    def is_v2(self, relation: Relation):
+        """Attempt to determine if this relation is a tracing v2 relation.
 
+        Assumes that the V2 requirer will, as soon as possible (relation-created),
+        publish the list of requested ingestion protocols (can be empty too).
+        """
         try:
-            if self._charm.unit.is_leader():
-                for relation in self._charm.model.relations[self._relation_name]:
-                    TracingProviderAppData(
-                        host=self._host,
-                        receivers=[
-                            Receiver(port=port, protocol=protocol)
-                            for protocol, port in self._receivers
-                        ],
-                    ).dump(relation.data[self._charm.app])
+            self._get_requested_protocols(relation)
+        except NotReadyError:
+            return False
+        return True
 
-        except ModelError as e:
-            # args are bytes
-            msg = e.args[0]
-            if isinstance(msg, bytes):
-                if msg.startswith(
-                    b"ERROR cannot read relation application settings: permission denied"
-                ):
-                    logger.error(
-                        f"encountered error {e} while attempting to update_relation_data."
-                        f"The relation must be gone."
-                    )
-                    return
-            raise
+    def _get_requested_protocols(self, relation: Relation):
+        try:
+            databag = TracingRequirerAppData.load(relation.data[relation.app])
+        except (json.JSONDecodeError, pydantic.ValidationError, DataValidationError) as e:
+            logger.info(f"relation {relation} is not ready to talk tracing v2")
+            raise NotReadyError()
+        return databag.protocols
+
+    def requested_protocols(self):
+        """All ingestion protocols that have been requested by our related apps."""
+        requested_protocols = set()
+        for relation in self.relations:
+            try:
+                protocols = self._get_requested_protocols(relation)
+            except NotReadyError:
+                continue
+            requested_protocols.update(protocols)
+        return requested_protocols
+
+    @property
+    def relations(self):
+        """All relations active on this endpoint."""
+        return self._charm.model.relations[self._relation_name]
+
+    def publish_ingesters(self, ingesters: List[RawIngester]):
+        """Let all requirers know that these ingesters are active and listening."""
+        if not self._charm.unit.is_leader():
+            raise RuntimeError("only leader can do this")
+
+        for relation in self.relations:
+            try:
+                TracingProviderAppData(
+                    host=self._host,
+                    ingesters=[
+                        Ingester(port=port, protocol=protocol) for protocol, port in ingesters
+                    ],
+                ).dump(relation.data[self._charm.app])
+
+            except ModelError as e:
+                # args are bytes
+                msg = e.args[0]
+                if isinstance(msg, bytes):
+                    if msg.startswith(
+                        b"ERROR cannot read relation application settings: permission denied"
+                    ):
+                        logger.error(
+                            f"encountered error {e} while attempting to update_relation_data."
+                            f"The relation must be gone."
+                        )
+                        continue
+                raise
 
 
 class EndpointRemovedEvent(RelationBrokenEvent):
@@ -426,16 +470,16 @@ class EndpointRemovedEvent(RelationBrokenEvent):
 class EndpointChangedEvent(_AutoSnapshotEvent):
     """Event representing a change in one of the ingester endpoints."""
 
-    __args__ = ("host", "_receivers")
+    __args__ = ("host", "_ingesters")
 
     if TYPE_CHECKING:
         host = ""  # type: str
-        _receivers = []  # type: List[dict]
+        _ingesters = []  # type: List[dict]
 
     @property
-    def receivers(self) -> List[Receiver]:
-        """Cast receivers back from dict."""
-        return [Receiver(**i) for i in self._receivers]
+    def ingesters(self) -> List[Ingester]:
+        """Cast ingesters back from dict."""
+        return [Ingester(**i) for i in self._ingesters]
 
 
 class TracingEndpointEvents(CharmEvents):
@@ -454,6 +498,7 @@ class TracingEndpointRequirer(Object):
         self,
         charm: CharmBase,
         relation_name: str = DEFAULT_RELATION_NAME,
+        protocols: Optional[List[IngesterProtocol]] = None,
     ):
         """Construct a tracing requirer for a Tempo charm.
 
@@ -494,6 +539,39 @@ class TracingEndpointRequirer(Object):
         events = self._charm.on[self._relation_name]
         self.framework.observe(events.relation_changed, self._on_tracing_relation_changed)
         self.framework.observe(events.relation_broken, self._on_tracing_relation_broken)
+
+        if protocols is not None:
+            self.request_protocols(protocols)
+
+    def request_protocols(
+        self, protocols: Sequence[IngesterProtocol], relation: Optional[Relation] = None
+    ):
+        """Publish the list of protocols which the provider should activate."""
+        # todo: should we check if _is_single_endpoint and len(self.relations) > 1 and raise, here?
+        relations = [relation] if relation else self.relations
+
+        try:
+            if self._charm.unit.is_leader():
+                for relation in relations:
+                    # allow protocols to be the empty list. This means the backend will activate
+                    # ALL supported ingesters (v0/v1 legacy behaviour)
+                    TracingRequirerAppData(
+                        protocols=list(protocols),
+                    ).dump(relation.data[self._charm.app])
+
+        except ModelError as e:
+            # args are bytes
+            msg = e.args[0]
+            if isinstance(msg, bytes):
+                if msg.startswith(
+                    b"ERROR cannot read relation application settings: permission denied"
+                ):
+                    logger.error(
+                        f"encountered error {e} while attempting to request_protocols."
+                        f"The relation must be gone."
+                    )
+                    return
+            raise
 
     @property
     def relations(self) -> List[Relation]:
@@ -541,7 +619,7 @@ class TracingEndpointRequirer(Object):
             return
 
         data = TracingProviderAppData.load(relation.data[relation.app])
-        self.on.endpoint_changed.emit(relation, data.host, [i.dict() for i in data.receivers])  # type: ignore
+        self.on.endpoint_changed.emit(relation, data.host, [i.dict() for i in data.ingesters])  # type: ignore
 
     def _on_tracing_relation_broken(self, event: RelationBrokenEvent):
         """Notify the providers that the endpoint is broken."""
@@ -563,7 +641,7 @@ class TracingEndpointRequirer(Object):
         if not ep:
             return None
         try:
-            ingester: Receiver = next(filter(lambda i: i.protocol == protocol, ep.receivers))
+            ingester: Ingester = next(filter(lambda i: i.protocol == protocol, ep.ingesters))
             if ingester.protocol in ["otlp_grpc", "jaeger_grpc"]:
                 if ssl:
                     logger.warning("unused ssl argument - was the right protocol called?")
@@ -575,46 +653,11 @@ class TracingEndpointRequirer(Object):
             logger.error(f"no ingester found with protocol={protocol!r}")
             return None
 
-    def otlp_grpc_endpoint(self, relation: Optional[Relation] = None) -> Optional[str]:
-        """Receiver endpoint for the ``otlp_grpc`` protocol."""
-        return self._get_ingester(relation or self._relation, protocol="otlp_grpc")
-
-    def otlp_http_endpoint(
-        self, relation: Optional[Relation] = None, ssl: bool = False
+    def get_endpoint(
+        self, protocol: IngesterProtocol, relation: Optional[Relation] = None
     ) -> Optional[str]:
-        """Receiver endpoint for the ``otlp_http`` protocol.
+        """Ingester endpoint for the given protocol."""
+        if not self._has_requested(protocol, relation):
+            raise ProtocolNotRequested(protocol, relation)
 
-        The provided endpoint does not contain the endpoint suffix. If the instrumenting library needs the full path,
-        your endpoint code needs to add the ``/v1/traces`` suffix.
-        """
-        return self._get_ingester(relation or self._relation, protocol="otlp_http", ssl=ssl)
-
-    def zipkin_endpoint(
-        self, relation: Optional[Relation] = None, ssl: bool = False
-    ) -> Optional[str]:
-        """Receiver endpoint for the ``zipkin`` protocol.
-
-        The provided endpoint does not contain the endpoint suffix. If the instrumenting library needs the full path,
-        your endpoint code needs to add the ``/api/v2/spans`` suffix.
-        """
-        return self._get_ingester(relation or self._relation, protocol="zipkin", ssl=ssl)
-
-    def tempo_endpoint(
-        self, relation: Optional[Relation] = None, ssl: bool = False
-    ) -> Optional[str]:
-        """Receiver endpoint for the ``tempo`` protocol."""
-        return self._get_ingester(relation or self._relation, protocol="tempo", ssl=ssl)
-
-    def jaeger_http_thrift_endpoint(
-        self, relation: Optional[Relation] = None, ssl: bool = False
-    ) -> Optional[str]:
-        """Receiver endpoint for the ``jaeger_http_thrift`` protocol.
-
-        The provided endpoint does not contain the endpoint suffix. If the instrumenting library needs the full path,
-        your endpoint code needs to add the ``/api/traces`` suffix.
-        """
-        return self._get_ingester(relation or self._relation, "jaeger_http_thrift", ssl=ssl)
-
-    def jaeger_grpc_endpoint(self, relation: Optional[Relation] = None) -> Optional[str]:
-        """Receiver endpoint for the ``jaeger_grpc`` protocol."""
-        return self._get_ingester(relation or self._relation, "jaeger_grpc")
+        return self._get_ingester(relation or self._relation, protocol=protocol)

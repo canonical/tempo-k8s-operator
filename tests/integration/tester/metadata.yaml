@@ -23,7 +23,10 @@ provides:
     limit: 1
 
 requires:
-  tracing:
+  tracing-v1:
+    interface: tracing
+    limit: 1
+  tracing-v2:
     interface: tracing
     limit: 1
 
