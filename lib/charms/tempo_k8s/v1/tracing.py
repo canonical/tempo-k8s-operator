@@ -107,7 +107,6 @@ IngesterProtocol = Literal[
     "otlp_http",
     "zipkin",
     "tempo",
-    "jaeger_http_thrift",
     "jaeger_grpc",
     "opencensus",
     "jaeger_thrift_compact",
@@ -115,7 +114,7 @@ IngesterProtocol = Literal[
     "jaeger_thrift_binary",
 ]
 
-RawReceiver = Tuple[IngesterProtocol, int]
+RawIngester = Tuple[IngesterProtocol, int]
 BUILTIN_JUJU_KEYS = {"ingress-address", "private-address", "egress-subnets"}
 
 
@@ -188,8 +187,8 @@ class DatabagModel(BaseModel):
 
 
 # todo use models from charm-relation-interfaces
-class Receiver(BaseModel):  # noqa: D101
-    """Receiver data structure."""
+class Ingester(BaseModel):  # noqa: D101
+    """Ingester data structure."""
 
     protocol: IngesterProtocol
     port: int
@@ -199,7 +198,7 @@ class TracingProviderAppData(DatabagModel):  # noqa: D101
     """Application databag model for the tracing provider."""
 
     host: str
-    receivers: List[Receiver]
+    ingesters: List[Ingester]
 
 
 class _AutoSnapshotEvent(RelationEvent):
@@ -357,7 +356,7 @@ class TracingEndpointProvider(Object):
         self,
         charm: CharmBase,
         host: str,
-        receivers: List[RawReceiver],
+        ingesters: List[RawIngester],
         relation_name: str = DEFAULT_RELATION_NAME,
     ):
         """Initialize.
@@ -384,7 +383,7 @@ class TracingEndpointProvider(Object):
         super().__init__(charm, relation_name)
         self._charm = charm
         self._host = host
-        self._receivers = receivers
+        self._ingesters = ingesters
         self._relation_name = relation_name
         events = self._charm.on[relation_name]
         self.framework.observe(events.relation_created, self._on_relation_event)
@@ -398,9 +397,9 @@ class TracingEndpointProvider(Object):
                 for relation in self._charm.model.relations[self._relation_name]:
                     TracingProviderAppData(
                         host=self._host,
-                        receivers=[
-                            Receiver(port=port, protocol=protocol)
-                            for protocol, port in self._receivers
+                        ingesters=[
+                            Ingester(port=port, protocol=protocol)
+                            for protocol, port in self._ingesters
                         ],
                     ).dump(relation.data[self._charm.app])
 
@@ -426,16 +425,16 @@ class EndpointRemovedEvent(RelationBrokenEvent):
 class EndpointChangedEvent(_AutoSnapshotEvent):
     """Event representing a change in one of the ingester endpoints."""
 
-    __args__ = ("host", "_receivers")
+    __args__ = ("host", "_ingesters")
 
     if TYPE_CHECKING:
         host = ""  # type: str
-        _receivers = []  # type: List[dict]
+        _ingesters = []  # type: List[dict]
 
     @property
-    def receivers(self) -> List[Receiver]:
-        """Cast receivers back from dict."""
-        return [Receiver(**i) for i in self._receivers]
+    def ingesters(self) -> List[Ingester]:
+        """Cast ingesters back from dict."""
+        return [Ingester(**i) for i in self._ingesters]
 
 
 class TracingEndpointEvents(CharmEvents):
@@ -541,7 +540,7 @@ class TracingEndpointRequirer(Object):
             return
 
         data = TracingProviderAppData.load(relation.data[relation.app])
-        self.on.endpoint_changed.emit(relation, data.host, [i.dict() for i in data.receivers])  # type: ignore
+        self.on.endpoint_changed.emit(relation, data.host, [i.dict() for i in data.ingesters])  # type: ignore
 
     def _on_tracing_relation_broken(self, event: RelationBrokenEvent):
         """Notify the providers that the endpoint is broken."""
@@ -563,7 +562,7 @@ class TracingEndpointRequirer(Object):
         if not ep:
             return None
         try:
-            ingester: Receiver = next(filter(lambda i: i.protocol == protocol, ep.receivers))
+            ingester: Ingester = next(filter(lambda i: i.protocol == protocol, ep.ingesters))
             if ingester.protocol in ["otlp_grpc", "jaeger_grpc"]:
                 if ssl:
                     logger.warning("unused ssl argument - was the right protocol called?")
@@ -576,13 +575,13 @@ class TracingEndpointRequirer(Object):
             return None
 
     def otlp_grpc_endpoint(self, relation: Optional[Relation] = None) -> Optional[str]:
-        """Receiver endpoint for the ``otlp_grpc`` protocol."""
+        """Ingester endpoint for the ``otlp_grpc`` protocol."""
         return self._get_ingester(relation or self._relation, protocol="otlp_grpc")
 
     def otlp_http_endpoint(
         self, relation: Optional[Relation] = None, ssl: bool = False
     ) -> Optional[str]:
-        """Receiver endpoint for the ``otlp_http`` protocol.
+        """Ingester endpoint for the ``otlp_http`` protocol.
 
         The provided endpoint does not contain the endpoint suffix. If the instrumenting library needs the full path,
         your endpoint code needs to add the ``/v1/traces`` suffix.
@@ -592,7 +591,7 @@ class TracingEndpointRequirer(Object):
     def zipkin_endpoint(
         self, relation: Optional[Relation] = None, ssl: bool = False
     ) -> Optional[str]:
-        """Receiver endpoint for the ``zipkin`` protocol.
+        """Ingester endpoint for the ``zipkin`` protocol.
 
         The provided endpoint does not contain the endpoint suffix. If the instrumenting library needs the full path,
         your endpoint code needs to add the ``/api/v2/spans`` suffix.
@@ -602,13 +601,13 @@ class TracingEndpointRequirer(Object):
     def tempo_endpoint(
         self, relation: Optional[Relation] = None, ssl: bool = False
     ) -> Optional[str]:
-        """Receiver endpoint for the ``tempo`` protocol."""
+        """Ingester endpoint for the ``tempo`` protocol."""
         return self._get_ingester(relation or self._relation, protocol="tempo", ssl=ssl)
 
     def jaeger_http_thrift_endpoint(
         self, relation: Optional[Relation] = None, ssl: bool = False
     ) -> Optional[str]:
-        """Receiver endpoint for the ``jaeger_http_thrift`` protocol.
+        """Ingester endpoint for the ``jaeger_http_thrift`` protocol.
 
         The provided endpoint does not contain the endpoint suffix. If the instrumenting library needs the full path,
         your endpoint code needs to add the ``/api/traces`` suffix.
@@ -616,5 +615,5 @@ class TracingEndpointRequirer(Object):
         return self._get_ingester(relation or self._relation, "jaeger_http_thrift", ssl=ssl)
 
     def jaeger_grpc_endpoint(self, relation: Optional[Relation] = None) -> Optional[str]:
-        """Receiver endpoint for the ``jaeger_grpc`` protocol."""
+        """Ingester endpoint for the ``jaeger_grpc`` protocol."""
         return self._get_ingester(relation or self._relation, "jaeger_grpc")

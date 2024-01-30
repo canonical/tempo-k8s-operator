@@ -8,6 +8,10 @@ import logging
 import re
 from typing import Optional
 
+from ops.charm import CharmBase, WorkloadEvent
+from ops.main import main
+from ops.model import ActiveStatus
+
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
 from charms.grafana_k8s.v0.grafana_source import GrafanaSourceProvider
 from charms.loki_k8s.v0.loki_push_api import LogProxyConsumer
@@ -21,10 +25,6 @@ from charms.tempo_k8s.v2.tracing import (
     TracingEndpointProvider as TracingEndpointProviderV2,
 )
 from charms.traefik_k8s.v2.ingress import IngressPerAppRequirer
-from ops.charm import CharmBase, WorkloadEvent
-from ops.main import main
-from ops.model import ActiveStatus
-
 from tempo import Tempo
 
 logger = logging.getLogger(__name__)
@@ -75,7 +75,9 @@ class TempoCharm(CharmBase):
         # )
 
         self._tracing_v1 = TracingEndpointProviderV1(
-            self, host=tempo.host, receivers=tempo.receivers
+            self, host=tempo.host,
+            ingesters=[
+                (protocol, tempo.receiver_ports[protocol]) for protocol in tempo.receivers]
         )
         self._tracing_v2 = TracingEndpointProviderV2(self, host=tempo.host)
         self._ingress = IngressPerAppRequirer(self, port=self.tempo.tempo_port)
@@ -102,9 +104,9 @@ class TempoCharm(CharmBase):
             return all_receivers
 
         # otherwise, we can take the sum of the requested endpoints from the v2 requirers
-        # and publish only those
         requested_protocols = self._tracing_v2.requested_protocols()
-        requested_receivers = [i for i in all_receivers if i[0] in requested_protocols]
+        # and publish only those we support
+        requested_receivers = set(requested_protocols).intersection(set(all_receivers))
         return requested_receivers
 
     def _on_tempo_pebble_ready(self, event: WorkloadEvent):
