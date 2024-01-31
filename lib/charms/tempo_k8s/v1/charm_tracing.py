@@ -535,7 +535,8 @@ def _trace_callable(callable: _F, qualifier: str, static: bool = False) -> _F:
         with _span(f"{'(static) ' if static else ''}{qualifier} call: {name}"):  # type: ignore
             if static:
                 # fixme: do we or don't we need [1:]?
-                return callable(*args, **kwargs)  # type: ignore
+                # return callable(*args, **kwargs)  # type: ignore
+                return callable(*args[1:], **kwargs)  # type: ignore
             return callable(*args, **kwargs)  # type: ignore
 
     # wrapped_function.__signature__ = sig

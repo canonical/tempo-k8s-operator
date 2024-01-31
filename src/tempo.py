@@ -6,11 +6,12 @@
 
 import socket
 from subprocess import CalledProcessError, getoutput
-from typing import List, Tuple
+from typing import List, Tuple, Dict, Sequence
 
 import yaml
-from charms.tempo_k8s.v2.tracing import ReceiverProtocol
 from ops.pebble import Layer
+
+from charms.tempo_k8s.v2.tracing import ReceiverProtocol
 
 
 class Tempo:
@@ -21,44 +22,44 @@ class Tempo:
     log_path = "/var/log/tempo.log"
 
     # todo make configurable?
-    receiver_ports = {
+    receiver_ports: Dict[ReceiverProtocol, int] = {
+        "zipkin": 9411,
+        "kafka": 42,  # TODO:
+        "opencensus": 42,  # TODO:
+        "tempo_http": 0,  # configurable; populated by __init__
+        "tempo_grpc": 0,  # configurable; populated by __init__
+        "tempo": 3200,  # legacy, renamed to tempo_http
         "otlp_grpc": 4317,
         "otlp_http": 4318,
-        "zipkin": 9411,
-        "jaeger_http_thrift": 14268,
         "jaeger_grpc": 14250,
+        "jaeger_thrift_compact": 42,  # TODO:
+        "jaeger_thrift_http": 14268,
+        "jaeger_http_thrift": 14268,  # legacy, renamed to jaeger_thrift_http
+        "jaeger_thrift_binary": 42,  # TODO:
     }
 
     def __init__(
-        self, port: int = 3200, grpc_listen_port: int = 9096, local_host: str = "0.0.0.0"
+            self, http_port: int = 3200, grpc_port: int = 9096, local_host: str = "0.0.0.0"
     ):
-        self.tempo_port = port
+        self.receiver_ports['tempo_http'] = http_port
         # default grpc listen port is 9095, but that conflicts with promtail.
-        self.grpc_listen_port = grpc_listen_port
+        self.receiver_ports['tempo_grpc'] = grpc_port
 
         # ports source: https://github.com/grafana/tempo/blob/main/example/docker-compose/local/docker-compose.yaml
         self._local_hostname = local_host
 
-        self._supported_receivers: Tuple[ReceiverProtocol, ...] = (
-            "zipkin",
-            "tempo",
-            "opencensus",
-            # opentelemetry
-            "otlp_grpc",
-            "otlp_http",
-            # jaeger
-            "jaeger_grpc",
-            "jaeger_thrift_compact",
-            "jaeger_thrift_http",
-            "jaeger_thrift_binary",
-        )
+        self._supported_receivers: Tuple[ReceiverProtocol, ...] = tuple(self.receiver_ports)
+
+    @property
+    def tempo_port(self) -> int:
+        return self.receiver_ports['tempo_http']
 
     def get_requested_ports(self, service_name_prefix: str):
         """List of service names and port mappings for the kubernetes service patch."""
         # todo allow remapping ports?
         return [
-            ((service_name_prefix + protocol).replace("_", "-"), port, port)
-            for protocol, port in self._supported_receivers
+            ((service_name_prefix + protocol).replace("_", "-"), *((self.receiver_ports[protocol],) * 2))
+            for protocol in self._supported_receivers
         ]
 
     @property
@@ -71,7 +72,7 @@ class Tempo:
         """All receivers supported by this Tempo client."""
         return self._supported_receivers
 
-    def get_config(self, receivers: List[ReceiverProtocol]) -> str:
+    def get_config(self, receivers: Sequence[ReceiverProtocol]) -> str:
         """Generate the Tempo configuration.
 
         Only activate the provided receivers.
@@ -83,7 +84,7 @@ class Tempo:
                 "search_enabled": True,
                 "server": {
                     "http_listen_port": self.tempo_port,
-                    "grpc_listen_port": self.grpc_listen_port,
+                    "grpc_listen_port": self.receiver_ports['tempo_grpc'],
                 },
                 # more configuration information can be found at
                 # https://github.com/open-telemetry/opentelemetry-collector/tree/overlord/receiver
@@ -158,7 +159,7 @@ class Tempo:
         return out == "ready"
 
     @staticmethod
-    def _build_receivers_config(receivers: List[ReceiverProtocol]):
+    def _build_receivers_config(receivers: Sequence[ReceiverProtocol]):
         receivers = set(receivers)  # convert to set for faster lookup
 
         config = {}

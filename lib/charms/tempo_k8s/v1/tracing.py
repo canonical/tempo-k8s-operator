@@ -103,15 +103,7 @@ DEFAULT_RELATION_NAME = "tracing"
 RELATION_INTERFACE_NAME = "tracing"
 
 IngesterProtocol = Literal[
-    "otlp_grpc",
-    "otlp_http",
-    "zipkin",
-    "tempo",
-    "jaeger_grpc",
-    "opencensus",
-    "jaeger_thrift_compact",
-    "jaeger_thrift_http",
-    "jaeger_thrift_binary",
+    "otlp_grpc", "otlp_http", "zipkin", "tempo", "jaeger_http_thrift", "jaeger_grpc"
 ]
 
 RawIngester = Tuple[IngesterProtocol, int]
