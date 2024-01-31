@@ -22,6 +22,7 @@ def interface_tester(interface_tester: InterfaceTester):
     with patch("charm.KubernetesServicePatch"):
         with charm_tracing_disabled():
             interface_tester.configure(
+                branch="tracing-v2",  # todo remove when CRI:tracing-v2 is merged
                 charm_type=TempoCharm,
                 state_template=State(
                     leader=True,
