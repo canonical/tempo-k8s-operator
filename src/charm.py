@@ -84,14 +84,19 @@ class TempoCharm(CharmBase):
 
         self._ingress = IngressPerAppRequirer(self, port=self.tempo.tempo_port)
 
+    def _is_legacy_v1_relation(self, relation):
+        if self._tracing.is_v2(relation):
+            return False
+
+        # v1 relations are expected to have no data at all
+        if relation.data[relation.app] or any(relation.data[u] for u in relation.units):
+            return False
+
+        return True
+
     @property
     def legacy_v1_relations(self):
-        tracing_relations = self.model.relations["tracing"]
-        v1_relations = []
-        for relation in tracing_relations:
-            if not self._tracing.is_v2(relation):
-                v1_relations.append(relation)
-        return v1_relations
+        return [r for r in self.model.relations['tracing'] if self._is_legacy_v1_relation(r)]
 
     def _on_tracing_request(self, e: RequestEvent):
         """Handle a remote requesting a tracing endpoint."""
@@ -101,10 +106,15 @@ class TempoCharm(CharmBase):
     def _on_tracing_relation_changed(self, e: RelationChangedEvent):
         # we have a relation-changed event; it might be caught by the v2 requirer
         # wrapper and turned into a `request` event, but also maybe not.
+        # if the remote is v1, it will expect a
         relation = e.relation
 
         if self._tracing.is_v2(relation):
             # we will handle this as self._tracing.on.request on a different path
+            return
+
+        if not self._is_legacy_v1_relation(relation):
+            logger.error(f"relation {relation} is not tracing v1 nor v2. Skipping...")
             return
 
         logger.debug(f"updating legacy v1 relation {relation}")
