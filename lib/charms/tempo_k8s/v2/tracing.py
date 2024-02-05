@@ -183,7 +183,7 @@ class DatabagModel(BaseModel):
             return cls.model_validate_json(json.dumps(data))  # type: ignore
         except pydantic.ValidationError as e:
             msg = f"failed to validate databag: {databag}"
-            logger.error(msg, exc_info=True)
+            logger.debug(msg, exc_info=True)
             raise DataValidationError(msg) from e
 
     def dump(self, databag: Optional[MutableMapping] = None, clear: bool = True):
