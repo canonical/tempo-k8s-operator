@@ -1,10 +1,9 @@
 from pathlib import Path
 
 import pytest
+from charms.tempo_k8s.v1.charm_tracing import charm_tracing_disabled
 from scenario import State
 from scenario.sequences import check_builtin_sequences
-
-from charms.tempo_k8s.v1.charm_tracing import charm_tracing_disabled
 
 TEMPO_CHARM_ROOT = Path(__file__).parent.parent.parent
 

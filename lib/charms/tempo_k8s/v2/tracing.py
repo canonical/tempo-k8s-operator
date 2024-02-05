@@ -73,15 +73,14 @@ import json
 import logging
 from typing import (
     TYPE_CHECKING,
-    Any,
-    Dict,
+    Iterable,
     List,
     Literal,
     MutableMapping,
     Optional,
     Sequence,
     Tuple,
-    cast, Iterable,
+    cast,
 )
 
 import pydantic
@@ -141,7 +140,7 @@ class NotReadyError(TracingError):
     """Raised by the provider wrapper if a requirer hasn't published the required data (yet)."""
 
 
-class ProtocolNotRequested(TracingError):
+class ProtocolNotRequestedError(TracingError):
     """Raised if the user attempts to obtain an endpoint for a protocol it did not request."""
 
 
@@ -202,7 +201,7 @@ class DatabagModel(BaseModel):
             databag[nest_under] = self.model_dump_json(
                 by_alias=True,
                 # skip keys whose values are default
-                exclude_defaults=True
+                exclude_defaults=True,
             )
 
         dct = self.model_dump()
@@ -294,10 +293,10 @@ class RelationInterfaceMismatchError(Exception):
     """Raised if the relation with the given name has an unexpected interface."""
 
     def __init__(
-            self,
-            relation_name: str,
-            expected_relation_interface: str,
-            actual_relation_interface: str,
+        self,
+        relation_name: str,
+        expected_relation_interface: str,
+        actual_relation_interface: str,
     ):
         self.relation_name = relation_name
         self.expected_relation_interface = expected_relation_interface
@@ -315,10 +314,10 @@ class RelationRoleMismatchError(Exception):
     """Raised if the relation with the given name has a different role than expected."""
 
     def __init__(
-            self,
-            relation_name: str,
-            expected_relation_role: RelationRole,
-            actual_relation_role: RelationRole,
+        self,
+        relation_name: str,
+        expected_relation_role: RelationRole,
+        actual_relation_role: RelationRole,
     ):
         self.relation_name = relation_name
         self.expected_relation_interface = expected_relation_role
@@ -331,10 +330,10 @@ class RelationRoleMismatchError(Exception):
 
 
 def _validate_relation_by_interface_and_direction(
-        charm: CharmBase,
-        relation_name: str,
-        expected_relation_interface: str,
-        expected_relation_role: RelationRole,
+    charm: CharmBase,
+    relation_name: str,
+    expected_relation_interface: str,
+    expected_relation_role: RelationRole,
 ):
     """Validate a relation.
 
@@ -393,7 +392,13 @@ class RequestEvent(RelationEvent):
 
     @property
     def requested_receivers(self) -> List[ReceiverProtocol]:
-        return TracingRequirerAppData.load(self.relation.data[self.relation.app]).receivers
+        """List of receiver protocols that have been requested."""
+        relation = self.relation
+        app = relation.app
+        if not app:
+            raise NotReadyError("relation.app is None")
+
+        return TracingRequirerAppData.load(relation.data[app]).receivers
 
 
 class TracingEndpointProviderEvents(CharmEvents):
@@ -404,13 +409,14 @@ class TracingEndpointProviderEvents(CharmEvents):
 
 class TracingEndpointProvider(Object):
     """Class representing a trace receiver service."""
+
     on = TracingEndpointProviderEvents()  # type: ignore
 
     def __init__(
-            self,
-            charm: CharmBase,
-            host: str,
-            relation_name: str = DEFAULT_RELATION_NAME,
+        self,
+        charm: CharmBase,
+        host: str,
+        relation_name: str = DEFAULT_RELATION_NAME,
     ):
         """Initialize.
 
@@ -438,12 +444,18 @@ class TracingEndpointProvider(Object):
         self._charm = charm
         self._host = host
         self._relation_name = relation_name
-        self.framework.observe(self._charm.on[relation_name].relation_joined, self._on_relation_event)
-        self.framework.observe(self._charm.on[relation_name].relation_created, self._on_relation_event)
-        self.framework.observe(self._charm.on[relation_name].relation_changed, self._on_relation_event)
+        self.framework.observe(
+            self._charm.on[relation_name].relation_joined, self._on_relation_event
+        )
+        self.framework.observe(
+            self._charm.on[relation_name].relation_created, self._on_relation_event
+        )
+        self.framework.observe(
+            self._charm.on[relation_name].relation_changed, self._on_relation_event
+        )
 
     def _on_relation_event(self, e: RelationEvent):
-        """Common handler for relation created/joined/changed events."""
+        """Handle relation created/joined/changed events."""
         if self.is_v2(e.relation):
             self.on.request.emit(e.relation)
 
@@ -461,9 +473,13 @@ class TracingEndpointProvider(Object):
 
     @staticmethod
     def _get_requested_protocols(relation: Relation):
+        app = relation.app
+        if not app:
+            raise NotReadyError("relation.app is None")
+
         try:
-            databag = TracingRequirerAppData.load(relation.data[relation.app])
-        except (json.JSONDecodeError, pydantic.ValidationError, DataValidationError) as e:
+            databag = TracingRequirerAppData.load(relation.data[app])
+        except (json.JSONDecodeError, pydantic.ValidationError, DataValidationError):
             logger.info(f"relation {relation} is not ready to talk tracing v2")
             raise NotReadyError()
         return databag.receivers
@@ -503,7 +519,7 @@ class TracingEndpointProvider(Object):
                 msg = e.args[0]
                 if isinstance(msg, bytes):
                     if msg.startswith(
-                            b"ERROR cannot read relation application settings: permission denied"
+                        b"ERROR cannot read relation application settings: permission denied"
                     ):
                         logger.error(
                             f"encountered error {e} while attempting to update_relation_data."
@@ -545,10 +561,10 @@ class TracingEndpointRequirer(Object):
     on = TracingEndpointRequirerEvents()  # type: ignore
 
     def __init__(
-            self,
-            charm: CharmBase,
-            relation_name: str = DEFAULT_RELATION_NAME,
-            protocols: Optional[List[ReceiverProtocol]] = None,
+        self,
+        charm: CharmBase,
+        relation_name: str = DEFAULT_RELATION_NAME,
+        protocols: Optional[List[ReceiverProtocol]] = None,
     ):
         """Construct a tracing requirer for a Tempo charm.
 
@@ -594,7 +610,7 @@ class TracingEndpointRequirer(Object):
             self.request_protocols(protocols)
 
     def request_protocols(
-            self, protocols: Sequence[ReceiverProtocol], relation: Optional[Relation] = None
+        self, protocols: Sequence[ReceiverProtocol], relation: Optional[Relation] = None
     ):
         """Publish the list of protocols which the provider should activate."""
         # todo: should we check if _is_single_endpoint and len(self.relations) > 1 and raise, here?
@@ -606,7 +622,7 @@ class TracingEndpointRequirer(Object):
                     # allow protocols to be the empty list. This means the backend will activate
                     # ALL supported receivers (v0/v1 legacy behaviour)
                     TracingRequirerAppData(
-                        protocols=list(protocols),
+                        receivers=list(protocols),
                     ).dump(relation.data[self._charm.app])
 
         except ModelError as e:
@@ -614,7 +630,7 @@ class TracingEndpointRequirer(Object):
             msg = e.args[0]
             if isinstance(msg, bytes):
                 if msg.startswith(
-                        b"ERROR cannot read relation application settings: permission denied"
+                    b"ERROR cannot read relation application settings: permission denied"
                 ):
                     logger.error(
                         f"encountered error {e} while attempting to request_protocols."
@@ -685,7 +701,7 @@ class TracingEndpointRequirer(Object):
         self.on.endpoint_removed.emit(relation)  # type: ignore
 
     def get_all_endpoints(
-            self, relation: Optional[Relation] = None
+        self, relation: Optional[Relation] = None
     ) -> Optional[TracingProviderAppData]:
         """Unmarshalled relation data."""
         if not self.is_ready(relation or self._relation):
@@ -693,7 +709,7 @@ class TracingEndpointRequirer(Object):
         return TracingProviderAppData.load(relation.data[relation.app])  # type: ignore
 
     def _get_endpoint(
-            self, relation: Optional[Relation], protocol: ReceiverProtocol, ssl: bool = False
+        self, relation: Optional[Relation], protocol: ReceiverProtocol, ssl: bool = False
     ):
         ep = self.get_all_endpoints(relation)
         if not ep:
@@ -712,10 +728,9 @@ class TracingEndpointRequirer(Object):
             return None
 
     def get_endpoint(
-            self, protocol: ReceiverProtocol, relation: Optional[Relation] = None
+        self, protocol: ReceiverProtocol, relation: Optional[Relation] = None
     ) -> Optional[str]:
         """Receiver endpoint for the given protocol."""
-
         endpoint = self._get_endpoint(relation or self._relation, protocol=protocol)
         if not endpoint:
             requested_protocols = set()
@@ -724,7 +739,7 @@ class TracingEndpointRequirer(Object):
                 requested_protocols.update(databag.receivers)
 
             if protocol not in requested_protocols:
-                raise ProtocolNotRequested(protocol, relation)
+                raise ProtocolNotRequestedError(protocol, relation)
 
             return None
         return endpoint

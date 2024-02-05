@@ -8,10 +8,6 @@ import logging
 import re
 from typing import Optional, Tuple
 
-from ops.charm import CharmBase, WorkloadEvent, RelationChangedEvent
-from ops.main import main
-from ops.model import ActiveStatus
-
 import charms.tempo_k8s.v1.tracing as tracing_v1
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
 from charms.grafana_k8s.v0.grafana_source import GrafanaSourceProvider
@@ -19,18 +15,28 @@ from charms.loki_k8s.v0.loki_push_api import LogProxyConsumer
 from charms.observability_libs.v0.kubernetes_service_patch import KubernetesServicePatch
 from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
 from charms.tempo_k8s.v1.charm_tracing import trace_charm
-from charms.tempo_k8s.v2.tracing import (RequestEvent, ReceiverProtocol, TracingEndpointProvider,
-                                         )
+from charms.tempo_k8s.v2.tracing import (
+    ReceiverProtocol,
+    RequestEvent,
+    TracingEndpointProvider,
+)
 from charms.traefik_k8s.v2.ingress import IngressPerAppRequirer
+from ops.charm import CharmBase, RelationChangedEvent, WorkloadEvent
+from ops.main import main
+from ops.model import ActiveStatus
+
 from tempo import Tempo
 
 logger = logging.getLogger(__name__)
 
 LEGACY_RECEIVER_PROTOCOLS = (
     "tempo",  # has since been renamed to "tempo_http"
-    "otlp_grpc", "otlp_http", "zipkin",
+    "otlp_grpc",
+    "otlp_http",
+    "zipkin",
     "jaeger_http_thrift",  # has since been renamed to "jaeger_thrift_http"
-    "jaeger_grpc")
+    "jaeger_grpc",
+)
 """Receiver protocol names supported by tracing v0/v1."""
 
 
@@ -96,7 +102,8 @@ class TempoCharm(CharmBase):
 
     @property
     def legacy_v1_relations(self):
-        return [r for r in self.model.relations['tracing'] if self._is_legacy_v1_relation(r)]
+        """List of relations using the v1 legacy protocol."""
+        return [r for r in self.model.relations["tracing"] if self._is_legacy_v1_relation(r)]
 
     def _on_tracing_request(self, e: RequestEvent):
         """Handle a remote requesting a tracing endpoint."""
@@ -119,12 +126,13 @@ class TempoCharm(CharmBase):
 
         logger.debug(f"updating legacy v1 relation {relation}")
         # in v1, 'receiver' was called 'ingester'.
-        receivers = [tracing_v1.Ingester(protocol=p, port=self.tempo.receiver_ports[p]) for p in
-                     LEGACY_RECEIVER_PROTOCOLS]
-        tracing_v1.TracingProviderAppData(
-            host=self.tempo.host,
-            ingesters=receivers
-        ).dump(relation.data[self.app])
+        receivers = [
+            tracing_v1.Ingester(protocol=p, port=self.tempo.receiver_ports[p])
+            for p in LEGACY_RECEIVER_PROTOCOLS
+        ]
+        tracing_v1.TracingProviderAppData(host=self.tempo.host, ingesters=receivers).dump(
+            relation.data[self.app]
+        )
 
         # if this is the first legacy relation we get, we need to update ALL other relations
         # as we might need to add all legacy protocols to the mix
@@ -145,8 +153,7 @@ class TempoCharm(CharmBase):
         )
 
     def _requested_receivers(self) -> Tuple[ReceiverProtocol, ...]:
-        """What receivers we should activate, based on the active tracing relations."""
-
+        """List what receivers we should activate, based on the active tracing relations."""
         # we start with the sum of the requested endpoints from the v2 requirers
         requested_protocols = set(self._tracing.requested_protocols())
 
@@ -166,9 +173,7 @@ class TempoCharm(CharmBase):
             return event.defer()
 
         # drop tempo_config.yaml into the container
-        container.push(self.tempo.config_path, self.tempo.get_config(
-            self._requested_receivers()
-        ))
+        container.push(self.tempo.config_path, self.tempo.get_config(self._requested_receivers()))
 
         container.add_layer("tempo", self.tempo.pebble_layer, combine=True)
         container.replan()

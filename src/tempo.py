@@ -6,12 +6,11 @@
 
 import socket
 from subprocess import CalledProcessError, getoutput
-from typing import List, Tuple, Dict, Sequence
+from typing import Dict, List, Sequence, Tuple
 
 import yaml
-from ops.pebble import Layer
-
 from charms.tempo_k8s.v2.tracing import ReceiverProtocol
+from ops.pebble import Layer
 
 
 class Tempo:
@@ -38,12 +37,10 @@ class Tempo:
         "jaeger_thrift_binary": 42,  # TODO:
     }
 
-    def __init__(
-            self, http_port: int = 3200, grpc_port: int = 9096, local_host: str = "0.0.0.0"
-    ):
-        self.receiver_ports['tempo_http'] = http_port
+    def __init__(self, http_port: int = 3200, grpc_port: int = 9096, local_host: str = "0.0.0.0"):
+        self.receiver_ports["tempo_http"] = http_port
         # default grpc listen port is 9095, but that conflicts with promtail.
-        self.receiver_ports['tempo_grpc'] = grpc_port
+        self.receiver_ports["tempo_grpc"] = grpc_port
 
         # ports source: https://github.com/grafana/tempo/blob/main/example/docker-compose/local/docker-compose.yaml
         self._local_hostname = local_host
@@ -52,13 +49,18 @@ class Tempo:
 
     @property
     def tempo_port(self) -> int:
-        return self.receiver_ports['tempo_http']
+        """Return the receiver port for the built-in tempo_http protocol."""
+        return self.receiver_ports["tempo_http"]
 
-    def get_requested_ports(self, service_name_prefix: str):
+    def get_requested_ports(self, service_name_prefix: str) -> List[Tuple[str, int, int]]:
         """List of service names and port mappings for the kubernetes service patch."""
         # todo allow remapping ports?
         return [
-            ((service_name_prefix + protocol).replace("_", "-"), *((self.receiver_ports[protocol],) * 2))
+            (
+                (service_name_prefix + protocol).replace("_", "-"),
+                self.receiver_ports[protocol],
+                self.receiver_ports[protocol],
+            )
             for protocol in self._supported_receivers
         ]
 
@@ -77,14 +79,13 @@ class Tempo:
 
         Only activate the provided receivers.
         """
-
         return yaml.safe_dump(
             {
                 "auth_enabled": False,
                 "search_enabled": True,
                 "server": {
                     "http_listen_port": self.tempo_port,
-                    "grpc_listen_port": self.receiver_ports['tempo_grpc'],
+                    "grpc_listen_port": self.receiver_ports["tempo_grpc"],
                 },
                 # more configuration information can be found at
                 # https://github.com/open-telemetry/opentelemetry-collector/tree/overlord/receiver
@@ -159,32 +160,32 @@ class Tempo:
         return out == "ready"
 
     @staticmethod
-    def _build_receivers_config(receivers: Sequence[ReceiverProtocol]):
-        receivers = set(receivers)  # convert to set for faster lookup
+    def _build_receivers_config(receivers: Sequence[ReceiverProtocol]):  # noqa: C901
+        receivers_set = set(receivers)  # convert to set for faster lookup
 
         config = {}
 
-        if "zipkin" in receivers:
+        if "zipkin" in receivers_set:
             config["zipkin"] = None
-        if "opencensus" in receivers:
+        if "opencensus" in receivers_set:
             config["opencensus"] = None
 
         otlp_config = {}
-        if "otlp_http" in receivers:
+        if "otlp_http" in receivers_set:
             otlp_config["http"] = None
-        if "otlp_grpc" in receivers:
+        if "otlp_grpc" in receivers_set:
             otlp_config["grpc"] = None
         if otlp_config:
             config["otlp"] = {"protocols": otlp_config}
 
         jaeger_config = {}
-        if "jaeger_thrift_http" in receivers:
+        if "jaeger_thrift_http" in receivers_set:
             jaeger_config["thrift_http"] = None
-        if "jaeger_grpc" in receivers:
+        if "jaeger_grpc" in receivers_set:
             jaeger_config["grpc"] = None
-        if "jaeger_thrift_binary" in receivers:
+        if "jaeger_thrift_binary" in receivers_set:
             jaeger_config["thrift_binary"] = None
-        if "jaeger_thrift_compact" in receivers:
+        if "jaeger_thrift_compact" in receivers_set:
             jaeger_config["thrift_compact"] = None
         if jaeger_config:
             config["jaeger"] = {"protocols": jaeger_config}
