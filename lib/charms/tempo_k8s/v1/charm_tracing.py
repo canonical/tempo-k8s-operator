@@ -146,7 +146,7 @@ LIBAPI = 1
 # Increment this PATCH version before using `charmcraft publish-lib` or reset
 # to 0 if you are raising the major API version
 
-LIBPATCH = 1
+LIBPATCH = 2
 
 PYDEPS = ["opentelemetry-exporter-otlp-proto-http>=1.21.0"]
 
@@ -200,15 +200,12 @@ def _get_tracer() -> Optional[Tracer]:
         return tracer.get()
     except LookupError:
         try:
-            logger.debug("tracer was not found in context variable, looking up in default context")
             ctx: Context = copy_context()
             if context_tracer := _get_tracer_from_context(ctx):
                 return context_tracer.get()
             else:
-                logger.debug("Couldn't find context var for tracer: span will be skipped")
                 return None
         except LookupError as err:
-            logger.debug(f"Couldn't find tracer: span will be skipped, err: {err}")
             return None
 
 
@@ -219,7 +216,6 @@ def _span(name: str) -> Generator[Optional[Span], Any, Any]:
         with tracer.start_as_current_span(name) as span:
             yield cast(Span, span)
     else:
-        logger.debug("tracer not found")
         yield None
 
 
