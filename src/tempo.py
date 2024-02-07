@@ -24,17 +24,17 @@ class Tempo:
     receiver_ports: Dict[ReceiverProtocol, int] = {
         "zipkin": 9411,
         "kafka": 42,  # TODO:
-        "opencensus": 42,  # TODO:
+        "opencensus": 43,  # TODO:
         "tempo_http": 0,  # configurable; populated by __init__
         "tempo_grpc": 0,  # configurable; populated by __init__
         "tempo": 3200,  # legacy, renamed to tempo_http
         "otlp_grpc": 4317,
         "otlp_http": 4318,
         "jaeger_grpc": 14250,
-        "jaeger_thrift_compact": 42,  # TODO:
+        "jaeger_thrift_compact": 44,  # TODO:
         "jaeger_thrift_http": 14268,
         "jaeger_http_thrift": 14268,  # legacy, renamed to jaeger_thrift_http
-        "jaeger_thrift_binary": 42,  # TODO:
+        "jaeger_thrift_binary": 45,  # TODO:
     }
 
     def __init__(self, http_port: int = 3200, grpc_port: int = 9096, local_host: str = "0.0.0.0"):
