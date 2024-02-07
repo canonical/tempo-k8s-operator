@@ -239,7 +239,7 @@ def _get_tracing_endpoint(tracing_endpoint_getter, self, charm):
         tracing_endpoint = tracing_endpoint_getter(self)
 
     if tracing_endpoint is None:
-        logger.warning(
+        logger.debug(
             f"{charm}.{getattr(tracing_endpoint_getter, '__qualname__', str(tracing_endpoint_getter))} "
             f"returned None; continuing with tracing DISABLED."
         )
@@ -261,7 +261,7 @@ def _get_server_cert(server_cert_getter, self, charm):
         server_cert = server_cert_getter(self)
 
     if server_cert is None:
-        logger.warning(
+        logger.debug(
             f"{charm}.{server_cert_getter} returned None; continuing with INSECURE connection."
         )
         return
@@ -296,7 +296,6 @@ def _setup_root_span_initializer(
 
         original_event_context = framework._event_context
 
-        logging.debug("Initializing opentelemetry tracer...")
         _service_name = service_name or self.app.name
 
         resource = Resource.create(
