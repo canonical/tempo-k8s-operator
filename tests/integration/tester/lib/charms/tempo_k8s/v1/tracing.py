@@ -61,15 +61,7 @@ follows
 """  # noqa: W505
 import json
 import logging
-from typing import (
-    TYPE_CHECKING,
-    List,
-    Literal,
-    MutableMapping,
-    Optional,
-    Tuple,
-    cast,
-)
+from typing import TYPE_CHECKING, List, Literal, MutableMapping, Optional, Tuple, cast
 
 import pydantic
 from ops.charm import (

@@ -73,6 +73,8 @@ import json
 import logging
 from typing import (
     TYPE_CHECKING,
+    Any,
+    Dict,
     Iterable,
     List,
     Literal,
@@ -240,8 +242,8 @@ class TracingRequirerAppData(DatabagModel):  # noqa: D101
 
 
 class _AutoSnapshotEvent(RelationEvent):
-    __args__ = ()  # type: Tuple[str, ...]
-    __optional_kwargs__ = {}  # type: Dict[str, Any]
+    __args__: Tuple[str, ...] = ()
+    __optional_kwargs__: Dict[str, Any] = {}
 
     @classmethod
     def __attrs__(cls):
