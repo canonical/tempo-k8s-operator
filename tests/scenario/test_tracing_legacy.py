@@ -2,16 +2,11 @@ import json
 import socket
 
 import pytest
-from charms.tempo_k8s.v1.charm_tracing import charm_tracing_disabled
-from charms.tempo_k8s.v1.tracing import (
-    TracingProviderAppData as TracingProviderAppDataV1,
-)
-from charms.tempo_k8s.v2.tracing import (
-    TracingProviderAppData as TracingProviderAppDataV2,
-)
-from scenario import Relation, State
-
 from charm import TempoCharm
+from charms.tempo_k8s.v1.charm_tracing import charm_tracing_disabled
+from charms.tempo_k8s.v1.tracing import TracingProviderAppData as TracingProviderAppDataV1
+from charms.tempo_k8s.v2.tracing import TracingProviderAppData as TracingProviderAppDataV2
+from scenario import Relation, State
 
 NO_RECEIVERS = 13
 """Number of supported receivers (incl. deprecated legacy ones)."""
@@ -20,7 +15,12 @@ NO_RECEIVERS_LEGACY = 6
 
 
 def test_tracing_v1_endpoint_published(context):
-    tracing = Relation("tracing")
+    tracing = Relation(
+        "tracing",
+        remote_units_data={
+            1: {"egress-subnets": "12", "ingress-address": "12", "private-address": "12"}
+        },
+    )
     state = State(leader=True, relations=[tracing])
 
     with charm_tracing_disabled():

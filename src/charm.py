@@ -24,7 +24,6 @@ from charms.traefik_k8s.v2.ingress import IngressPerAppRequirer
 from ops.charm import CharmBase, RelationChangedEvent, WorkloadEvent
 from ops.main import main
 from ops.model import ActiveStatus
-
 from tempo import Tempo
 
 logger = logging.getLogger(__name__)
@@ -94,8 +93,11 @@ class TempoCharm(CharmBase):
         if self._tracing.is_v2(relation):
             return False
 
-        # v1 relations are expected to have no data at all
-        if relation.data[relation.app] or any(relation.data[u] for u in relation.units):
+        juju_keys = {"egress-subnets", "ingress-address", "private-address"}
+        # v1 relations are expected to have no data at all (excluding juju keys)
+        if relation.data[relation.app] or any(
+            set(relation.data[u]).difference(juju_keys) for u in relation.units
+        ):
             return False
 
         return True
@@ -235,7 +237,7 @@ class TempoCharm(CharmBase):
         # the charm container and the tempo workload container have apparently the same
         # IP, so we can talk to tempo at localhost.
         # TODO switch to HTTPS once SSL support is added
-        return f"http://localhost:{self.tempo.receiver_ports['otlp_http']}/v1/traces"
+        return f"http://localhost:{self.tempo.receiver_ports['otlp_http']}"
 
 
 if __name__ == "__main__":  # pragma: nocover
