@@ -240,8 +240,8 @@ def _get_tracing_endpoint(tracing_endpoint_getter, self, charm):
 
     if tracing_endpoint is None:
         logger.debug(
-            f"{charm}.{getattr(tracing_endpoint_getter, '__qualname__', str(tracing_endpoint_getter))} "
-            f"returned None; continuing with tracing DISABLED."
+            "Charm tracing is disabled. Tracing endpoint is not defined - "
+            "tracing is not available or relation is not set."
         )
         return
     elif not isinstance(tracing_endpoint, str):
@@ -261,8 +261,8 @@ def _get_server_cert(server_cert_getter, self, charm):
         server_cert = server_cert_getter(self)
 
     if server_cert is None:
-        logger.debug(
-            f"{charm}.{server_cert_getter} returned None; continuing with INSECURE connection."
+        logger.warning(
+            f"{charm}.{server_cert_getter} returned None; sending traces over INSECURE connection."
         )
         return
     elif not Path(server_cert).is_absolute():
@@ -270,7 +270,6 @@ def _get_server_cert(server_cert_getter, self, charm):
             f"{charm}.{server_cert_getter} should return a valid tls cert absolute path (string | Path)); "
             f"got {server_cert} instead."
         )
-    logger.debug("Certificate successfully retrieved.")  # todo: some more validation?
     return server_cert
 
 
