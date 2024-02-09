@@ -1,4 +1,4 @@
-# Copyright 2022 Pietro Pasotti
+# Copyright 2024 Canonical Ltd.
 # See LICENSE file for licensing details.
 """## Overview.
 
@@ -151,8 +151,12 @@ class DatabagModel(BaseModel):
         try:
             return cls.parse_raw(json.dumps(data))  # type: ignore
         except pydantic.ValidationError as e:
-            msg = f"failed to validate databag: {databag}"
-            logger.error(msg, exc_info=True)
+            if not data:
+                # databag is empty; this is usually expected
+                raise DataValidationError("empty databag")
+
+            msg = f"failed to validate databag contents: {data!r} as {cls}"
+            logger.debug(msg, exc_info=True)
             raise DataValidationError(msg) from e
 
     def dump(self, databag: Optional[MutableMapping] = None, clear: bool = True):

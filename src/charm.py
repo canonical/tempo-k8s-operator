@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright 2022 Canonical Ltd.
+# Copyright 2024 Canonical Ltd.
 # See LICENSE file for licensing details.
 
 """Charmed Operator for Tempo; a lightweight elasticsearch alternative."""
@@ -24,6 +24,7 @@ from charms.traefik_k8s.v2.ingress import IngressPerAppRequirer
 from ops.charm import CharmBase, RelationChangedEvent, WorkloadEvent
 from ops.main import main
 from ops.model import ActiveStatus
+
 from tempo import Tempo
 
 logger = logging.getLogger(__name__)

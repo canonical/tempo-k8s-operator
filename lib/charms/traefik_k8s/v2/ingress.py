@@ -1,4 +1,4 @@
-# Copyright 2023 Canonical Ltd.
+# Copyright 2024 Canonical Ltd.
 # See LICENSE file for licensing details.
 
 r"""# Interface Library for ingress.
@@ -72,7 +72,7 @@ LIBAPI = 2
 
 # Increment this PATCH version before using `charmcraft publish-lib` or reset
 # to 0 if you are raising the major API version
-LIBPATCH = 9
+LIBPATCH = 10
 
 PYDEPS = ["pydantic"]
 
@@ -105,8 +105,8 @@ if pydantic.version.VERSION.split(".") <= ["2"]:
                 data = {
                     k: json.loads(v)
                     for k, v in databag.items()
-                    if k
-                    in cls.__fields__  # is one of our fields. Don't attempt to parse model-external values
+                    # Don't attempt to parse model-external values
+                    if k in {f.alias for f in cls.__fields__.values()}
                 }
             except json.JSONDecodeError as e:
                 msg = f"invalid databag contents: expecting json. {databag}"
@@ -136,7 +136,7 @@ if pydantic.version.VERSION.split(".") <= ["2"]:
                 databag[self._NEST_UNDER] = self.json(by_alias=True)
                 return databag
 
-            dct = {}
+            dct = self.dict()
             for key, field in self.__fields__.items():  # type: ignore
                 value = dct[key]
                 databag[field.alias or key] = json.dumps(value)
@@ -169,8 +169,8 @@ else:
                 data = {
                     k: json.loads(v)
                     for k, v in databag.items()
-                    if k
-                    in cls.__fields__  # is one of our fields. Don't attempt to parse model-external values
+                    # Don't attempt to parse model-external values
+                    if k in {(f.alias or n) for n, f in cls.__fields__.items()}
                 }
             except json.JSONDecodeError as e:
                 msg = f"invalid databag contents: expecting json. {databag}"

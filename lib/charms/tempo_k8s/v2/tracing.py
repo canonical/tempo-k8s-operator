@@ -1,4 +1,4 @@
-# Copyright 2022 Pietro Pasotti
+# Copyright 2024 Canonical Ltd.
 # See LICENSE file for licensing details.
 """## Overview.
 
@@ -16,7 +16,7 @@ object only requires instantiating it, typically in the constructor of your char
  This relation must use the `tracing` interface.
  The `TracingEndpointRequirer` object may be instantiated as follows
 
-    from charms.tempo_k8s.v1.tracing import TracingEndpointRequirer
+    from charms.tempo_k8s.v2.tracing import TracingEndpointRequirer
 
     def __init__(self, *args):
         super().__init__(*args)
@@ -58,7 +58,7 @@ default value.
 For example a Tempo charm may instantiate the `TracingEndpointProvider` in its constructor as
 follows
 
-    from charms.tempo_k8s.v1.tracing import TracingEndpointProvider
+    from charms.tempo_k8s.v2.tracing import TracingEndpointProvider
 
     def __init__(self, *args):
         super().__init__(*args)
@@ -95,7 +95,7 @@ from ops.charm import (
 )
 from ops.framework import EventSource, Object
 from ops.model import ModelError, Relation
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel
 
 # The unique Charmhub library identifier, never change it
 LIBID = "12977e9aa0b34367903d8afeb8c3d85d"
@@ -107,7 +107,7 @@ LIBAPI = 2
 # to 0 if you are raising the major API version
 LIBPATCH = 0
 
-PYDEPS = ["pydantic>=2"]
+PYDEPS = ["pydantic"]
 
 logger = logging.getLogger(__name__)
 
@@ -154,66 +154,140 @@ class AmbiguousRelationUsageError(TracingError):
     """Raised when one wrongly assumes that there can only be one relation on an endpoint."""
 
 
-class DatabagModel(BaseModel):
-    """Base databag model."""
+if int(pydantic.version.VERSION.split(".")[0]) <= 2:
+    class DatabagModel(BaseModel):  # type: ignore
+        """Base databag model."""
 
-    model_config = ConfigDict(
-        # Allow instantiating this class by field name (instead of forcing alias).
-        populate_by_name=True,
-        # Custom config key: whether to nest the whole datastructure (as json)
-        # under a field or spread it out at the toplevel.
-        _NEST_UNDER=None,
-    )  # type: ignore
-    """Pydantic config."""
+        class Config:
+            """Pydantic config."""
 
-    @classmethod
-    def load(cls, databag: MutableMapping):
-        """Load this model from a Juju databag."""
-        nest_under = cls.model_config.get("_NEST_UNDER")
-        if nest_under:
-            return cls.model_validate(json.loads(databag[nest_under]))
+            # ignore any extra fields in the databag
+            extra = "ignore"
+            """Ignore any extra fields in the databag."""
+            allow_population_by_field_name = True
+            """Allow instantiating this class by field name (instead of forcing alias)."""
 
-        try:
-            data = {k: json.loads(v) for k, v in databag.items() if k not in BUILTIN_JUJU_KEYS}
-        except json.JSONDecodeError as e:
-            msg = f"invalid databag contents: expecting json. {databag}"
-            logger.error(msg)
-            raise DataValidationError(msg) from e
+        _NEST_UNDER = None
 
-        try:
-            return cls.model_validate_json(json.dumps(data))  # type: ignore
-        except pydantic.ValidationError as e:
-            msg = f"failed to validate databag: {databag}"
-            logger.debug(msg, exc_info=True)
-            raise DataValidationError(msg) from e
+        @classmethod
+        def load(cls, databag: MutableMapping):
+            """Load this model from a Juju databag."""
+            if cls._NEST_UNDER:
+                return cls.parse_obj(json.loads(databag[cls._NEST_UNDER]))
 
-    def dump(self, databag: Optional[MutableMapping] = None, clear: bool = True):
-        """Write the contents of this model to Juju databag.
+            try:
+                data = {
+                    k: json.loads(v)
+                    for k, v in databag.items()
+                    # Don't attempt to parse model-external values
+                    if k in {f.alias for f in cls.__fields__.values()}
+                }
+            except json.JSONDecodeError as e:
+                msg = f"invalid databag contents: expecting json. {databag}"
+                logger.error(msg)
+                raise DataValidationError(msg) from e
 
-        :param databag: the databag to write the data to.
-        :param clear: ensure the databag is cleared before writing it.
-        """
-        if clear and databag:
-            databag.clear()
+            try:
+                return cls.parse_raw(json.dumps(data))  # type: ignore
+            except pydantic.ValidationError as e:
+                msg = f"failed to validate databag: {databag}"
+                logger.debug(msg, exc_info=True)
+                raise DataValidationError(msg) from e
 
-        if databag is None:
-            databag = {}
-        nest_under = self.model_config.get("_NEST_UNDER")
-        if nest_under:
-            databag[nest_under] = self.model_dump_json(
-                by_alias=True,
-                # skip keys whose values are default
-                exclude_defaults=True,
-            )
+        def dump(self, databag: Optional[MutableMapping] = None, clear: bool = True):
+            """Write the contents of this model to Juju databag.
 
-        dct = self.model_dump()
-        for key, field in self.model_fields.items():  # type: ignore
-            value = dct[key]
-            if value == field.default:
-                continue
-            databag[field.alias or key] = json.dumps(value)
+            :param databag: the databag to write the data to.
+            :param clear: ensure the databag is cleared before writing it.
+            """
+            if clear and databag:
+                databag.clear()
 
-        return databag
+            if databag is None:
+                databag = {}
+
+            if self._NEST_UNDER:
+                databag[self._NEST_UNDER] = self.json(by_alias=True)
+                return databag
+
+            dct = self.dict()
+            for key, field in self.__fields__.items():  # type: ignore
+                value = dct[key]
+                databag[field.alias or key] = json.dumps(value)
+
+            return databag
+
+else:
+    from pydantic import ConfigDict
+
+    class DatabagModel(BaseModel):
+        """Base databag model."""
+
+        model_config = ConfigDict(
+            # ignore any extra fields in the databag
+            extra="ignore",
+            # Allow instantiating this class by field name (instead of forcing alias).
+            populate_by_name=True,
+            # Custom config key: whether to nest the whole datastructure (as json)
+            # under a field or spread it out at the toplevel.
+            _NEST_UNDER=None,  # type: ignore
+        )
+        """Pydantic config."""
+
+        @classmethod
+        def load(cls, databag: MutableMapping):
+            """Load this model from a Juju databag."""
+            nest_under = cls.model_config.get("_NEST_UNDER")  # type: ignore
+            if nest_under:
+                return cls.model_validate(json.loads(databag[nest_under]))  # type: ignore
+
+            try:
+                data = {
+                    k: json.loads(v)
+                    for k, v in databag.items()
+                    # Don't attempt to parse model-external values
+                    if k in {(f.alias or n) for n, f in cls.__fields__.items()}
+                }
+            except json.JSONDecodeError as e:
+                msg = f"invalid databag contents: expecting json. {databag}"
+                logger.error(msg)
+                raise DataValidationError(msg) from e
+
+            try:
+                return cls.model_validate_json(json.dumps(data))  # type: ignore
+            except pydantic.ValidationError as e:
+                msg = f"failed to validate databag: {databag}"
+                logger.debug(msg, exc_info=True)
+                raise DataValidationError(msg) from e
+
+        def dump(self, databag: Optional[MutableMapping] = None, clear: bool = True):
+            """Write the contents of this model to Juju databag.
+
+            :param databag: the databag to write the data to.
+            :param clear: ensure the databag is cleared before writing it.
+            """
+            if clear and databag:
+                databag.clear()
+
+            if databag is None:
+                databag = {}
+            nest_under = self.model_config.get("_NEST_UNDER")
+            if nest_under:
+                databag[nest_under] = self.model_dump_json(  # type: ignore
+                    by_alias=True,
+                    # skip keys whose values are default
+                    exclude_defaults=True,
+                )
+                return databag
+
+            dct = self.model_dump()  # type: ignore
+            for key, field in self.model_fields.items():  # type: ignore
+                value = dct[key]
+                if value == field.default:
+                    continue
+                databag[field.alias or key] = json.dumps(value)
+
+            return databag
 
 
 # todo use models from charm-relation-interfaces
@@ -582,6 +656,9 @@ class TracingEndpointRequirer(Object):
                 and the Tempo charmed service. The default is "tracing". It is strongly
                 advised not to change the default, so that people deploying your charm will have a
                 consistent experience with all other charms that provide tracing endpoints.
+            protocols: optional list of protocols that the charm intends to send traces with.
+                The provider will enable receivers for these and only these protocols,
+                so be sure to enable all protocols the charm or its workload are going to need.
 
         Raises:
             RelationNotFoundError: If there is no relation in the charm's metadata.yaml
@@ -608,7 +685,7 @@ class TracingEndpointRequirer(Object):
         self.framework.observe(events.relation_changed, self._on_tracing_relation_changed)
         self.framework.observe(events.relation_broken, self._on_tracing_relation_broken)
 
-        if protocols is not None:
+        if protocols:
             self.request_protocols(protocols)
 
     def request_protocols(
@@ -618,11 +695,13 @@ class TracingEndpointRequirer(Object):
         # todo: should we check if _is_single_endpoint and len(self.relations) > 1 and raise, here?
         relations = [relation] if relation else self.relations
 
+        if not protocols:
+            # empty sequence
+            raise ValueError("You need to pass a nonempty sequence of protocols to `request_protocols`.")
+
         try:
             if self._charm.unit.is_leader():
                 for relation in relations:
-                    # allow protocols to be the empty list. This means the backend will activate
-                    # ALL supported receivers (v0/v1 legacy behaviour)
                     TracingRequirerAppData(
                         receivers=list(protocols),
                     ).dump(relation.data[self._charm.app])
@@ -745,3 +824,20 @@ class TracingEndpointRequirer(Object):
 
             return None
         return endpoint
+
+    # for backwards compatibility with earlier revisions:
+    def otlp_grpc_endpoint(self):
+        """Use TracingEndpointRequirer.get_endpoint('otlp_grpc') instead."""
+        logger.warning(
+            "`TracingEndpointRequirer.otlp_grpc_endpoint` is deprecated. "
+            "Use `TracingEndpointRequirer.get_endpoint('otlp_grpc') instead.`"
+        )
+        return self.get_endpoint("otlp_grpc")
+
+    def otlp_http_endpoint(self):
+        """Use TracingEndpointRequirer.get_endpoint('otlp_http') instead."""
+        logger.warning(
+            "`TracingEndpointRequirer.otlp_http_endpoint` is deprecated. "
+            "Use `TracingEndpointRequirer.get_endpoint('otlp_http') instead.`"
+        )
+        return self.get_endpoint("otlp_http")

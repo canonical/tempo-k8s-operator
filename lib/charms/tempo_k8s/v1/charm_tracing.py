@@ -126,15 +126,14 @@ from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExport
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import Span, TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.trace import INVALID_SPAN, Tracer
+from opentelemetry.trace import get_current_span as otlp_get_current_span
 from opentelemetry.trace import (
-    INVALID_SPAN,
-    Tracer,
     get_tracer,
     get_tracer_provider,
     set_span_in_context,
     set_tracer_provider,
 )
-from opentelemetry.trace import get_current_span as otlp_get_current_span
 from ops.charm import CharmBase
 from ops.framework import Framework
 
@@ -536,6 +535,8 @@ def _trace_callable(callable: _F, qualifier: str, static: bool = False) -> _F:
         with _span(f"{'(static) ' if static else ''}{qualifier} call: {name}"):  # type: ignore
             if static:
                 # fixme: do we or don't we need [1:]?
+                #  The _trace_callable decorator doesn't always play nice with @staticmethods.
+                #  Sometimes it will receive 'self', sometimes it won't.
                 # return callable(*args, **kwargs)  # type: ignore
                 return callable(*args[1:], **kwargs)  # type: ignore
             return callable(*args, **kwargs)  # type: ignore
