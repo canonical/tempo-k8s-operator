@@ -174,43 +174,27 @@ class Tempo:
         config = {}
 
         if "zipkin" in receivers_set:
-            config["zipkin"] = {
-                "endpoint": f"{self._local_hostname}:{self.receiver_ports['zipkin']}"
-            }
+            config["zipkin"] = None
         if "opencensus" in receivers_set:
-            config["opencensus"] = {
-                "endpoint": f"{self._local_hostname}:{self.receiver_ports['opencensus']}"
-            }
+            config["opencensus"] = None
 
         otlp_config = {}
         if "otlp_http" in receivers_set:
-            otlp_config["http"] = {
-                "endpoint": f"{self._local_hostname}:{self.receiver_ports['otlp_http']}"
-            }
+            otlp_config["http"] = None
         if "otlp_grpc" in receivers_set:
-            otlp_config["grpc"] = {
-                "endpoint": f"{self._local_hostname}:{self.receiver_ports['otlp_grpc']}"
-            }
+            otlp_config["grpc"] = None
         if otlp_config:
             config["otlp"] = {"protocols": otlp_config}
 
         jaeger_config = {}
         if "jaeger_thrift_http" in receivers_set:
-            jaeger_config["thrift_http"] = {
-                "endpoint": f"{self._local_hostname}:{self.receiver_ports['jaeger_thrift_http']}"
-            }
+            jaeger_config["thrift_http"] = None
         if "jaeger_grpc" in receivers_set:
-            jaeger_config["grpc"] = {
-                "endpoint": f"{self._local_hostname}:{self.receiver_ports['jaeger_grpc']}"
-            }
+            jaeger_config["grpc"] = None
         if "jaeger_thrift_binary" in receivers_set:
-            jaeger_config["thrift_binary"] = {
-                "endpoint": f"{self._local_hostname}:{self.receiver_ports['jaeger_thrift_binary']}"
-            }
+            jaeger_config["thrift_binary"] = None
         if "jaeger_thrift_compact" in receivers_set:
-            jaeger_config["thrift_compact"] = {
-                "endpoint": f"{self._local_hostname}:{self.receiver_ports['jaeger_thrift_compact']}"
-            }
+            jaeger_config["thrift_compact"] = None
         if jaeger_config:
             config["jaeger"] = {"protocols": jaeger_config}
 
