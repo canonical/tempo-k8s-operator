@@ -21,9 +21,9 @@ from charms.tempo_k8s.v2.tracing import (
     TracingEndpointProvider,
 )
 from charms.traefik_k8s.v2.ingress import IngressPerAppRequirer
-from ops.charm import CharmBase, RelationChangedEvent, WorkloadEvent
+from ops.charm import CharmBase, CollectStatusEvent, RelationChangedEvent, WorkloadEvent
 from ops.main import main
-from ops.model import ActiveStatus
+from ops.model import ActiveStatus, BlockedStatus, MaintenanceStatus, WaitingStatus
 
 from tempo import Tempo
 
@@ -52,7 +52,7 @@ class TempoCharm(CharmBase):
         tempo_pebble_ready_event = self.on.tempo_pebble_ready  # type:ignore
         self.framework.observe(tempo_pebble_ready_event, self._on_tempo_pebble_ready)
         self.framework.observe(self.on.update_status, self._on_update_status)
-        self.tempo = tempo = Tempo()
+        self.tempo = tempo = Tempo(self.unit.get_container("tempo"))
 
         # configure this tempo as a datasource in grafana
         self.grafana_source_provider = GrafanaSourceProvider(
@@ -60,9 +60,7 @@ class TempoCharm(CharmBase):
         )
 
         # # Patch the juju-created Kubernetes service to contain the right ports
-        self._service_patcher = KubernetesServicePatch(
-            self, tempo.get_requested_ports(self.app.name)
-        )
+        self._service_patcher = KubernetesServicePatch(self, tempo.get_ports(self.app.name))
         # Provide ability for Tempo to be scraped by Prometheus using prometheus_scrape
         self._scraping = MetricsEndpointProvider(
             self,
@@ -87,6 +85,7 @@ class TempoCharm(CharmBase):
         self._tracing = TracingEndpointProvider(self, host=tempo.host)
         self.framework.observe(self._tracing.on.request, self._on_tracing_request)
         self.framework.observe(self.on.tracing_relation_changed, self._on_tracing_relation_changed)
+        self.framework.observe(self.on.collect_unit_status, self._on_collect_unit_status)
 
         self._ingress = IngressPerAppRequirer(self, port=self.tempo.tempo_port)
 
@@ -155,6 +154,16 @@ class TempoCharm(CharmBase):
             ((p, self.tempo.receiver_ports[p]) for p in requested_receivers)
         )
 
+        # if the receivers have changed, we need to reconfigure tempo
+        self.unit.status = MaintenanceStatus("reconfiguring Tempo...")
+        container = self.tempo.container
+        container.push(
+            self.tempo.config_path,
+            self.tempo.get_config(self._requested_receivers()),
+            make_dirs=True,
+        )
+        container.replan()
+
     def _requested_receivers(self) -> Tuple[ReceiverProtocol, ...]:
         """List what receivers we should activate, based on the active tracing relations."""
         # we start with the sum of the requested endpoints from the v2 requirers
@@ -176,7 +185,11 @@ class TempoCharm(CharmBase):
             return event.defer()
 
         # drop tempo_config.yaml into the container
-        container.push(self.tempo.config_path, self.tempo.get_config(self._requested_receivers()))
+        container.push(
+            self.tempo.config_path,
+            self.tempo.get_config(self._requested_receivers()),
+            make_dirs=True,
+        )
 
         container.add_layer("tempo", self.tempo.pebble_layer, combine=True)
         container.replan()
@@ -239,6 +252,13 @@ class TempoCharm(CharmBase):
         # IP, so we can talk to tempo at localhost.
         # TODO switch to HTTPS once SSL support is added
         return f"http://localhost:{self.tempo.receiver_ports['otlp_http']}"
+
+    def _on_collect_unit_status(self, e: CollectStatusEvent):
+        if not self.tempo.container.can_connect():
+            e.add_status(WaitingStatus("Tempo container not ready"))
+        if not self.tempo.is_ready():
+            e.add_status(WaitingStatus("Tempo not ready"))
+        e.add_status(ActiveStatus())
 
 
 if __name__ == "__main__":  # pragma: nocover

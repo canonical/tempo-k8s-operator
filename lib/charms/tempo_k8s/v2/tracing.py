@@ -154,7 +154,8 @@ class AmbiguousRelationUsageError(TracingError):
     """Raised when one wrongly assumes that there can only be one relation on an endpoint."""
 
 
-if int(pydantic.version.VERSION.split(".")[0]) <= 2:
+if int(pydantic.version.VERSION.split(".")[0]) < 2:
+
     class DatabagModel(BaseModel):  # type: ignore
         """Base databag model."""
 
@@ -697,7 +698,9 @@ class TracingEndpointRequirer(Object):
 
         if not protocols:
             # empty sequence
-            raise ValueError("You need to pass a nonempty sequence of protocols to `request_protocols`.")
+            raise ValueError(
+                "You need to pass a nonempty sequence of protocols to `request_protocols`."
+            )
 
         try:
             if self._charm.unit.is_leader():

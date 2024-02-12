@@ -3,11 +3,12 @@
 # See LICENSE file for licensing details.
 
 """Tempo workload configuration and client."""
-
+import logging
 import socket
 from subprocess import CalledProcessError, getoutput
 from typing import Dict, List, Sequence, Tuple
 
+import ops
 import yaml
 from charms.tempo_k8s.v2.tracing import ReceiverProtocol
 from ops.pebble import Layer
@@ -16,7 +17,7 @@ from ops.pebble import Layer
 class Tempo:
     """Class representing the Tempo client workload configuration."""
 
-    config_path = "/etc/tempo.yaml"
+    config_path = "/etc/tempo/tempo.yaml"
     wal_path = "/etc/tempo_wal"
     log_path = "/var/log/tempo.log"
 
@@ -25,12 +26,12 @@ class Tempo:
         "zipkin": 9411,
         "tempo_http": -1,  # configurable; populated by __init__
         "tempo_grpc": -1,  # configurable; populated by __init__
-        "tempo": 3200,  # legacy, renamed to tempo_http
+        "tempo": 3201,  # legacy, renamed to tempo_http
         "otlp_grpc": 4317,
         "otlp_http": 4318,
         "jaeger_grpc": 14250,
         "jaeger_thrift_http": 14268,
-        "jaeger_http_thrift": 14268,  # legacy, renamed to jaeger_thrift_http
+        "jaeger_http_thrift": 14269,  # legacy, renamed to jaeger_thrift_http
         # todo add support for:
         #  "kafka": 42,
         #  "opencensus": 43,
@@ -38,13 +39,20 @@ class Tempo:
         #  "jaeger_thrift_binary": 45,
     }
 
-    def __init__(self, http_port: int = 3200, grpc_port: int = 9096, local_host: str = "0.0.0.0"):
+    def __init__(
+        self,
+        container: ops.Container,
+        http_port: int = 3200,
+        grpc_port: int = 9096,
+        local_host: str = "0.0.0.0",
+    ):
         self.receiver_ports["tempo_http"] = http_port
         # default grpc listen port is 9095, but that conflicts with promtail.
         self.receiver_ports["tempo_grpc"] = grpc_port
 
         # ports source: https://github.com/grafana/tempo/blob/main/example/docker-compose/local/docker-compose.yaml
         self._local_hostname = local_host
+        self.container = container
 
         self._supported_receivers: Tuple[ReceiverProtocol, ...] = tuple(self.receiver_ports)
 
@@ -53,12 +61,12 @@ class Tempo:
         """Return the receiver port for the built-in tempo_http protocol."""
         return self.receiver_ports["tempo_http"]
 
-    def get_requested_ports(self, service_name_prefix: str) -> List[Tuple[str, int, int]]:
+    def get_ports(self, service_name_prefix: str) -> List[Tuple[str, int, int]]:
         """List of service names and port mappings for the kubernetes service patch."""
         # todo allow remapping ports?
         return [
             (
-                (service_name_prefix + protocol).replace("_", "-"),
+                (f"{service_name_prefix}-{protocol}").replace("_", "-"),
                 self.receiver_ports[protocol],
                 self.receiver_ports[protocol],
             )
@@ -160,34 +168,49 @@ class Tempo:
             return False
         return out == "ready"
 
-    @staticmethod
-    def _build_receivers_config(receivers: Sequence[ReceiverProtocol]):  # noqa: C901
+    def _build_receivers_config(self, receivers: Sequence[ReceiverProtocol]):  # noqa: C901
         receivers_set = set(receivers)  # convert to set for faster lookup
 
         config = {}
 
         if "zipkin" in receivers_set:
-            config["zipkin"] = None
+            config["zipkin"] = {
+                "endpoint": f"{self._local_hostname}:{self.receiver_ports['zipkin']}"
+            }
         if "opencensus" in receivers_set:
-            config["opencensus"] = None
+            config["opencensus"] = {
+                "endpoint": f"{self._local_hostname}:{self.receiver_ports['opencensus']}"
+            }
 
         otlp_config = {}
         if "otlp_http" in receivers_set:
-            otlp_config["http"] = None
+            otlp_config["http"] = {
+                "endpoint": f"{self._local_hostname}:{self.receiver_ports['otlp_http']}"
+            }
         if "otlp_grpc" in receivers_set:
-            otlp_config["grpc"] = None
+            otlp_config["grpc"] = {
+                "endpoint": f"{self._local_hostname}:{self.receiver_ports['otlp_grpc']}"
+            }
         if otlp_config:
             config["otlp"] = {"protocols": otlp_config}
 
         jaeger_config = {}
         if "jaeger_thrift_http" in receivers_set:
-            jaeger_config["thrift_http"] = None
+            jaeger_config["thrift_http"] = {
+                "endpoint": f"{self._local_hostname}:{self.receiver_ports['jaeger_thrift_http']}"
+            }
         if "jaeger_grpc" in receivers_set:
-            jaeger_config["grpc"] = None
+            jaeger_config["grpc"] = {
+                "endpoint": f"{self._local_hostname}:{self.receiver_ports['jaeger_grpc']}"
+            }
         if "jaeger_thrift_binary" in receivers_set:
-            jaeger_config["thrift_binary"] = None
+            jaeger_config["thrift_binary"] = {
+                "endpoint": f"{self._local_hostname}:{self.receiver_ports['jaeger_thrift_binary']}"
+            }
         if "jaeger_thrift_compact" in receivers_set:
-            jaeger_config["thrift_compact"] = None
+            jaeger_config["thrift_compact"] = {
+                "endpoint": f"{self._local_hostname}:{self.receiver_ports['jaeger_thrift_compact']}"
+            }
         if jaeger_config:
             config["jaeger"] = {"protocols": jaeger_config}
 
