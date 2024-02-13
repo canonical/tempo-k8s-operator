@@ -23,8 +23,7 @@ from charms.tempo_k8s.v2.tracing import (
 from charms.traefik_k8s.v2.ingress import IngressPerAppRequirer
 from ops.charm import CharmBase, CollectStatusEvent, RelationChangedEvent, WorkloadEvent
 from ops.main import main
-from ops.model import ActiveStatus, BlockedStatus, MaintenanceStatus, WaitingStatus
-
+from ops.model import ActiveStatus, MaintenanceStatus, WaitingStatus
 from tempo import Tempo
 
 logger = logging.getLogger(__name__)
@@ -157,12 +156,18 @@ class TempoCharm(CharmBase):
         # if the receivers have changed, we need to reconfigure tempo
         self.unit.status = MaintenanceStatus("reconfiguring Tempo...")
         container = self.tempo.container
-        container.push(
-            self.tempo.config_path,
-            self.tempo.get_config(self._requested_receivers()),
-            make_dirs=True,
-        )
-        container.replan()
+        if container.can_connect():
+            container.push(
+                self.tempo.config_path,
+                self.tempo.get_config(self._requested_receivers()),
+                make_dirs=True,
+            )
+            container.replan()
+        else:
+            # assume that this will be handled at the next pebble-ready
+            logger.debug(
+                "Cannot reconfigure/restart tempo at this time: container cannot connect."
+            )
 
     def _requested_receivers(self) -> Tuple[ReceiverProtocol, ...]:
         """List what receivers we should activate, based on the active tracing relations."""

@@ -36,7 +36,7 @@ def test_requirer_api(context):
     tracing = Relation(
         "tracing",
         remote_app_data={
-            "ingesters": '[{"protocol": "tempo", "port": 3200}, '
+            "receivers": '[{"protocol": "tempo", "port": 3200}, '
             '{"protocol": "otlp_grpc", "port": 4317}, '
             '{"protocol": "otlp_http", "port": 4318}, '
             '{"protocol": "zipkin", "port": 9411}]',
@@ -58,7 +58,7 @@ def test_requirer_api(context):
     rchanged, epchanged = context.emitted_events
     assert isinstance(epchanged, EndpointChangedEvent)
     assert epchanged.host == host
-    assert epchanged.ingesters[0].protocol == "tempo"
+    assert epchanged.receivers[0].protocol == "tempo"
     assert epchanged.host == host
 
 

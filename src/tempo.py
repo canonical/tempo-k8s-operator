@@ -3,7 +3,6 @@
 # See LICENSE file for licensing details.
 
 """Tempo workload configuration and client."""
-import logging
 import socket
 from subprocess import CalledProcessError, getoutput
 from typing import Dict, List, Sequence, Tuple

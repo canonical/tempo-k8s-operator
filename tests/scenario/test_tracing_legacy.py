@@ -2,16 +2,11 @@ import json
 import socket
 
 import pytest
-from charms.tempo_k8s.v1.charm_tracing import charm_tracing_disabled
-from charms.tempo_k8s.v1.tracing import (
-    TracingProviderAppData as TracingProviderAppDataV1,
-)
-from charms.tempo_k8s.v2.tracing import (
-    TracingProviderAppData as TracingProviderAppDataV2,
-)
-from scenario import Relation, State
-
 from charm import TempoCharm
+from charms.tempo_k8s.v1.charm_tracing import charm_tracing_disabled
+from charms.tempo_k8s.v1.tracing import TracingProviderAppData as TracingProviderAppDataV1
+from charms.tempo_k8s.v2.tracing import TracingProviderAppData as TracingProviderAppDataV2
+from scenario import Container, Relation, State
 
 NO_RECEIVERS = 13
 """Number of supported receivers (incl. deprecated legacy ones)."""
@@ -19,14 +14,19 @@ NO_RECEIVERS_LEGACY = 6
 """Number of supported receivers in legacy v0/v1 tracing."""
 
 
-def test_tracing_v1_endpoint_published(context):
+@pytest.fixture
+def base_state():
+    return State(leader=True, containers=[Container("tempo", can_connect=False)])
+
+
+def test_tracing_v1_endpoint_published(context, base_state):
     tracing = Relation(
         "tracing",
         remote_units_data={
             1: {"egress-subnets": "12", "ingress-address": "12", "private-address": "12"}
         },
     )
-    state = State(leader=True, relations=[tracing])
+    state = base_state.replace(relations=[tracing])
 
     with charm_tracing_disabled():
         with context.manager(tracing.changed_event, state) as mgr:
@@ -38,20 +38,20 @@ def test_tracing_v1_endpoint_published(context):
 
     tracing_out = out.get_relations(tracing.endpoint)[0]
     assert tracing_out.local_app_data == {
-        "ingesters": '[{"protocol": "tempo", "port": 3200}, '
+        "ingesters": '[{"protocol": "tempo", "port": 3201}, '
         '{"protocol": "otlp_grpc", "port": 4317}, '
         '{"protocol": "otlp_http", "port": 4318}, '
         '{"protocol": "zipkin", "port": 9411}, '
-        '{"protocol": "jaeger_http_thrift", "port": 14268}, '
+        '{"protocol": "jaeger_http_thrift", "port": 14269}, '
         '{"protocol": "jaeger_grpc", "port": 14250}]',
         "host": json.dumps(socket.getfqdn()),
     }
 
 
 @pytest.mark.parametrize("evt_name", ("changed", "created", "joined"))
-def test_tracing_v2_endpoint_published(context, evt_name):
+def test_tracing_v2_endpoint_published(context, evt_name, base_state):
     tracing = Relation("tracing", remote_app_data={"receivers": "[]"})
-    state = State(leader=True, relations=[tracing])
+    state = base_state.replace(relations=[tracing])
 
     with charm_tracing_disabled():
         with context.manager(getattr(tracing, f"{evt_name}_event"), state) as mgr:
@@ -66,9 +66,9 @@ def test_tracing_v2_endpoint_published(context, evt_name):
 
 
 @pytest.mark.parametrize("evt_name", ("changed", "created", "joined"))
-def test_tracing_v1_then_v2_endpoint_published(context, evt_name):
+def test_tracing_v1_then_v2_endpoint_published(context, evt_name, base_state):
     tracing = Relation("tracing")
-    state = State(leader=True, relations=[tracing])
+    state = base_state.replace(relations=[tracing])
 
     with charm_tracing_disabled():
         with context.manager(tracing.changed_event, state) as mgr:
@@ -84,7 +84,7 @@ def test_tracing_v1_then_v2_endpoint_published(context, evt_name):
 
     tracing_v2 = Relation("tracing", remote_app_data={"receivers": json.dumps(["tempo_http"])})
     # now it becomes clear the tracing relation is in fact v2
-    state2 = State(leader=True, relations=[tracing_v2])
+    state2 = base_state.replace(relations=[tracing_v2])
 
     with charm_tracing_disabled():
         with context.manager(getattr(tracing_v2, f"{evt_name}_event"), state2) as mgr:
@@ -96,10 +96,10 @@ def test_tracing_v1_then_v2_endpoint_published(context, evt_name):
     assert len(TracingProviderAppDataV2.load(tracing_v2_out.local_app_data).receivers) == 1
 
 
-def test_tracing_v1_and_v2_endpoints_published(context):
+def test_tracing_v1_and_v2_endpoints_published(context, base_state):
     tracing_v1 = Relation("tracing")
     tracing_v2 = Relation("tracing", remote_app_data={"receivers": json.dumps(["tempo_http"])})
-    state = State(leader=True, relations=[tracing_v1, tracing_v2])
+    state = base_state.replace(relations=[tracing_v1, tracing_v2])
 
     with charm_tracing_disabled():
         with context.manager(tracing_v1.changed_event, state) as mgr:
