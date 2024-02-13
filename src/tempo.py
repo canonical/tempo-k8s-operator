@@ -20,7 +20,7 @@ class Tempo:
     """Class representing the Tempo client workload configuration."""
 
     config_path = "/etc/tempo/tempo.yaml"
-    wal_path = "/etc/tempo_wal"
+    wal_path = "/etc/tempo/tempo_wal"
     log_path = "/var/log/tempo.log"
 
     # todo make configurable?
@@ -129,7 +129,7 @@ class Tempo:
                         "backend": "local",
                         "local": {"path": "/traces"},
                         "wal": {
-                            # where to store the the wal locally
+                            # where to store the wal locally
                             "path": self.wal_path
                         },
                         "pool": {
