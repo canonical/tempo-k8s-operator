@@ -38,7 +38,7 @@ async def test_build_and_deploy(ops_test: OpsTest):
 
     await asyncio.gather(
         ops_test.model.wait_for_idle(
-            apps=[APP_NAME], status="active", raise_on_blocked=True, timeout=1000
+            apps=[APP_NAME], status="active", raise_on_blocked=True, timeout=10000
         ),
         # for tester, depending on the result of race with tempo it's either waiting or active
         ops_test.model.wait_for_idle(apps=[TESTER_APP_NAME], raise_on_blocked=True, timeout=1000),

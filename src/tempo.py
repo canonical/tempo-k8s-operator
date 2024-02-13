@@ -3,14 +3,17 @@
 # See LICENSE file for licensing details.
 
 """Tempo workload configuration and client."""
+import logging
 import socket
 from subprocess import CalledProcessError, getoutput
-from typing import Dict, List, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import ops
 import yaml
 from charms.tempo_k8s.v2.tracing import ReceiverProtocol
 from ops.pebble import Layer
+
+logger = logging.getLogger(__name__)
 
 
 class Tempo:
@@ -44,6 +47,7 @@ class Tempo:
         http_port: int = 3200,
         grpc_port: int = 9096,
         local_host: str = "0.0.0.0",
+        enable_receivers: Optional[Sequence[ReceiverProtocol]] = None,
     ):
         self.receiver_ports["tempo_http"] = http_port
         # default grpc listen port is 9095, but that conflicts with promtail.
@@ -52,7 +56,7 @@ class Tempo:
         # ports source: https://github.com/grafana/tempo/blob/main/example/docker-compose/local/docker-compose.yaml
         self._local_hostname = local_host
         self.container = container
-
+        self._enabled_receivers = enable_receivers or []
         self._supported_receivers: Tuple[ReceiverProtocol, ...] = tuple(self.receiver_ports)
 
     @property
@@ -78,7 +82,7 @@ class Tempo:
         return socket.getfqdn()
 
     @property
-    def receivers(self) -> Tuple[ReceiverProtocol, ...]:
+    def supported_receivers(self) -> Tuple[ReceiverProtocol, ...]:
         """All receivers supported by this Tempo client."""
         return self._supported_receivers
 
@@ -167,8 +171,14 @@ class Tempo:
             return False
         return out == "ready"
 
-    def _build_receivers_config(self, receivers: Sequence[ReceiverProtocol]):  # noqa: C901
-        receivers_set = set(receivers)  # convert to set for faster lookup
+    def _build_receivers_config(self, remote_receivers: Sequence[ReceiverProtocol]):  # noqa: C901
+        # remote_receivers: the receivers we have to enable because the requirers we're related to
+        # intend to use them
+        # self._enabled_receivers: receivers we have to enable because *this charm* will use them.
+        receivers_set = set(remote_receivers)
+        receivers_set.update(self._enabled_receivers)
+        if not receivers_set:
+            logger.warning("No receivers set. Tempo will be up but not functional.")
 
         config = {}
 

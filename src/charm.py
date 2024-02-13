@@ -24,6 +24,7 @@ from charms.traefik_k8s.v2.ingress import IngressPerAppRequirer
 from ops.charm import CharmBase, CollectStatusEvent, RelationChangedEvent, WorkloadEvent
 from ops.main import main
 from ops.model import ActiveStatus, MaintenanceStatus, WaitingStatus
+
 from tempo import Tempo
 
 logger = logging.getLogger(__name__)
@@ -51,7 +52,11 @@ class TempoCharm(CharmBase):
         tempo_pebble_ready_event = self.on.tempo_pebble_ready  # type:ignore
         self.framework.observe(tempo_pebble_ready_event, self._on_tempo_pebble_ready)
         self.framework.observe(self.on.update_status, self._on_update_status)
-        self.tempo = tempo = Tempo(self.unit.get_container("tempo"))
+        self.tempo = tempo = Tempo(
+            self.unit.get_container("tempo"),
+            # we need otlp_http receiver for charm_tracing
+            enable_receivers=["otlp_http"],
+        )
 
         # configure this tempo as a datasource in grafana
         self.grafana_source_provider = GrafanaSourceProvider(
@@ -180,7 +185,7 @@ class TempoCharm(CharmBase):
             requested_protocols.update(LEGACY_RECEIVER_PROTOCOLS)
 
         # and publish only those we support
-        requested_receivers = requested_protocols.intersection(set(self.tempo.receivers))
+        requested_receivers = requested_protocols.intersection(set(self.tempo.supported_receivers))
         return tuple(requested_receivers)
 
     def _on_tempo_pebble_ready(self, event: WorkloadEvent):
