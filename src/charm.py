@@ -6,6 +6,7 @@
 
 import logging
 import re
+from datetime import timedelta
 from typing import Optional, Tuple
 
 import charms.tempo_k8s.v1.tracing as tracing_v1
@@ -49,20 +50,15 @@ class TempoCharm(CharmBase):
 
     def __init__(self, *args):
         super().__init__(*args)
-        tempo_pebble_ready_event = self.on.tempo_pebble_ready  # type:ignore
-        self.framework.observe(tempo_pebble_ready_event, self._on_tempo_pebble_ready)
-        self.framework.observe(self.on.update_status, self._on_update_status)
         self.tempo = tempo = Tempo(
             self.unit.get_container("tempo"),
             # we need otlp_http receiver for charm_tracing
             enable_receivers=["otlp_http"],
         )
-
         # configure this tempo as a datasource in grafana
         self.grafana_source_provider = GrafanaSourceProvider(
             self, source_type="tempo", source_port=str(tempo.tempo_port)
         )
-
         # # Patch the juju-created Kubernetes service to contain the right ports
         self._service_patcher = KubernetesServicePatch(self, tempo.get_ports(self.app.name))
         # Provide ability for Tempo to be scraped by Prometheus using prometheus_scrape
@@ -71,27 +67,26 @@ class TempoCharm(CharmBase):
             relation_name="metrics-endpoint",
             jobs=[{"static_configs": [{"targets": [f"*:{tempo.tempo_port}"]}]}],
         )
-
         # Enable log forwarding for Loki and other charms that implement loki_push_api
         self._logging = LogProxyConsumer(
             self, relation_name="logging", log_files=[self.tempo.log_path]
         )
-
         self._grafana_dashboards = GrafanaDashboardProvider(
             self, relation_name="grafana-dashboard"
         )
-
         # Enable profiling over a relation with Parca
         # self._profiling = ProfilingEndpointProvider(
         #     self, jobs=[{"static_configs": [{"targets": ["*:4080"]}]}]
         # )
 
         self._tracing = TracingEndpointProvider(self, host=tempo.host)
+        self._ingress = IngressPerAppRequirer(self, port=self.tempo.tempo_port)
+
+        self.framework.observe(self.on.tempo_pebble_ready, self._on_tempo_pebble_ready)
+        self.framework.observe(self.on.update_status, self._on_update_status)
         self.framework.observe(self._tracing.on.request, self._on_tracing_request)
         self.framework.observe(self.on.tracing_relation_changed, self._on_tracing_relation_changed)
         self.framework.observe(self.on.collect_unit_status, self._on_collect_unit_status)
-
-        self._ingress = IngressPerAppRequirer(self, port=self.tempo.tempo_port)
 
     def _is_legacy_v1_relation(self, relation):
         if self._tracing.is_v2(relation):
@@ -267,7 +262,8 @@ class TempoCharm(CharmBase):
         if not self.tempo.container.can_connect():
             e.add_status(WaitingStatus("Tempo container not ready"))
         if not self.tempo.is_ready():
-            e.add_status(WaitingStatus("Tempo not ready"))
+            e.add_status(ActiveStatus("Tempo not ready just yet... Wait for an update-status."))
+
         e.add_status(ActiveStatus())
 
 
