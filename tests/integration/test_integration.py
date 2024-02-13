@@ -87,4 +87,10 @@ async def test_remove_relation(ops_test: OpsTest):
     # when relation is removed
     # then both charms should become active again
     await ops_test.juju("remove-relation", APP_NAME + ":tracing", TESTER_APP_NAME + ":tracing-v2")
-    await ops_test.model.wait_for_idle([APP_NAME, TESTER_APP_NAME], status="active")
+    await asyncio.gather(
+        ops_test.model.wait_for_idle(
+            apps=[APP_NAME], status="active", raise_on_blocked=True, timeout=1000
+        ),
+        # for tester, depending on the result of race with tempo it's either waiting or active
+        ops_test.model.wait_for_idle(apps=[TESTER_APP_NAME], raise_on_blocked=True, timeout=1000),
+    )
