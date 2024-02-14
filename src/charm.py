@@ -8,10 +8,6 @@ import logging
 import re
 from typing import Optional, Tuple
 
-from ops.charm import CharmBase, CollectStatusEvent, WorkloadEvent, RelationEvent
-from ops.main import main
-from ops.model import ActiveStatus, MaintenanceStatus, WaitingStatus, Relation
-
 import charms.tempo_k8s.v1.tracing as tracing_v1
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
 from charms.grafana_k8s.v0.grafana_source import GrafanaSourceProvider
@@ -25,6 +21,10 @@ from charms.tempo_k8s.v2.tracing import (
     TracingEndpointProvider,
 )
 from charms.traefik_k8s.v2.ingress import IngressPerAppRequirer
+from ops.charm import CharmBase, CollectStatusEvent, RelationEvent, WorkloadEvent
+from ops.main import main
+from ops.model import ActiveStatus, MaintenanceStatus, Relation, WaitingStatus
+
 from tempo import Tempo
 
 logger = logging.getLogger(__name__)
@@ -96,7 +96,7 @@ class TempoCharm(CharmBase):
         juju_keys = {"egress-subnets", "ingress-address", "private-address"}
         # v1 relations are expected to have no data at all (excluding juju keys)
         if relation.data[relation.app] or any(
-                set(relation.data[u]).difference(juju_keys) for u in relation.units
+            set(relation.data[u]).difference(juju_keys) for u in relation.units
         ):
             return False
 
