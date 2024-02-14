@@ -6,7 +6,6 @@
 
 import logging
 import re
-from datetime import timedelta
 from typing import Optional, Tuple
 
 import charms.tempo_k8s.v1.tracing as tracing_v1
@@ -22,10 +21,9 @@ from charms.tempo_k8s.v2.tracing import (
     TracingEndpointProvider,
 )
 from charms.traefik_k8s.v2.ingress import IngressPerAppRequirer
-from ops.charm import CharmBase, CollectStatusEvent, RelationChangedEvent, WorkloadEvent
+from ops.charm import CharmBase, CollectStatusEvent, RelationEvent, WorkloadEvent
 from ops.main import main
-from ops.model import ActiveStatus, MaintenanceStatus, WaitingStatus
-
+from ops.model import ActiveStatus, MaintenanceStatus, Relation, WaitingStatus
 from tempo import Tempo
 
 logger = logging.getLogger(__name__)
@@ -85,6 +83,8 @@ class TempoCharm(CharmBase):
         self.framework.observe(self.on.tempo_pebble_ready, self._on_tempo_pebble_ready)
         self.framework.observe(self.on.update_status, self._on_update_status)
         self.framework.observe(self._tracing.on.request, self._on_tracing_request)
+        self.framework.observe(self.on.tracing_relation_created, self._on_tracing_relation_created)
+        self.framework.observe(self.on.tracing_relation_joined, self._on_tracing_relation_joined)
         self.framework.observe(self.on.tracing_relation_changed, self._on_tracing_relation_changed)
         self.framework.observe(self.on.collect_unit_status, self._on_collect_unit_status)
 
@@ -111,12 +111,19 @@ class TempoCharm(CharmBase):
         logger.debug(f"received tracing request from {e.relation.app}: {e.requested_receivers}")
         self._update_tracing_relations()
 
-    def _on_tracing_relation_changed(self, e: RelationChangedEvent):
-        # we have a relation-changed event; it might be caught by the v2 requirer
-        # wrapper and turned into a `request` event, but also maybe not.
-        # if the remote is v1, it will expect a
-        relation = e.relation
+    def _on_tracing_relation_created(self, e: RelationEvent):
+        return self._update_tracing_relation(e.relation)
 
+    def _on_tracing_relation_joined(self, e: RelationEvent):
+        return self._update_tracing_relation(e.relation)
+
+    def _on_tracing_relation_changed(self, e: RelationEvent):
+        return self._update_tracing_relation(e.relation)
+
+    def _update_tracing_relation(self, relation: Relation):
+        # we have a relation event; it might be caught by the v2 requirer
+        # wrapper and turned into a `request` event, but also maybe not because
+        # the remote isn't talking v2
         if self._tracing.is_v2(relation):
             # we will handle this as self._tracing.on.request on a different path
             return
