@@ -6,7 +6,6 @@ import logging
 from pathlib import Path
 from typing import List, Optional
 
-from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
 from charms.tempo_k8s.v1.charm_tracing import trace_charm
 from charms.tempo_k8s.v1.tracing import (
     TracingEndpointRequirer as TracingEndpointRequirerV1,
@@ -43,7 +42,6 @@ class TempoTesterCharm(CharmBase):
 
         self.container: Container = self.unit.get_container(self._container_name)
 
-        self.metrics = MetricsEndpointProvider(self)
         self.tracing_v1 = TracingEndpointRequirerV1(self, relation_name="tracing-v1")
         self.tracing_v2 = TracingEndpointRequirerV2(
             self, relation_name="tracing-v2", protocols=["otlp_http"]
