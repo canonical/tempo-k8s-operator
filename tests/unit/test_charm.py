@@ -1,5 +1,4 @@
 import pytest
-
 from tempo import Tempo
 
 
