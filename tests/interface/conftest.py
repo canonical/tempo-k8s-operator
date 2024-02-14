@@ -3,12 +3,11 @@
 from unittest.mock import patch
 
 import pytest
+from charm import TempoCharm
 from charms.tempo_k8s.v1.charm_tracing import charm_tracing_disabled
 from interface_tester import InterfaceTester
 from ops.pebble import Layer
 from scenario.state import Container, State
-
-from charm import TempoCharm
 
 
 # Interface tests are centrally hosted at https://github.com/canonical/charm-relation-interfaces.
@@ -22,7 +21,6 @@ def interface_tester(interface_tester: InterfaceTester):
     with patch("charm.KubernetesServicePatch"):
         with charm_tracing_disabled():
             interface_tester.configure(
-                branch="tracing-v2",  # todo remove when CRI:tracing-v2 is merged
                 charm_type=TempoCharm,
                 state_template=State(
                     leader=True,
