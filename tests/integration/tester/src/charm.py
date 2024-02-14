@@ -6,9 +6,13 @@ import logging
 from pathlib import Path
 from typing import List, Optional
 
-from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
 from charms.tempo_k8s.v1.charm_tracing import trace_charm
-from charms.tempo_k8s.v1.tracing import TracingEndpointRequirer
+from charms.tempo_k8s.v1.tracing import (
+    TracingEndpointRequirer as TracingEndpointRequirerV1,
+)
+from charms.tempo_k8s.v2.tracing import (
+    TracingEndpointRequirer as TracingEndpointRequirerV2,
+)
 from ops.charm import CharmBase, PebbleReadyEvent
 from ops.main import main
 from ops.model import (
@@ -38,15 +42,19 @@ class TempoTesterCharm(CharmBase):
 
         self.container: Container = self.unit.get_container(self._container_name)
 
-        self.metrics = MetricsEndpointProvider(self)
-        self.tracing = TracingEndpointRequirer(self)
+        self.tracing_v1 = TracingEndpointRequirerV1(self, relation_name="tracing-v1")
+        self.tracing_v2 = TracingEndpointRequirerV2(
+            self, relation_name="tracing-v2", protocols=["otlp_http"]
+        )
+
         # Core lifecycle events
         self.framework.observe(self.on.config_changed, self._update)
 
         # Peer relation events
         self.framework.observe(self.on[self._peer_relation_name].relation_joined, self._update)
         self.framework.observe(self.on[self._peer_relation_name].relation_changed, self._update)
-        self.framework.observe(self.tracing.on.endpoint_changed, self._update)
+        self.framework.observe(self.tracing_v1.on.endpoint_changed, self._update)
+        self.framework.observe(self.tracing_v2.on.endpoint_changed, self._update)
 
     @property
     def peers(self) -> List[str]:
@@ -98,7 +106,7 @@ class TempoTesterCharm(CharmBase):
             "PORT": self.config["port"],
             "HOST": self.config["host"],
             "APP_NAME": self.app.name,
-            "TEMPO_ENDPOINT": str(self.tracing.otlp_http_endpoint or ""),
+            "TEMPO_ENDPOINT": str(self.tracing_v1.otlp_http_endpoint or ""),
         }
         logging.info(f"Initing pebble layer with env: {str(env)}")
 
@@ -219,7 +227,7 @@ class TempoTesterCharm(CharmBase):
             self.unit.status = MaintenanceStatus("waiting for IP address...")
             return
 
-        if not self.tracing.is_ready():
+        if not (self.tracing_v1.is_ready() or self.tracing_v2.is_ready()):
             self.unit.status = WaitingStatus("waiting for tracing to be ready...")
             return
 
@@ -255,8 +263,15 @@ class TempoTesterCharm(CharmBase):
 
     def tempo_otlp_http_endpoint(self) -> Optional[str]:
         """Endpoint at which the charm tracing information will be forwarded."""
-        if self.tracing.is_ready():
-            return self.tracing.otlp_http_endpoint()
+        tracing_v1_ready = self.tracing_v1.is_ready()
+        tracing_v2_ready = self.tracing_v2.is_ready()
+
+        if tracing_v1_ready and tracing_v2_ready:
+            raise ValueError("cannot relate tracing v1 and v2 simultaneously")
+        elif tracing_v1_ready:
+            return self.tracing_v1.otlp_http_endpoint()
+        elif tracing_v2_ready:
+            return self.tracing_v2.get_endpoint("otlp_http")
         else:
             return None
 

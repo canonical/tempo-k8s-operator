@@ -1,3 +1,5 @@
+"""Integration tests for tracing v0/v1."""
+
 import asyncio
 import logging
 from pathlib import Path
@@ -56,7 +58,7 @@ async def test_relate(ops_test: OpsTest):
     # given a deployed charm
     # when relating it together with the tester
     # then relation should appear
-    await ops_test.model.add_relation(APP_NAME + ":tracing", TESTER_APP_NAME + ":tracing-v2")
+    await ops_test.model.add_relation(APP_NAME + ":tracing", TESTER_APP_NAME + ":tracing-v1")
     await ops_test.model.wait_for_idle(
         apps=[APP_NAME, TESTER_APP_NAME],
         status="active",
@@ -92,7 +94,7 @@ async def test_remove_relation(ops_test: OpsTest):
     # given related charms
     # when relation is removed
     # then both charms should become active again
-    await ops_test.juju("remove-relation", APP_NAME + ":tracing", TESTER_APP_NAME + ":tracing-v2")
+    await ops_test.juju("remove-relation", APP_NAME + ":tracing", TESTER_APP_NAME + ":tracing-v1")
     await asyncio.gather(
         ops_test.model.wait_for_idle(
             apps=[APP_NAME], status="active", raise_on_blocked=True, timeout=1000

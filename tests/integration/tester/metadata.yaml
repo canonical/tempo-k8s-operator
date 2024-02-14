@@ -17,13 +17,11 @@ resources:
     # Included for simplicity in integration tests
     upstream-source: python:slim-buster
 
-provides:
-  metrics-endpoint:
-    interface: prometheus_scrape
-    limit: 1
-
 requires:
-  tracing:
+  tracing-v1:
+    interface: tracing
+    limit: 1
+  tracing-v2:
     interface: tracing
     limit: 1
 

@@ -3,9 +3,10 @@ import socket
 
 import pytest
 from charms.tempo_k8s.v1.charm_tracing import charm_tracing_disabled
-from charms.tempo_k8s.v1.tracing import (
+from charms.tempo_k8s.v2.tracing import (
     EndpointChangedEvent,
     EndpointRemovedEvent,
+    ProtocolNotRequestedError,
     TracingEndpointRequirer,
 )
 from ops import CharmBase, Framework, RelationBrokenEvent, RelationChangedEvent
@@ -15,7 +16,7 @@ from scenario import Context, Relation, State
 class MyCharm(CharmBase):
     def __init__(self, framework: Framework):
         super().__init__(framework)
-        self.tracing = TracingEndpointRequirer(self)
+        self.tracing = TracingEndpointRequirer(self, protocols=["otlp_grpc"])
         framework.observe(self.tracing.on.endpoint_changed, self._on_endpoint_changed)
 
     def _on_endpoint_changed(self, e):
@@ -35,7 +36,7 @@ def test_requirer_api(context):
     tracing = Relation(
         "tracing",
         remote_app_data={
-            "ingesters": '[{"protocol": "tempo", "port": 3200}, '
+            "receivers": '[{"protocol": "tempo", "port": 3200}, '
             '{"protocol": "otlp_grpc", "port": 4317}, '
             '{"protocol": "otlp_http", "port": 4318}, '
             '{"protocol": "zipkin", "port": 9411}]',
@@ -57,7 +58,7 @@ def test_requirer_api(context):
     rchanged, epchanged = context.emitted_events
     assert isinstance(epchanged, EndpointChangedEvent)
     assert epchanged.host == host
-    assert epchanged.ingesters[0].protocol == "tempo"
+    assert epchanged.receivers[0].protocol == "tempo"
     assert epchanged.host == host
 
 
@@ -115,3 +116,25 @@ def test_broken(context):
     rchanged, ebroken = emitted_events
     assert isinstance(rchanged, RelationBrokenEvent)
     assert isinstance(ebroken, EndpointRemovedEvent)
+
+
+def test_requested_not_yet_replied(context):
+    tracing = Relation("tracing")
+    state = State(leader=True, relations=[tracing])
+
+    with charm_tracing_disabled():
+        with context.manager(tracing.created_event, state) as mgr:
+            charm = mgr.charm
+            charm.tracing.request_protocols(["otlp_http"])
+            charm.tracing.get_endpoint("otlp_http")
+
+
+def test_not_requested_raises(context):
+    tracing = Relation("tracing")
+    state = State(leader=True, relations=[tracing])
+
+    with charm_tracing_disabled():
+        with context.manager(tracing.created_event, state) as mgr:
+            charm = mgr.charm
+            with pytest.raises(ProtocolNotRequestedError):
+                charm.tracing.get_endpoint("otlp_http")

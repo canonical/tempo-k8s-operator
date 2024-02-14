@@ -6,3 +6,8 @@ build/
 __pycache__/
 *.py[cod]
 *.egg-info
+
+# charmcraft pack build leftovers
+**/parts/
+**/prime/
+**/stage/

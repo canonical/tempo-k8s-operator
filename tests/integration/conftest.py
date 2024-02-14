@@ -30,13 +30,24 @@ def tempo_oci_image(ops_test: OpsTest, tempo_metadata):
 
 
 @fixture(scope="module", autouse=True)
-def copy_tempo_library_into_tester_charm(ops_test):
+def copy_charm_libs_into_tester_charm(ops_test):
     """Ensure the tester charm has the libraries it uses."""
     libraries = [
         "tempo_k8s/v1/charm_tracing.py",
         "tempo_k8s/v1/tracing.py",
+        "tempo_k8s/v2/tracing.py",
     ]
+
+    copies = []
+
     for lib in libraries:
         install_path = f"tests/integration/tester/lib/charms/{lib}"
         os.makedirs(os.path.dirname(install_path), exist_ok=True)
         shutil.copyfile(f"lib/charms/{lib}", install_path)
+        copies.append(install_path)
+
+    yield
+
+    # cleanup: remove all libs
+    for path in copies:
+        Path(path).unlink()
