@@ -263,7 +263,7 @@ class TempoCharm(CharmBase):
         # the charm container and the tempo workload container have apparently the same
         # IP, so we can talk to tempo at localhost.
         # TODO switch to HTTPS once SSL support is added
-        if self._tracing.is_ready():
+        if self.tempo.is_ready():
             return f"http://localhost:{self.tempo.receiver_ports['otlp_http']}"
         else:
             return None
