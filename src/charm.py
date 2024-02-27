@@ -265,8 +265,8 @@ class TempoCharm(CharmBase):
         # TODO switch to HTTPS once SSL support is added
         if self.tempo.is_ready():
             return f"http://localhost:{self.tempo.receiver_ports['otlp_http']}"
-        else:
-            return None
+
+        return None
 
     def _on_collect_unit_status(self, e: CollectStatusEvent):
         if not self.tempo.container.can_connect():
