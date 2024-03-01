@@ -2,7 +2,7 @@ To manually test and develop tempo:
 
     charmcraft pack 
     charmcraft pack -p ./tests/integration/tester/ 
-    j deploy ./tempo-k8s_ubuntu-22.04-amd64.charm tempo --resource tempo-image=grafana/tempo:1.5.0
+    j deploy ./tempo-k8s_ubuntu-22.04-amd64.charm tempo --resource tempo-image=grafana/tempo:2.4.0
 
 you need to always deploy at least 2 units of tester:
 

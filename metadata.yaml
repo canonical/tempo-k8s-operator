@@ -20,7 +20,7 @@ resources:
     description: OCI image for Tempo
     # Included for simplicity in integration tests
     # see https://hub.docker.com/r/grafana/tempo/tags
-    upstream-source: grafana/tempo:1.5.0
+    upstream-source: grafana/tempo:2.4.0
 
 provides:
   profiling-endpoint:
