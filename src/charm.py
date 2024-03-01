@@ -157,7 +157,7 @@ class TempoCharm(CharmBase):
         requested_receivers = self._requested_receivers()
         # publish requested protocols to all v2 relations
         self._tracing.publish_receivers(
-            ((p, self.tempo.receiver_ports[p]) for p in requested_receivers)
+            [(p, self.tempo.receiver_ports[p]) for p in requested_receivers]
         )
 
         # if the receivers have changed, we need to reconfigure tempo
