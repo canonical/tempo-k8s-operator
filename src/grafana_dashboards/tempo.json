@@ -1454,6 +1454,496 @@
       ],
       "title": "Blocklist Poll Duration",
       "type": "timeseries"
+    },
+    {
+     "collapsed": false,
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${prometheusds}"
+     },
+     "gridPos": {
+      "h": 1,
+      "w": 24,
+      "x": 0,
+      "y": 43
+     },
+     "id": 38,
+     "panels": [
+
+     ],
+     "title": "General",
+     "type": "row"
+    },
+    {
+     "datasource": {
+      "uid": "${prometheusds}"
+     },
+     "fieldConfig": {
+      "defaults": {
+       "color": {
+        "mode": "palette-classic"
+       },
+       "custom": {
+        "axisCenteredZero": false,
+        "axisColorMode": "text",
+        "axisLabel": "",
+        "axisPlacement": "auto",
+        "barAlignment": 0,
+        "drawStyle": "line",
+        "fillOpacity": 0,
+        "gradientMode": "none",
+        "hideFrom": {
+         "legend": false,
+         "tooltip": false,
+         "viz": false
+        },
+        "insertNulls": false,
+        "lineInterpolation": "linear",
+        "lineWidth": 1,
+        "pointSize": 5,
+        "scaleDistribution": {
+         "type": "linear"
+        },
+        "showPoints": "never",
+        "spanNulls": true,
+        "stacking": {
+         "group": "A",
+         "mode": "none"
+        },
+        "thresholdsStyle": {
+         "mode": "off"
+        }
+       },
+       "mappings": [
+
+       ],
+       "thresholds": {
+        "mode": "absolute",
+        "steps": [
+         {
+          "color": "green",
+          "value": null
+         },
+         {
+          "color": "red",
+          "value": 80
+         }
+        ]
+       },
+       "unit": "short"
+      },
+      "overrides": [
+
+      ]
+     },
+     "gridPos": {
+      "h": 5,
+      "w": 3,
+      "x": 0,
+      "y": 44
+     },
+     "id": 24,
+     "options": {
+      "legend": {
+       "calcs": [
+
+       ],
+       "displayMode": "list",
+       "placement": "bottom",
+       "showLegend": false
+      },
+      "tooltip": {
+       "mode": "multi",
+       "sort": "desc"
+      }
+     },
+     "pluginVersion": "9.0.0-d373beebpre",
+     "targets": [
+      {
+       "expr": "rate(go_gc_duration_seconds_count{juju_application=~\"$juju_application\",juju_model=~\"$juju_model\",juju_model_uuid=~\"$juju_model_uuid\",juju_unit=~\"$juju_unit\"}[$__rate_interval])",
+       "interval": "",
+       "legendFormat": "{{pod}}",
+       "refId": "A"
+      }
+     ],
+     "title": "gcs",
+     "type": "timeseries"
+    },
+    {
+     "datasource": {
+      "uid": "${prometheusds}"
+     },
+     "fieldConfig": {
+      "defaults": {
+       "color": {
+        "mode": "palette-classic"
+       },
+       "custom": {
+        "axisCenteredZero": false,
+        "axisColorMode": "text",
+        "axisLabel": "",
+        "axisPlacement": "auto",
+        "barAlignment": 0,
+        "drawStyle": "line",
+        "fillOpacity": 0,
+        "gradientMode": "none",
+        "hideFrom": {
+         "legend": false,
+         "tooltip": false,
+         "viz": false
+        },
+        "insertNulls": false,
+        "lineInterpolation": "linear",
+        "lineWidth": 1,
+        "pointSize": 5,
+        "scaleDistribution": {
+         "type": "linear"
+        },
+        "showPoints": "never",
+        "spanNulls": true,
+        "stacking": {
+         "group": "A",
+         "mode": "none"
+        },
+        "thresholdsStyle": {
+         "mode": "off"
+        }
+       },
+       "mappings": [
+
+       ],
+       "thresholds": {
+        "mode": "absolute",
+        "steps": [
+         {
+          "color": "green",
+          "value": null
+         },
+         {
+          "color": "red",
+          "value": 80
+         }
+        ]
+       },
+       "unit": "decbytes"
+      },
+      "overrides": [
+
+      ]
+     },
+     "gridPos": {
+      "h": 5,
+      "w": 3,
+      "x": 3,
+      "y": 44
+     },
+     "id": 25,
+     "options": {
+      "legend": {
+       "calcs": [
+
+       ],
+       "displayMode": "list",
+       "placement": "bottom",
+       "showLegend": false
+      },
+      "tooltip": {
+       "mode": "multi",
+       "sort": "desc"
+      }
+     },
+     "pluginVersion": "9.0.0-d373beebpre",
+     "targets": [
+      {
+       "expr": "go_memstats_heap_inuse_bytes{juju_application=~\"$juju_application\",juju_model=~\"$juju_model\",juju_model_uuid=~\"$juju_model_uuid\",juju_unit=~\"$juju_unit\"}",
+       "interval": "",
+       "legendFormat": "{{pod}}",
+       "refId": "A"
+      }
+     ],
+     "title": "go heap",
+     "type": "timeseries"
+    },
+    {
+     "datasource": {
+      "uid": "${prometheusds}"
+     },
+     "fieldConfig": {
+      "defaults": {
+       "color": {
+        "mode": "palette-classic"
+       },
+       "custom": {
+        "axisCenteredZero": false,
+        "axisColorMode": "text",
+        "axisLabel": "",
+        "axisPlacement": "auto",
+        "barAlignment": 0,
+        "drawStyle": "line",
+        "fillOpacity": 0,
+        "gradientMode": "none",
+        "hideFrom": {
+         "legend": false,
+         "tooltip": false,
+         "viz": false
+        },
+        "insertNulls": false,
+        "lineInterpolation": "linear",
+        "lineWidth": 1,
+        "pointSize": 5,
+        "scaleDistribution": {
+         "type": "linear"
+        },
+        "showPoints": "never",
+        "spanNulls": true,
+        "stacking": {
+         "group": "A",
+         "mode": "none"
+        },
+        "thresholdsStyle": {
+         "mode": "off"
+        }
+       },
+       "mappings": [
+
+       ],
+       "thresholds": {
+        "mode": "absolute",
+        "steps": [
+         {
+          "color": "green",
+          "value": null
+         },
+         {
+          "color": "red",
+          "value": 80
+         }
+        ]
+       },
+       "unit": "short"
+      },
+      "overrides": [
+
+      ]
+     },
+     "gridPos": {
+      "h": 5,
+      "w": 3,
+      "x": 6,
+      "y": 44
+     },
+     "id": 23,
+     "options": {
+      "legend": {
+       "calcs": [
+
+       ],
+       "displayMode": "list",
+       "placement": "bottom",
+       "showLegend": false
+      },
+      "tooltip": {
+       "mode": "multi",
+       "sort": "none"
+      }
+     },
+     "pluginVersion": "9.0.0-d373beebpre",
+     "targets": [
+      {
+       "expr": "go_goroutines{juju_application=~\"$juju_application\",juju_model=~\"$juju_model\",juju_model_uuid=~\"$juju_model_uuid\",juju_unit=~\"$juju_unit\"}",
+       "legendFormat": "{{pod}}",
+       "refId": "A"
+      }
+     ],
+     "title": "goroutines",
+     "type": "timeseries"
+    },
+    {
+     "datasource": {
+      "uid": "${prometheusds}"
+     },
+     "fieldConfig": {
+      "defaults": {
+       "color": {
+        "mode": "continuous-BlYlRd"
+       },
+       "custom": {
+        "axisCenteredZero": false,
+        "axisColorMode": "text",
+        "axisLabel": "",
+        "axisPlacement": "auto",
+        "barAlignment": 0,
+        "drawStyle": "line",
+        "fillOpacity": 0,
+        "gradientMode": "none",
+        "hideFrom": {
+         "legend": false,
+         "tooltip": false,
+         "viz": false
+        },
+        "insertNulls": false,
+        "lineInterpolation": "linear",
+        "lineWidth": 1,
+        "pointSize": 5,
+        "scaleDistribution": {
+         "type": "linear"
+        },
+        "showPoints": "never",
+        "spanNulls": true,
+        "stacking": {
+         "group": "A",
+         "mode": "none"
+        },
+        "thresholdsStyle": {
+         "mode": "off"
+        }
+       },
+       "mappings": [
+
+       ],
+       "thresholds": {
+        "mode": "absolute",
+        "steps": [
+         {
+          "color": "green",
+          "value": null
+         }
+        ]
+       },
+       "unit": "short"
+      },
+      "overrides": [
+
+      ]
+     },
+     "gridPos": {
+      "h": 5,
+      "w": 3,
+      "x": 9,
+      "y": 44
+     },
+     "id": 42,
+     "options": {
+      "legend": {
+       "calcs": [
+
+       ],
+       "displayMode": "list",
+       "placement": "bottom",
+       "showLegend": false
+      },
+      "tooltip": {
+       "mode": "multi",
+       "sort": "desc"
+      }
+     },
+     "pluginVersion": "9.0.0-d373beebpre",
+     "targets": [
+      {
+       "expr": "rate(process_cpu_seconds_total{juju_application=~\"$juju_application\",juju_model=~\"$juju_model\",juju_model_uuid=~\"$juju_model_uuid\",juju_unit=~\"$juju_unit\"}[5m])",
+       "interval": "",
+       "intervalFactor": 5,
+       "legendFormat": "{{pod}}",
+       "refId": "A"
+      }
+     ],
+     "title": "cpu",
+     "type": "timeseries"
+    },
+    {
+     "datasource": {
+      "uid": "${prometheusds}"
+     },
+     "fieldConfig": {
+      "defaults": {
+       "color": {
+        "mode": "palette-classic"
+       },
+       "custom": {
+        "axisCenteredZero": false,
+        "axisColorMode": "text",
+        "axisLabel": "",
+        "axisPlacement": "auto",
+        "barAlignment": 0,
+        "drawStyle": "line",
+        "fillOpacity": 0,
+        "gradientMode": "none",
+        "hideFrom": {
+         "legend": false,
+         "tooltip": false,
+         "viz": false
+        },
+        "insertNulls": false,
+        "lineInterpolation": "linear",
+        "lineWidth": 1,
+        "pointSize": 5,
+        "scaleDistribution": {
+         "type": "linear"
+        },
+        "showPoints": "never",
+        "spanNulls": true,
+        "stacking": {
+         "group": "A",
+         "mode": "none"
+        },
+        "thresholdsStyle": {
+         "mode": "off"
+        }
+       },
+       "mappings": [
+
+       ],
+       "thresholds": {
+        "mode": "absolute",
+        "steps": [
+         {
+          "color": "green",
+          "value": null
+         },
+         {
+          "color": "red",
+          "value": 80
+         }
+        ]
+       },
+       "unit": "decbytes"
+      },
+      "overrides": [
+
+      ]
+     },
+     "gridPos": {
+      "h": 5,
+      "w": 3,
+      "x": 12,
+      "y": 44
+     },
+     "id": 43,
+     "options": {
+      "legend": {
+       "calcs": [
+
+       ],
+       "displayMode": "list",
+       "placement": "bottom",
+       "showLegend": false
+      },
+      "tooltip": {
+       "mode": "multi",
+       "sort": "desc"
+      }
+     },
+     "pluginVersion": "9.0.0-d373beebpre",
+     "targets": [
+      {
+       "expr": "process_resident_memory_bytes{juju_application=~\"$juju_application\",juju_model=~\"$juju_model\",juju_model_uuid=~\"$juju_model_uuid\",juju_unit=~\"$juju_unit\"}",
+       "interval": "",
+       "legendFormat": "{{pod}}",
+       "refId": "A"
+      }
+     ],
+     "title": "resident memory",
+     "type": "timeseries"
     }
   ],
   "refresh": false,
