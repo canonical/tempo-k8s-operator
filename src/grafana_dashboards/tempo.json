@@ -40,11 +40,396 @@
   "liveNow": false,
   "panels": [
     {
+      "collapsed": true,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${prometheusds}"
+      },
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
         "y": 0
+      },
+      "id": 312,
+      "panels": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prometheusds}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "drawStyle": "line",
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "never",
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "normal"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 3,
+            "x": 0,
+            "y": 0
+          },
+          "id": 10,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": false
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${prometheusds}"
+              },
+              "editorMode": "code",
+              "expr": "tempo_ingester_traces_created_total{juju_application=~\"$juju_application\",juju_model=~\"$juju_model\",juju_model_uuid=~\"$juju_model_uuid\",juju_unit=~\"$juju_unit\"}",
+              "interval": "",
+              "legendFormat": "{{pod}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "Traces count",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prometheusds}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "never",
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "normal"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 3,
+            "x": 3,
+            "y": 0
+          },
+          "id": 9,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": false
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${prometheusds}"
+              },
+              "editorMode": "builder",
+              "expr": "tempo_receiver_accepted_spans{juju_application=~\"$juju_application\",juju_model=~\"$juju_model\",juju_model_uuid=~\"$juju_model_uuid\",juju_unit=~\"$juju_unit\"}",
+              "interval": "",
+              "legendFormat": "",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "Spans count",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "uid": "${prometheusds}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "never",
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 3,
+            "x": 6,
+            "y": 0
+          },
+          "id": 8,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": false
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            }
+          },
+          "targets": [
+            {
+              "expr": "tempo_ingester_flush_size_bytes_sum{juju_application=~\"$juju_application\",juju_model=~\"$juju_model\",juju_model_uuid=~\"$juju_model_uuid\",juju_unit=~\"$juju_unit\"}",
+              "interval": "",
+              "legendFormat": "{{pod}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Storage use",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "uid": "${prometheusds}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "never",
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 15,
+            "x": 9,
+            "y": 0
+          },
+          "id": 26,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": false
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "9.0.0-d452322apre",
+          "targets": [
+            {
+              "expr": "sum(increase(tempo_ingester_blocks_cleared_total{juju_application=~\"$juju_application\",juju_model=~\"$juju_model\",juju_model_uuid=~\"$juju_model_uuid\",juju_unit=~\"$juju_unit\"}[1h]))",
+              "interval": "",
+              "legendFormat": "",
+              "refId": "A"
+            }
+          ],
+          "title": "Biggest services",
+          "type": "timeseries"
+        }
+      ],
+      "title": "Overview",
+      "type": "row"
+    },
+    {
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 6
       },
       "id": 134,
       "title": "General",
@@ -111,7 +496,7 @@
         "h": 8,
         "w": 16,
         "x": 0,
-        "y": 1
+        "y": 7
       },
       "id": 132,
       "options": {
@@ -204,7 +589,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 1
+        "y": 7
       },
       "id": 130,
       "options": {
@@ -325,7 +710,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 9
+        "y": 15
       },
       "id": 136,
       "options": {
@@ -429,7 +814,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 9
+        "y": 15
       },
       "id": 117,
       "options": {
@@ -522,7 +907,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 9
+        "y": 15
       },
       "id": 139,
       "options": {
@@ -586,7 +971,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 17
+        "y": 23
       },
       "id": 129,
       "title": "Network",
@@ -654,7 +1039,7 @@
         "h": 8,
         "w": 18,
         "x": 0,
-        "y": 18
+        "y": 24
       },
       "id": 78,
       "options": {
@@ -775,7 +1160,7 @@
         "h": 8,
         "w": 6,
         "x": 18,
-        "y": 18
+        "y": 24
       },
       "id": 119,
       "options": {
@@ -813,7 +1198,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 26
+        "y": 32
       },
       "id": 123,
       "title": "Backend",
@@ -880,7 +1265,7 @@
         "h": 8,
         "w": 18,
         "x": 0,
-        "y": 27
+        "y": 33
       },
       "id": 121,
       "options": {
@@ -975,7 +1360,7 @@
         "h": 8,
         "w": 6,
         "x": 18,
-        "y": 27
+        "y": 33
       },
       "id": 51,
       "options": {
@@ -1097,7 +1482,7 @@
         "h": 8,
         "w": 6,
         "x": 0,
-        "y": 35
+        "y": 41
       },
       "id": 125,
       "options": {
@@ -1192,7 +1577,7 @@
         "h": 8,
         "w": 6,
         "x": 6,
-        "y": 35
+        "y": 41
       },
       "id": 127,
       "options": {
@@ -1287,7 +1672,7 @@
         "h": 8,
         "w": 6,
         "x": 12,
-        "y": 35
+        "y": 41
       },
       "id": 53,
       "options": {
@@ -1396,7 +1781,7 @@
         "h": 8,
         "w": 6,
         "x": 18,
-        "y": 35
+        "y": 41
       },
       "id": 35,
       "options": {
@@ -1465,7 +1850,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 43
+        "y": 49
       },
       "id": 38,
       "panels": [],
@@ -1534,7 +1919,7 @@
         "h": 5,
         "w": 6,
         "x": 0,
-        "y": 44
+        "y": 50
       },
       "id": 24,
       "options": {
@@ -1623,7 +2008,7 @@
         "h": 5,
         "w": 6,
         "x": 6,
-        "y": 44
+        "y": 50
       },
       "id": 25,
       "options": {
@@ -1712,7 +2097,7 @@
         "h": 5,
         "w": 6,
         "x": 12,
-        "y": 44
+        "y": 50
       },
       "id": 23,
       "options": {
@@ -1800,7 +2185,7 @@
         "h": 5,
         "w": 6,
         "x": 18,
-        "y": 44
+        "y": 50
       },
       "id": 43,
       "options": {
@@ -1837,7 +2222,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 49
+        "y": 55
       },
       "id": 49,
       "panels": [
@@ -2223,7 +2608,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 50
+        "y": 56
       },
       "id": 19,
       "panels": [
@@ -2908,7 +3293,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 55
+        "y": 61
       },
       "id": 81,
       "panels": [
@@ -3299,7 +3684,7 @@
     ]
   },
   "timezone": "",
-  "title": "Tempo Operational",
+  "title": "Tempo Overview",
   "uid": "a6175b9cc7ec20591890117c39580030",
   "version": 1,
   "weekStart": ""
