@@ -40,7 +40,7 @@
   "liveNow": false,
   "panels": [
     {
-      "collapsed": true,
+      "collapsed": false,
       "datasource": {
         "type": "prometheus",
         "uid": "${prometheusds}"
@@ -53,6 +53,66 @@
       },
       "id": 312,
       "panels": [
+        {
+          "datasource": {
+            "uid": "${prometheusds}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "decimals": 4,
+              "links": [],
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 3,
+            "x": 0,
+            "y": 1
+          },
+          "id": 59,
+          "interval": "",
+          "options": {
+            "reduceOptions": {
+              "values": false,
+              "calcs": [
+                "last"
+              ],
+              "fields": "/^version$/"
+            },
+            "orientation": "auto",
+            "textMode": "auto",
+            "colorMode": "background",
+            "graphMode": "none",
+            "justifyMode": "center"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "uid": "${prometheusds}"
+              },
+              "expr": "tempo_build_info{juju_application=~\"$juju_application\",juju_model=~\"$juju_model\",juju_model_uuid=~\"$juju_model_uuid\",juju_unit=~\"$juju_unit\"}",
+              "format": "table",
+              "instant": false,
+              "interval": "",
+              "legendFormat": "",
+              "refId": "A"
+            }
+          ],
+          "title": "Tempo Version",
+          "type": "stat"
+        },
         {
           "datasource": {
             "type": "prometheus",
@@ -114,11 +174,11 @@
           },
           "gridPos": {
             "h": 5,
-            "w": 3,
-            "x": 0,
+            "w": 7,
+            "x": 3,
             "y": 0
           },
-          "id": 10,
+          "id": 321,
           "options": {
             "legend": {
               "calcs": [],
@@ -209,11 +269,11 @@
           },
           "gridPos": {
             "h": 5,
-            "w": 3,
-            "x": 3,
+            "w": 7,
+            "x": 10,
             "y": 0
           },
-          "id": 9,
+          "id": 322,
           "options": {
             "legend": {
               "calcs": [],
@@ -303,11 +363,11 @@
           },
           "gridPos": {
             "h": 5,
-            "w": 3,
-            "x": 6,
+            "w": 7,
+            "x": 17,
             "y": 0
           },
-          "id": 8,
+          "id": 323,
           "options": {
             "legend": {
               "calcs": [],
@@ -330,98 +390,9 @@
           ],
           "title": "Storage use",
           "type": "stat"
-        },
-        {
-          "datasource": {
-            "uid": "${prometheusds}"
-          },
-          "fieldConfig": {
-            "defaults": {
-              "color": {
-                "mode": "palette-classic"
-              },
-              "custom": {
-                "axisCenteredZero": false,
-                "axisColorMode": "text",
-                "axisLabel": "",
-                "axisPlacement": "auto",
-                "barAlignment": 0,
-                "drawStyle": "line",
-                "fillOpacity": 10,
-                "gradientMode": "none",
-                "hideFrom": {
-                  "legend": false,
-                  "tooltip": false,
-                  "viz": false
-                },
-                "insertNulls": false,
-                "lineInterpolation": "linear",
-                "lineWidth": 1,
-                "pointSize": 5,
-                "scaleDistribution": {
-                  "type": "linear"
-                },
-                "showPoints": "never",
-                "spanNulls": false,
-                "stacking": {
-                  "group": "A",
-                  "mode": "none"
-                },
-                "thresholdsStyle": {
-                  "mode": "off"
-                }
-              },
-              "mappings": [],
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  },
-                  {
-                    "color": "red",
-                    "value": 80
-                  }
-                ]
-              },
-              "unit": "short"
-            },
-            "overrides": []
-          },
-          "gridPos": {
-            "h": 5,
-            "w": 15,
-            "x": 9,
-            "y": 0
-          },
-          "id": 26,
-          "options": {
-            "legend": {
-              "calcs": [],
-              "displayMode": "list",
-              "placement": "bottom",
-              "showLegend": false
-            },
-            "tooltip": {
-              "mode": "multi",
-              "sort": "none"
-            }
-          },
-          "pluginVersion": "9.0.0-d452322apre",
-          "targets": [
-            {
-              "expr": "sum(increase(tempo_ingester_blocks_cleared_total{juju_application=~\"$juju_application\",juju_model=~\"$juju_model\",juju_model_uuid=~\"$juju_model_uuid\",juju_unit=~\"$juju_unit\"}[1h]))",
-              "interval": "",
-              "legendFormat": "",
-              "refId": "A"
-            }
-          ],
-          "title": "Biggest services",
-          "type": "timeseries"
         }
       ],
-      "title": "Overview",
+      "title": "At a glance",
       "type": "row"
     },
     {
