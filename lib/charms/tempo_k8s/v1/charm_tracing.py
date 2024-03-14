@@ -104,14 +104,19 @@ the certificate file.
 
 import functools
 import inspect
+import json
 import logging
 import os
 from contextlib import contextmanager
 from contextvars import Context, ContextVar, copy_context
+from dataclasses import asdict, fields, is_dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import (
+    TYPE_CHECKING,
     Any,
     Callable,
+    Dict,
     Generator,
     Optional,
     Sequence,
@@ -122,21 +127,41 @@ from typing import (
 )
 
 import opentelemetry
+import scenario
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import Span, TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.trace import INVALID_SPAN, Tracer
+from opentelemetry.trace import get_current_span as otlp_get_current_span
 from opentelemetry.trace import (
-    INVALID_SPAN,
-    Tracer,
     get_tracer,
     get_tracer_provider,
     set_span_in_context,
     set_tracer_provider,
 )
-from opentelemetry.trace import get_current_span as otlp_get_current_span
+from ops import SecretRotate, pebble
 from ops.charm import CharmBase
 from ops.framework import Framework
+from scenario import Model, State
+from scenario.state import (
+    Address,
+    BindAddress,
+    Container,
+    DeferredEvent,
+    Network,
+    PeerRelation,
+    Port,
+    Relation,
+    Secret,
+    Storage,
+    StoredState,
+    SubordinateRelation,
+    _EntityStatus,
+)
+
+if TYPE_CHECKING:
+    from scenario.state import AnyRelation
 
 # The unique Charmhub library identifier, never change it
 LIBID = "cb1705dcd1a14ca09b2e60187d1215c7"
@@ -147,7 +172,7 @@ LIBAPI = 1
 # Increment this PATCH version before using `charmcraft publish-lib` or reset
 # to 0 if you are raising the major API version
 
-LIBPATCH = 4
+LIBPATCH = 5
 
 PYDEPS = ["opentelemetry-exporter-otlp-proto-http>=1.21.0"]
 
@@ -233,11 +258,59 @@ class UntraceableObjectError(TracingError):
     """Raised when an object you're attempting to instrument cannot be autoinstrumented."""
 
 
-def _get_tracing_endpoint(tracing_endpoint_getter, self, charm):
-    if isinstance(tracing_endpoint_getter, property):
-        tracing_endpoint = tracing_endpoint_getter.__get__(self)
-    else:  # method or callable
-        tracing_endpoint = tracing_endpoint_getter(self)
+def _relation_to_dict(value: "AnyRelation") -> Dict:
+    dct = asdict(value)
+    dct["relation_type"] = type(value).__name__
+    return dct
+
+
+def state_to_dict(state: State) -> Dict:
+    out = {}
+    for f in fields(state):
+        key = f.name
+        raw_value = getattr(state, f.name)
+        if key == "networks":
+            serialized_value = {name: asdict(network) for name, network in raw_value.items()}
+        elif key == "relations":
+            serialized_value = [_relation_to_dict(r) for r in raw_value]
+        else:
+            if isinstance(raw_value, list):
+                serialized_value = [asdict(raw_obj) for raw_obj in raw_value]
+            elif is_dataclass(raw_value):
+                serialized_value = asdict(raw_value)
+            else:
+                serialized_value = raw_value
+
+        out[key] = serialized_value
+    return out
+
+
+def _get_charm_attr(attr, self, charm):
+    if isinstance(attr, property):
+        value = attr.__get__(self)
+    elif callable(attr):
+        value = attr(self)
+    else:
+        raise TypeError(f"{charm}.{attr} should be a property or a callable (method)")
+    return value
+
+
+def _get_state(state_attr: _GetterType, self: CharmBase, charm: Type[CharmBase]) -> Optional[str]:
+    state = _get_charm_attr(state_attr, self, charm)
+    if state is None:
+        logger.debug(f"No state returned by {charm}.{state_attr}.")
+        return
+    elif not isinstance(state, scenario.State):
+        raise TypeError(
+            f"{charm}.{state_attr} should return a scenario.State; " f"got {state!r:.50} instead."
+        )
+    return json.dumps(state_to_dict(state), indent=2)
+
+
+def _get_tracing_endpoint(
+    tracing_endpoint_getter: _GetterType, self: CharmBase, charm: Type[CharmBase]
+) -> Optional[str]:
+    tracing_endpoint = _get_charm_attr(tracing_endpoint_getter, self, charm)
 
     if tracing_endpoint is None:
         logger.debug(
@@ -277,7 +350,8 @@ def _get_server_cert(server_cert_getter, self, charm):
 def _setup_root_span_initializer(
     charm: Type[CharmBase],
     tracing_endpoint_getter: _GetterType,
-    server_cert_getter: Optional[_GetterType],
+    state_getter: Optional[_GetterType] = None,
+    server_cert_getter: Optional[_GetterType] = None,
     service_name: Optional[str] = None,
 ):
     """Patch the charm's initializer."""
@@ -337,7 +411,13 @@ def _setup_root_span_initializer(
         # on the assumption that spans will be used as contextmanagers.
         # Since we don't (as we need to close the span on framework.commit),
         # we need to manually set the root span as current.
-        span = _tracer.start_span("charm exec", attributes={"juju.dispatch_path": dispatch_path})
+        attributes = {"juju.dispatch_path": dispatch_path}
+        if state_getter:
+            logger.debug("gathering state...")
+            attributes["state"] = _get_state(state_attr=state_getter, self=self, charm=charm)
+        logger.debug("initializing root 'charm exec' span")
+        span = _tracer.start_span("charm exec", attributes=attributes)
+
         ctx = set_span_in_context(span)
 
         # log a trace id so we can look it up in tempo.
@@ -377,6 +457,7 @@ def _setup_root_span_initializer(
 
 def trace_charm(
     tracing_endpoint: str,
+    state: Optional[str] = None,
     server_cert: Optional[str] = None,
     service_name: Optional[str] = None,
     extra_types: Sequence[type] = (),
@@ -387,18 +468,25 @@ def trace_charm(
     method calls on instances of this class.
 
     Usage:
+    >>> import scenario
     >>> from charms.tempo_k8s.v1.charm_tracing import trace_charm
     >>> from charms.tempo_k8s.v1.tracing import TracingEndpointProvider
+    >>> from charms.tempo_k8s.v0.snapshot import get_state
     >>> from ops import CharmBase
     >>>
     >>> @trace_charm(
     >>>         tracing_endpoint="tempo_otlp_http_endpoint",
+    >>>         state="state",
     >>> )
     >>> class MyCharm(CharmBase):
     >>>
     >>>     def __init__(self, framework: Framework):
     >>>         ...
     >>>         self.tracing = TracingEndpointProvider(self)
+    >>>
+    >>>     @property
+    >>>     def state(self) -> scenario.State:
+    >>>         return get_state()
     >>>
     >>>     @property
     >>>     def tempo_otlp_http_endpoint(self) -> Optional[str]:
@@ -413,6 +501,8 @@ def trace_charm(
     :param tracing_endpoint: name of a property on the charm type that returns an
         optional (fully resolvable) tempo url. If None, tracing will be effectively disabled. Else, traces will be
         pushed to that endpoint.
+    :param tracing_endpoint: name of a property on the charm type that returns an
+        optional scenario.State object to be associated to the charm trace.
     :param service_name: service name tag to attach to all traces generated by this charm.
         Defaults to the juju application name this charm is deployed under.
     :param extra_types: pass any number of types that you also wish to autoinstrument.
@@ -424,6 +514,7 @@ def trace_charm(
         _autoinstrument(
             charm_type,
             tracing_endpoint_getter=getattr(charm_type, tracing_endpoint),
+            state_getter=getattr(charm_type, state) if state else None,
             server_cert_getter=getattr(charm_type, server_cert) if server_cert else None,
             service_name=service_name,
             extra_types=extra_types,
@@ -436,6 +527,7 @@ def trace_charm(
 def _autoinstrument(
     charm_type: Type[CharmBase],
     tracing_endpoint_getter: _GetterType,
+    state_getter: Optional[_GetterType] = None,
     server_cert_getter: Optional[_GetterType] = None,
     service_name: Optional[str] = None,
     extra_types: Sequence[type] = (),
@@ -473,6 +565,7 @@ def _autoinstrument(
     _setup_root_span_initializer(
         charm_type,
         tracing_endpoint_getter,
+        state_getter=state_getter,
         server_cert_getter=server_cert_getter,
         service_name=service_name,
     )
@@ -560,3 +653,110 @@ def trace(obj: Union[Type, Callable]):
             raise UntraceableObjectError(
                 f"cannot create span from {type(obj)}; instrument {obj} manually."
             )
+
+
+def _dict_to_status(value: Dict) -> _EntityStatus:
+    return _EntityStatus(**value)
+
+
+def _dict_to_model(value: Dict) -> Model:
+    return Model(**value)
+
+
+def _dict_to_relation(value: Dict) -> "AnyRelation":
+    relation_type = value.pop("relation_type")
+    if relation_type == "Relation":
+        return Relation(**value)
+    if relation_type == "PeerRelation":
+        return PeerRelation(**value)
+    if relation_type == "SubordinateRelation":
+        return SubordinateRelation(**value)
+    raise TypeError(value)
+
+
+def _dict_to_address(value: Dict) -> Address:
+    return Address(**value)
+
+
+def _dict_to_bindaddress(value: Dict) -> BindAddress:
+    if addrs := value.get("addresses"):
+        value["addresses"] = [_dict_to_address(addr) for addr in addrs]
+    return BindAddress(**value)
+
+
+def _dict_to_network(value: Dict) -> Network:
+    if addrs := value.get("bind_addresses"):
+        value["bind_addresses"] = [_dict_to_bindaddress(addr) for addr in addrs]
+    return Network(**value)
+
+
+def _dict_to_container(value: Dict) -> Container:
+    if layers := value.get("layers"):
+        value["layers"] = {l_name: pebble.Layer(l_raw) for l_name, l_raw in layers.items()}
+    return Container(**value)
+
+
+def _dict_to_opened_port(value: Dict) -> Port:
+    return Port(**value)
+
+
+def _dict_to_secret(value: Dict) -> Secret:
+    if rotate := value.get("rotate"):
+        value["rotate"] = SecretRotate(rotate)
+    if expire := value.get("expire"):
+        value["expire"] = datetime.fromisoformat(expire)
+    return Secret(**value)
+
+
+def _dict_to_stored_state(value: Dict) -> StoredState:
+    return StoredState(**value)
+
+
+def _dict_to_deferred(value: Dict) -> DeferredEvent:
+    return DeferredEvent(**value)
+
+
+def _dict_to_storage(value: Dict) -> Storage:
+    return Storage(**value)
+
+
+def dict_to_state(state_json: Dict) -> State:
+    overrides = {}
+    for key, value in state_json.items():
+        if key in [
+            "leader",
+            "config",
+            "planned_units",
+            "unit_id",
+            "workload_version",
+        ]:  # all state components that can be used as-is
+            overrides[key] = value
+        elif key in [
+            "app_status",
+            "unit_status",
+        ]:  # all state components that can be used as-is
+            overrides[key] = _dict_to_status(value)
+        elif key == "model":
+            overrides[key] = _dict_to_model(value)
+        elif key == "relations":
+            overrides[key] = [_dict_to_relation(obj) for obj in value]
+        elif key == "networks":
+            overrides[key] = {name: _dict_to_network(obj) for name, obj in value.items()}
+        elif key == "resources":
+            overrides[key] = {name: Path(obj) for name, obj in value.items()}
+        elif key == "containers":
+            overrides[key] = [_dict_to_container(obj) for obj in value]
+        elif key == "storage":
+            overrides[key] = [_dict_to_storage(obj) for obj in value]
+        elif key == "opened_ports":
+            overrides[key] = [_dict_to_opened_port(obj) for obj in value]
+        elif key == "secrets":
+            overrides[key] = [_dict_to_secret(obj) for obj in value]
+        elif key == "stored_state":
+            overrides[key] = [_dict_to_stored_state(obj) for obj in value]
+        elif key == "deferred":
+            overrides[key] = [_dict_to_deferred(obj) for obj in value]
+        else:
+            raise KeyError(key)
+
+    return State().replace(**overrides)

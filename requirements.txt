@@ -8,6 +8,7 @@ lightkube-models==1.24.1.4
 # PYDEPS
 # lib/charms/tempo_k8s/v1/charm_tracing.py
 opentelemetry-exporter-otlp-proto-http
+ops-scenario~=6.0
 
 # lib/charms/tempo_k8s/v1/tracing.py requires pydantic; we have higher standards:
 pydantic>=2

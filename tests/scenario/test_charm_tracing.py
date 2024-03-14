@@ -1,10 +1,14 @@
+import json
 import logging
 import os
 from unittest.mock import patch
 
+import ops
 import pytest
+import scenario
 from charms.tempo_k8s.v1.charm_tracing import CHARM_TRACING_ENABLED
 from charms.tempo_k8s.v1.charm_tracing import _autoinstrument as autoinstrument
+from charms.tempo_k8s.v1.charm_tracing import dict_to_state
 from ops import EventBase, EventSource, Framework
 from ops.charm import CharmBase, CharmEvents
 from scenario import Context, State
@@ -338,3 +342,40 @@ def test_base_tracer_endpoint_custom_event(caplog):
             assert span.parent
             assert span.parent.trace_id
         assert len({(span.parent.trace_id if span.parent else 0) for span in spans}) == 2
+
+
+class MyCharmSimpleState(CharmBase):
+    META = {"name": "frank"}
+
+    def __init__(self, framework: Framework):
+        super().__init__(framework)
+        framework.observe(self.on.start, self._on_start)
+
+    def _on_start(self, _):
+        pass
+
+    @property
+    def tempo(self):
+        return "foo.bar:80"
+
+    @property
+    def state(self):
+        return scenario.State(leader=True, unit_status=ops.ActiveStatus("foobar!"))
+
+
+autoinstrument(MyCharmSimpleState, MyCharmSimpleState.tempo, MyCharmSimpleState.state)
+
+
+def test_charm_tracing_snapshots():
+    import opentelemetry
+
+    with patch(
+        "opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter.export"
+    ) as f:
+        f.return_value = opentelemetry.sdk.trace.export.SpanExportResult.SUCCESS
+        ctx = Context(MyCharmSimpleState, meta=MyCharmSimpleState.META)
+        ctx.run("start", State(leader=True))
+        event_start_span: opentelemetry.sdk.trace.ReadableSpan = [
+            span for span in f.call_args_list[0].args[0] if span.name == "charm exec"
+        ][0]
+        assert dict_to_state(json.loads(event_start_span.attributes["state"])).leader
