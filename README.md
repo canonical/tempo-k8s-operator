@@ -16,7 +16,7 @@ $ juju deploy tempo-k8s # --trust (use when cluster has RBAC enabled)
 
 ## OCI Images
 
-This charm, by default, deploys `grafana/tempo:1.5.0`.
+This charm, by default, deploys `grafana/tempo:2.4.0`.
 
 ## Contributing
 

@@ -94,7 +94,6 @@ class Tempo:
         return yaml.safe_dump(
             {
                 "auth_enabled": False,
-                "search_enabled": True,
                 "server": {
                     "http_listen_port": self.tempo_port,
                     "grpc_listen_port": self.receiver_ports["tempo_grpc"],
@@ -108,7 +107,7 @@ class Tempo:
                 "ingester": {
                     "trace_idle_period": "10s",
                     "max_block_bytes": 100,
-                    "max_block_duration": "5m",
+                    "max_block_duration": "30m",
                 },
                 "compactor": {
                     "compaction": {
@@ -118,7 +117,7 @@ class Tempo:
                         "max_compaction_objects": 1000000,
                         "block_retention": "1h",
                         "compacted_block_retention": "10m",
-                        "flush_size_bytes": 5242880,
+                        "v2_out_buffer_bytes": 5242880,
                     }
                 },
                 # see https://grafana.com/docs/tempo/latest/configuration/#storage
@@ -134,8 +133,8 @@ class Tempo:
                         },
                         "pool": {
                             # number of traces per index record
-                            "max_workers": 100,
-                            "queue_depth": 10000,
+                            "max_workers": 400,
+                            "queue_depth": 20000,
                         },
                     }
                 },
