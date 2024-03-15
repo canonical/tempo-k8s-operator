@@ -370,7 +370,7 @@ def _setup_root_span_initializer(
 
         original_event_context = framework._event_context
 
-        _service_name = service_name or self.app.name
+        _service_name = service_name or self.unit.name.replace("/", "-")
 
         resource = Resource.create(
             attributes={
