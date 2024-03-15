@@ -74,6 +74,9 @@ class SnapshotBackend:
         for endpoint, relations in self.charm.model.relations.items():
             for relation in relations:
                 binding = self.charm.model.get_binding(relation)
+                if not binding:
+                    continue
+
                 networks[endpoint] = scenario.Network.default(
                     interface_name=endpoint,
                     hostname="localhost",  # FIXME ???
@@ -93,7 +96,7 @@ class SnapshotBackend:
     def get_deferred(self) -> List[scenario.DeferredEvent]:  # noqa: D102
         return self._unit_state_db.get_deferred_events()
 
-    def get_stored_state(self) -> scenario.StoredState:  # noqa: D102
+    def get_stored_state(self) -> List[scenario.StoredState]:  # noqa: D102
         return self._unit_state_db.get_stored_state()
 
     def get_secrets(self) -> List[scenario.Secret]:  # noqa: D102
@@ -102,10 +105,9 @@ class SnapshotBackend:
         for secret_id in cast(List[str], be._run("secret-ids", return_output=True, use_json=True)):
             info = cast(
                 Dict[str, Any],
-                be._run("secret-info-get", secret_id, return_output=True, use_json=True)[
-                    secret_id
-                ],
-            )
+                be._run("secret-info-get", secret_id, return_output=True, use_json=True),
+            )[secret_id]
+
             contents = cast(
                 Dict[str, str], be._run("secret-get", secret_id, return_output=True, use_json=True)
             )
@@ -124,13 +126,13 @@ class SnapshotBackend:
 
     def get_storage(self) -> List[scenario.Storage]:  # noqa: D102
         storages = []
-        for storage_name, storages in self.charm.model.storages.items():
-            for storage in storages:
+        for storage_name, ops_storages in self.charm.model.storages.items():
+            for storage in ops_storages:
                 storages.append(scenario.Storage(name=storage_name, index=storage.index))
         return storages
 
-    def get_resources(self) -> Dict[str, Optional[Path]]:  # noqa: D102
-        return self.charm.model.resources._paths
+    def get_resources(self) -> Dict[str, Path]:  # noqa: D102
+        return {name: path for name, path in self.charm.model.resources._paths.items() if path}
 
     def get_relations(self) -> List["AnyRelation"]:  # noqa: D102
         relations = []
@@ -141,10 +143,10 @@ class SnapshotBackend:
                         scenario.Relation(
                             endpoint=endpoint,
                             relation_id=ops_relation.id,
-                            remote_app_name=ops_relation.app.name,
+                            remote_app_name=getattr(ops_relation.app, "name", "<unknown remote>"),
                             local_app_data=dict(ops_relation.data[self.charm.app]),
                             local_unit_data=dict(ops_relation.data[self.charm.unit]),
-                            remote_app_data=dict(ops_relation.data[ops_relation.app]),
+                            remote_app_data=dict(ops_relation.data[ops_relation.app]),  # type: ignore
                             remote_units_data={
                                 int(remote_unit.name.split("/")[1]): dict(
                                     ops_relation.data[remote_unit]
@@ -157,7 +159,7 @@ class SnapshotBackend:
                     logger.error(f"failed to snapshot relation {ops_relation}: {e}")
                 # TODO implement subordinate, peers, and relations where you don't have access to all data.
 
-                return relations
+        return relations
 
 
 def get_state(charm: ops.CharmBase, show_secrets_insecure: bool = False) -> scenario.State:
@@ -171,7 +173,7 @@ def get_state(charm: ops.CharmBase, show_secrets_insecure: bool = False) -> scen
         leader=backend.get_leader(),
         model=backend.get_model(),
         secrets=backend.get_secrets() if show_secrets_insecure else [],
-        resources=backend.get_resources(),
+        resources=backend.get_resources(),  # type: ignore
         planned_units=backend.get_planned_units(),
         deferred=backend.get_deferred(),
         stored_state=backend.get_stored_state(),

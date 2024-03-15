@@ -416,7 +416,12 @@ def _setup_root_span_initializer(
         attributes = {"juju.dispatch_path": dispatch_path}
         if state_getter:
             logger.debug("gathering state...")
-            attributes["state"] = _get_state(state_attr=state_getter, self=self, charm=charm)
+            state = _get_state(state_attr=state_getter, self=self, charm=charm)
+            if state:
+                attributes["state"] = state
+            else:
+                logger.debug(f"could not collect state for {self}")
+
         logger.debug("initializing root 'charm exec' span")
         span = _tracer.start_span("charm exec", attributes=attributes)
 
