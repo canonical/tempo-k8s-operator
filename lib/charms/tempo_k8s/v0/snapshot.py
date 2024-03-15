@@ -6,7 +6,7 @@ allowing you to capture snapshots of a live charm's current state and serialize 
 """
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, cast
+from typing import TYPE_CHECKING, Any, Dict, List, cast
 
 import ops
 import scenario

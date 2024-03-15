@@ -56,8 +56,8 @@ def test_base_tracer_endpoint(caplog):
         assert "Setting up span exporter to endpoint: foo.bar:80" in caplog.text
         assert "Starting root trace with id=" in caplog.text
         span = f.call_args_list[0].args[0][0]
-        assert span.resource.attributes["service.name"] == "frank"
-        assert span.resource.attributes["compose_service"] == "frank"
+        assert span.resource.attributes["service.name"] == "frank-0"
+        assert span.resource.attributes["compose_service"] == "frank-0"
         assert span.resource.attributes["charm_type"] == "MyCharmSimple"
 
 
@@ -124,8 +124,8 @@ def test_init_attr(caplog):
         ctx.run("start", State())
         assert "Setting up span exporter to endpoint: foo.bar:80" in caplog.text
         span = f.call_args_list[0].args[0][0]
-        assert span.resource.attributes["service.name"] == "frank"
-        assert span.resource.attributes["compose_service"] == "frank"
+        assert span.resource.attributes["service.name"] == "frank-0"
+        assert span.resource.attributes["compose_service"] == "frank-0"
         assert span.resource.attributes["charm_type"] == "MyCharmInitAttr"
 
 
@@ -210,7 +210,7 @@ def test_base_tracer_endpoint_event(caplog):
         assert span3.name == "charm exec"
 
         for span in spans:
-            assert span.resource.attributes["service.name"] == "frank"
+            assert span.resource.attributes["service.name"] == "frank-0"
 
 
 def test_juju_topology_injection(caplog):
