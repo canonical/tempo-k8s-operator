@@ -31,43 +31,45 @@ PYDEPS = ["ops-scenario>=6"]
 
 
 class SnapshotBackend:
+    """Snapshot backend."""
+
     def __init__(self, charm: ops.CharmBase):
         self.charm = charm
         self._unit_state_db = scenario.runtime.UnitStateDB(charm.charm_dir / ".unit-state.db")
 
-    def get_config(self) -> Dict:
+    def get_config(self) -> Dict:  # noqa: D102
         return dict(self.charm.config)
 
-    def get_opened_ports(self) -> List[scenario.Port]:
+    def get_opened_ports(self) -> List[scenario.Port]:  # noqa: D102
         return [scenario.Port(p.protocol, p.port) for p in self.charm.unit.opened_ports()]
 
-    def get_leader(self) -> bool:
+    def get_leader(self) -> bool:  # noqa: D102
         return self.charm.unit.is_leader()
 
-    def get_model(self) -> scenario.Model:
+    def get_model(self) -> scenario.Model:  # noqa: D102
         return scenario.Model(
             name=self.charm.model.name,
             uuid=self.charm.model.uuid,
             # fixme: how do we determine if we're on a kubernetes or machine model?
         )
 
-    def get_planned_units(self) -> int:
+    def get_planned_units(self) -> int:  # noqa: D102
         return self.charm.app.planned_units()
 
-    def get_app_status(self) -> ops.StatusBase:
+    def get_app_status(self) -> ops.StatusBase:  # noqa: D102
         if not self.charm.unit.is_leader():
             return ops.UnknownStatus()
         return self.charm.app.status
 
-    def get_unit_status(self) -> ops.StatusBase:
+    def get_unit_status(self) -> ops.StatusBase:  # noqa: D102
         return self.charm.unit.status
 
-    def get_workload_version(self) -> str:
+    def get_workload_version(self) -> str:  # noqa: D102
         return "42.todo"
         # todo verify this works
         return self.charm.unit._backend._run("application-version-get", return_output=True)
 
-    def get_networks(self) -> Dict[str, scenario.Network]:
+    def get_networks(self) -> Dict[str, scenario.Network]:  # noqa: D102
         networks = {}
         for endpoint, relations in self.charm.model.relations.items():
             for relation in relations:
@@ -81,20 +83,20 @@ class SnapshotBackend:
                 )
         return networks
 
-    def get_containers(self) -> List[scenario.Container]:
+    def get_containers(self) -> List[scenario.Container]:  # noqa: D102
         # todo allow extracting specific parts of the filesystem?
         return [
             scenario.Container(name, can_connect=c.can_connect())
             for name, c in self.charm.unit.containers.items()
         ]
 
-    def get_deferred(self) -> List[scenario.DeferredEvent]:
+    def get_deferred(self) -> List[scenario.DeferredEvent]:  # noqa: D102
         return self._unit_state_db.get_deferred_events()
 
-    def get_stored_state(self) -> scenario.StoredState:
+    def get_stored_state(self) -> scenario.StoredState:  # noqa: D102
         return self._unit_state_db.get_stored_state()
 
-    def get_secrets(self) -> List[scenario.Secret]:
+    def get_secrets(self) -> List[scenario.Secret]:  # noqa: D102
         secrets = []
         be = self.charm.unit._backend
         for secret_id in cast(List[str], be._run("secret-ids", return_output=True, use_json=True)):
@@ -120,17 +122,17 @@ class SnapshotBackend:
             )
         return secrets
 
-    def get_storage(self) -> List[scenario.Storage]:
+    def get_storage(self) -> List[scenario.Storage]:  # noqa: D102
         storages = []
         for storage_name, storages in self.charm.model.storages.items():
             for storage in storages:
                 storages.append(scenario.Storage(name=storage_name, index=storage.index))
         return storages
 
-    def get_resources(self) -> Dict[str, Optional[Path]]:
+    def get_resources(self) -> Dict[str, Optional[Path]]:  # noqa: D102
         return self.charm.model.resources._paths
 
-    def get_relations(self) -> List["AnyRelation"]:
+    def get_relations(self) -> List["AnyRelation"]:  # noqa: D102
         relations = []
         for endpoint, ops_relations in self.charm.model.relations.items():
             for ops_relation in ops_relations:
@@ -159,6 +161,7 @@ class SnapshotBackend:
 
 
 def get_state(charm: ops.CharmBase, show_secrets_insecure: bool = False) -> scenario.State:
+    """Retrieve an as complete as possible scenario.State object from this charm."""
     backend = SnapshotBackend(charm)
     return scenario.State(
         config=backend.get_config(),

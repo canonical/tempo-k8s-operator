@@ -132,14 +132,15 @@ from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExport
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import Span, TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
-from opentelemetry.trace import INVALID_SPAN, Tracer
-from opentelemetry.trace import get_current_span as otlp_get_current_span
 from opentelemetry.trace import (
+    INVALID_SPAN,
+    Tracer,
     get_tracer,
     get_tracer_provider,
     set_span_in_context,
     set_tracer_provider,
 )
+from opentelemetry.trace import get_current_span as otlp_get_current_span
 from ops import SecretRotate, pebble
 from ops.charm import CharmBase
 from ops.framework import Framework
@@ -265,6 +266,7 @@ def _relation_to_dict(value: "AnyRelation") -> Dict:
 
 
 def state_to_dict(state: State) -> Dict:
+    """Serialize ``scenario.State`` to a jsonifiable dict."""
     out = {}
     for f in fields(state):
         key = f.name
@@ -720,7 +722,8 @@ def _dict_to_storage(value: Dict) -> Storage:
     return Storage(**value)
 
 
-def dict_to_state(state_json: Dict) -> State:
+def dict_to_state(state_json: Dict) -> State:  # noqa: C901
+    """Deserialized a jsonified state back to a scenario.State."""
     overrides = {}
     for key, value in state_json.items():
         if key in [

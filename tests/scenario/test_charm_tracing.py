@@ -6,9 +6,8 @@ from unittest.mock import patch
 import ops
 import pytest
 import scenario
-from charms.tempo_k8s.v1.charm_tracing import CHARM_TRACING_ENABLED
+from charms.tempo_k8s.v1.charm_tracing import CHARM_TRACING_ENABLED, dict_to_state
 from charms.tempo_k8s.v1.charm_tracing import _autoinstrument as autoinstrument
-from charms.tempo_k8s.v1.charm_tracing import dict_to_state
 from ops import EventBase, EventSource, Framework
 from ops.charm import CharmBase, CharmEvents
 from scenario import Context, State
