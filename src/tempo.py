@@ -161,7 +161,6 @@ class Tempo:
     @property
     def tempo_ready_layer(self) -> Layer:
         """Generate the pebble layer for the Tempo container."""
-
         # watch -n 5 '[ $(wget -q -O- localhost:3200/ready) = "ready" ] &&
         #                            ( /charm/bin/pebble notify canonical.com/tempo/workload-ready ) ||
         #                            ( echo "tempo not ready" )'
@@ -180,7 +179,6 @@ class Tempo:
                 },
             }
         )
-
 
     def is_ready(self):
         """Whether the tempo built-in readiness check reports 'ready'."""

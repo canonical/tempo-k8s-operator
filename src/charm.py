@@ -21,9 +21,16 @@ from charms.tempo_k8s.v2.tracing import (
     TracingEndpointProvider,
 )
 from charms.traefik_k8s.v2.ingress import IngressPerAppRequirer
-from ops.charm import CharmBase, CollectStatusEvent, RelationEvent, WorkloadEvent, PebbleNoticeEvent
+from ops.charm import (
+    CharmBase,
+    CollectStatusEvent,
+    PebbleNoticeEvent,
+    RelationEvent,
+    WorkloadEvent,
+)
 from ops.main import main
 from ops.model import ActiveStatus, MaintenanceStatus, Relation, WaitingStatus
+
 from tempo import Tempo
 
 logger = logging.getLogger(__name__)
@@ -81,7 +88,9 @@ class TempoCharm(CharmBase):
         self._ingress = IngressPerAppRequirer(self, port=self.tempo.tempo_port)
 
         self.framework.observe(self.on.tempo_pebble_ready, self._on_tempo_pebble_ready)
-        self.framework.observe(self.on.tempo_pebble_custom_notice, self._on_tempo_pebble_custom_notice)
+        self.framework.observe(
+            self.on.tempo_pebble_custom_notice, self._on_tempo_pebble_custom_notice
+        )
         self.framework.observe(self.on.update_status, self._on_update_status)
         self.framework.observe(self._tracing.on.request, self._on_tracing_request)
         self.framework.observe(self.on.tracing_relation_created, self._on_tracing_relation_created)
@@ -215,7 +224,7 @@ class TempoCharm(CharmBase):
         container.replan()
 
         # is not autostart-enabled, we just run it once on pebble-ready.
-        container.start('tempo-ready')
+        container.start("tempo-ready")
 
         self.unit.set_workload_version(self.version)
         self.unit.status = ActiveStatus()
