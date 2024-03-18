@@ -30,7 +30,6 @@ from ops.charm import (
 )
 from ops.main import main
 from ops.model import ActiveStatus, MaintenanceStatus, Relation, WaitingStatus
-
 from tempo import Tempo
 
 logger = logging.getLogger(__name__)
@@ -292,7 +291,7 @@ class TempoCharm(CharmBase):
         if not self.tempo.container.can_connect():
             e.add_status(WaitingStatus("Tempo container not ready"))
         if not self.tempo.is_ready():
-            e.add_status(ActiveStatus("Tempo not ready just yet... Wait for an update-status."))
+            e.add_status(WaitingStatus("Tempo API not ready just yet..."))
 
         e.add_status(ActiveStatus())
 
