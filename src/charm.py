@@ -202,7 +202,7 @@ class TempoCharm(CharmBase):
 
     def _on_tempo_pebble_custom_notice(self, event: PebbleNoticeEvent):
         if event.notice.key == self.tempo.tempo_ready_notice_key:
-            logger.info("pebble api reports ready")
+            logger.debug("pebble api reports ready")
             # collect-unit-status should do the rest.
             self.tempo.container.stop("tempo-ready")
 
