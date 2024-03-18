@@ -21,7 +21,13 @@ from charms.tempo_k8s.v2.tracing import (
     TracingEndpointProvider,
 )
 from charms.traefik_k8s.v2.ingress import IngressPerAppRequirer
-from ops.charm import CharmBase, CollectStatusEvent, RelationEvent, WorkloadEvent
+from ops.charm import (
+    CharmBase,
+    CollectStatusEvent,
+    PebbleNoticeEvent,
+    RelationEvent,
+    WorkloadEvent,
+)
 from ops.main import main
 from ops.model import ActiveStatus, MaintenanceStatus, Relation, WaitingStatus
 from tempo import Tempo
@@ -81,6 +87,9 @@ class TempoCharm(CharmBase):
         self._ingress = IngressPerAppRequirer(self, port=self.tempo.tempo_port)
 
         self.framework.observe(self.on.tempo_pebble_ready, self._on_tempo_pebble_ready)
+        self.framework.observe(
+            self.on.tempo_pebble_custom_notice, self._on_tempo_pebble_custom_notice
+        )
         self.framework.observe(self.on.update_status, self._on_update_status)
         self.framework.observe(self._tracing.on.request, self._on_tracing_request)
         self.framework.observe(self.on.tracing_relation_created, self._on_tracing_relation_created)
@@ -190,6 +199,12 @@ class TempoCharm(CharmBase):
         requested_receivers = requested_protocols.intersection(set(self.tempo.supported_receivers))
         return tuple(requested_receivers)
 
+    def _on_tempo_pebble_custom_notice(self, event: PebbleNoticeEvent):
+        if event.notice.key == self.tempo.tempo_ready_notice_key:
+            logger.debug("pebble api reports ready")
+            # collect-unit-status should do the rest.
+            self.tempo.container.stop("tempo-ready")
+
     def _on_tempo_pebble_ready(self, event: WorkloadEvent):
         container = event.workload
 
@@ -204,7 +219,11 @@ class TempoCharm(CharmBase):
         )
 
         container.add_layer("tempo", self.tempo.pebble_layer, combine=True)
+        container.add_layer("tempo-ready", self.tempo.tempo_ready_layer, combine=True)
         container.replan()
+
+        # is not autostart-enabled, we just run it once on pebble-ready.
+        container.start("tempo-ready")
 
         self.unit.set_workload_version(self.version)
         self.unit.status = ActiveStatus()
@@ -272,7 +291,7 @@ class TempoCharm(CharmBase):
         if not self.tempo.container.can_connect():
             e.add_status(WaitingStatus("Tempo container not ready"))
         if not self.tempo.is_ready():
-            e.add_status(ActiveStatus("Tempo not ready just yet... Wait for an update-status."))
+            e.add_status(WaitingStatus("Tempo API not ready just yet..."))
 
         e.add_status(ActiveStatus())
 
