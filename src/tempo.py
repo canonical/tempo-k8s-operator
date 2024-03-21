@@ -22,6 +22,7 @@ class Tempo:
     config_path = "/etc/tempo/tempo.yaml"
     wal_path = "/etc/tempo/tempo_wal"
     log_path = "/var/log/tempo.log"
+    tempo_ready_notice_key = "canonical.com/tempo/workload-ready"
 
     # todo make configurable?
     receiver_ports: Dict[ReceiverProtocol, int] = {
@@ -150,10 +151,30 @@ class Tempo:
                     "tempo": {
                         "override": "replace",
                         "summary": "Main Tempo layer",
-                        "command": '/bin/sh -c "/tempo -config.file={} | tee {}"'.format(
-                            self.config_path, self.log_path
-                        ),
+                        "command": f'/bin/sh -c "/tempo -config.file={self.config_path} | tee {self.log_path}"',
                         "startup": "enabled",
+                    }
+                },
+            }
+        )
+
+    @property
+    def tempo_ready_layer(self) -> Layer:
+        """Generate the pebble layer for the Tempo container."""
+        # watch -n 5 '[ $(wget -q -O- localhost:3200/ready) = "ready" ] &&
+        #                            ( /charm/bin/pebble notify canonical.com/tempo/workload-ready ) ||
+        #                            ( echo "tempo not ready" )'
+
+        return Layer(
+            {
+                "services": {
+                    "tempo-ready": {
+                        "override": "replace",
+                        "summary": "Notify charm when tempo is ready",
+                        "command": f"""watch -n 5 '[ $(wget -q -O- localhost:{self.tempo_port}/ready) = "ready" ] && 
+                                   ( /charm/bin/pebble notify {self.tempo_ready_notice_key} ) || 
+                                   ( echo "tempo not ready" )'""",
+                        "startup": "disabled",
                     }
                 },
             }
@@ -161,7 +182,6 @@ class Tempo:
 
     def is_ready(self):
         """Whether the tempo built-in readiness check reports 'ready'."""
-        # Fixme: sometimes it takes a few attempts for it to report ready.
         try:
             out = getoutput(f"curl http://{self._local_hostname}:{self.tempo_port}/ready").split(
                 "\n"
