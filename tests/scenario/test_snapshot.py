@@ -1,17 +1,6 @@
-from unittest.mock import patch
-
 import ops
-import pytest
 import scenario
 from charms.tempo_k8s.v0.snapshot import get_state
-
-
-@pytest.fixture(autouse=True)
-def patch_application_version_set():
-    with patch(
-        "charms.tempo_k8s.v0.snapshot.SnapshotBackend.get_workload_version", lambda _: "42"
-    ):
-        yield
 
 
 def test_get_null_state():

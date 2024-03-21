@@ -3,10 +3,10 @@ import logging
 import os
 from unittest.mock import patch
 
-import ops
 import pytest
-import scenario
-from charms.tempo_k8s.v1.charm_tracing import CHARM_TRACING_ENABLED, dict_to_state
+from charms.tempo_k8s.v0.snapshot import dict_to_state
+from charms.tempo_k8s.v1 import charm_tracing
+from charms.tempo_k8s.v1.charm_tracing import CHARM_TRACING_ENABLED
 from charms.tempo_k8s.v1.charm_tracing import _autoinstrument as autoinstrument
 from ops import EventBase, EventSource, Framework
 from ops.charm import CharmBase, CharmEvents
@@ -357,16 +357,14 @@ class MyCharmSimpleState(CharmBase):
     def tempo(self):
         return "foo.bar:80"
 
-    @property
-    def state(self):
-        return scenario.State(leader=True, unit_status=ops.ActiveStatus("foobar!"))
 
-
-autoinstrument(MyCharmSimpleState, MyCharmSimpleState.tempo, MyCharmSimpleState.state)
+autoinstrument(MyCharmSimpleState, MyCharmSimpleState.tempo)
 
 
 def test_charm_tracing_snapshots():
     import opentelemetry
+
+    charm_tracing.configure_snapshot(active=True)
 
     with patch(
         "opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter.export"
@@ -378,3 +376,5 @@ def test_charm_tracing_snapshots():
             span for span in f.call_args_list[0].args[0] if span.name == "charm exec"
         ][0]
         assert dict_to_state(json.loads(event_start_span.attributes["state"])).leader
+
+    charm_tracing.configure_snapshot(active=False)

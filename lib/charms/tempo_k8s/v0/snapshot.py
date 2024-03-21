@@ -5,12 +5,16 @@ This library acts as a bridge to scenario's
 allowing you to capture snapshots of a live charm's current state and serialize them as json.
 """
 import logging
+from dataclasses import asdict, fields, is_dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, cast
 
 import ops
 import scenario
 import scenario.runtime
+from ops import SecretRotate, pebble
+from scenario.state import _EntityStatus
 
 if TYPE_CHECKING:
     from scenario.state import AnyRelation
@@ -63,11 +67,6 @@ class SnapshotBackend:
 
     def get_unit_status(self) -> ops.StatusBase:  # noqa: D102
         return self.charm.unit.status
-
-    def get_workload_version(self) -> str:  # noqa: D102
-        return "42.todo"
-        # todo verify this works
-        return self.charm.unit._backend._run("application-version-get", return_output=True)
 
     def get_networks(self) -> Dict[str, scenario.Network]:  # noqa: D102
         networks = {}
@@ -179,9 +178,144 @@ def get_state(charm: ops.CharmBase, show_secrets_insecure: bool = False) -> scen
         stored_state=backend.get_stored_state(),
         app_status=backend.get_app_status(),
         unit_status=backend.get_unit_status(),
-        workload_version=backend.get_workload_version(),
         # FIXME: fails to json-serialize IPV4 object!
         # networks=backend.get_networks(),
         # FIXME: this just hangs and OOMs within minutes
         # storage=backend.get_storage(),
     )
+
+
+def _relation_to_dict(value: "AnyRelation") -> Dict:
+    dct = asdict(value)
+    dct["relation_type"] = type(value).__name__
+    return dct
+
+
+def state_to_dict(state: scenario.State) -> Dict:
+    """Serialize ``scenario.State`` to a jsonifiable dict."""
+    out = {}
+    for f in fields(state):
+        key = f.name
+        raw_value = getattr(state, f.name)
+        if key == "networks":
+            serialized_value = {name: asdict(network) for name, network in raw_value.items()}
+        elif key == "relations":
+            serialized_value = [_relation_to_dict(r) for r in raw_value]
+        else:
+            if isinstance(raw_value, list):
+                serialized_value = [asdict(raw_obj) for raw_obj in raw_value]
+            elif is_dataclass(raw_value):
+                serialized_value = asdict(raw_value)
+            else:
+                serialized_value = raw_value
+
+        out[key] = serialized_value
+    return out
+
+
+def _dict_to_status(value: Dict) -> _EntityStatus:
+    return _EntityStatus(**value)
+
+
+def _dict_to_model(value: Dict) -> scenario.Model:
+    return scenario.Model(**value)
+
+
+def _dict_to_relation(value: Dict) -> "AnyRelation":
+    relation_type = value.pop("relation_type")
+    if relation_type == "Relation":
+        return scenario.Relation(**value)
+    if relation_type == "PeerRelation":
+        return scenario.PeerRelation(**value)
+    if relation_type == "SubordinateRelation":
+        return scenario.SubordinateRelation(**value)
+    raise TypeError(value)
+
+
+def _dict_to_address(value: Dict) -> scenario.Address:
+    return scenario.Address(**value)
+
+
+def _dict_to_bindaddress(value: Dict) -> scenario.BindAddress:
+    if addrs := value.get("addresses"):
+        value["addresses"] = [_dict_to_address(addr) for addr in addrs]
+    return scenario.BindAddress(**value)
+
+
+def _dict_to_network(value: Dict) -> scenario.Network:
+    if addrs := value.get("bind_addresses"):
+        value["bind_addresses"] = [_dict_to_bindaddress(addr) for addr in addrs]
+    return scenario.Network(**value)
+
+
+def _dict_to_container(value: Dict) -> scenario.Container:
+    if layers := value.get("layers"):
+        value["layers"] = {l_name: pebble.Layer(l_raw) for l_name, l_raw in layers.items()}
+    return scenario.Container(**value)
+
+
+def _dict_to_opened_port(value: Dict) -> scenario.Port:
+    return scenario.Port(**value)
+
+
+def _dict_to_secret(value: Dict) -> scenario.Secret:
+    if rotate := value.get("rotate"):
+        value["rotate"] = SecretRotate(rotate)
+    if expire := value.get("expire"):
+        value["expire"] = datetime.fromisoformat(expire)
+    return scenario.Secret(**value)
+
+
+def _dict_to_stored_state(value: Dict) -> scenario.StoredState:
+    return scenario.StoredState(**value)
+
+
+def _dict_to_deferred(value: Dict) -> scenario.DeferredEvent:
+    return scenario.DeferredEvent(**value)
+
+
+def _dict_to_storage(value: Dict) -> scenario.Storage:
+    return scenario.Storage(**value)
+
+
+def dict_to_state(state_json: Dict) -> scenario.State:  # noqa: C901
+    """Deserialize a jsonified state back to a scenario.State."""
+    overrides = {}
+    for key, value in state_json.items():
+        if key in [
+            "leader",
+            "config",
+            "planned_units",
+            "unit_id",
+            "workload_version",
+        ]:  # all state components that can be used as-is
+            overrides[key] = value
+        elif key in [
+            "app_status",
+            "unit_status",
+        ]:  # all state components that can be used as-is
+            overrides[key] = _dict_to_status(value)
+        elif key == "model":
+            overrides[key] = _dict_to_model(value)
+        elif key == "relations":
+            overrides[key] = [_dict_to_relation(obj) for obj in value]
+        elif key == "networks":
+            overrides[key] = {name: _dict_to_network(obj) for name, obj in value.items()}
+        elif key == "resources":
+            overrides[key] = {name: Path(obj) for name, obj in value.items()}
+        elif key == "containers":
+            overrides[key] = [_dict_to_container(obj) for obj in value]
+        elif key == "storage":
+            overrides[key] = [_dict_to_storage(obj) for obj in value]
+        elif key == "opened_ports":
+            overrides[key] = [_dict_to_opened_port(obj) for obj in value]
+        elif key == "secrets":
+            overrides[key] = [_dict_to_secret(obj) for obj in value]
+        elif key == "stored_state":
+            overrides[key] = [_dict_to_stored_state(obj) for obj in value]
+        elif key == "deferred":
+            overrides[key] = [_dict_to_deferred(obj) for obj in value]
+        else:
+            raise KeyError(key)
+
+    return scenario.State().replace(**overrides)

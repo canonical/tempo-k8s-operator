@@ -26,6 +26,7 @@ from charms.traefik_k8s.v2.ingress import IngressPerAppRequirer
 from ops.charm import CharmBase, CollectStatusEvent, RelationEvent, WorkloadEvent
 from ops.main import main
 from ops.model import ActiveStatus, MaintenanceStatus, Relation, WaitingStatus
+
 from tempo import Tempo
 
 logger = logging.getLogger(__name__)
