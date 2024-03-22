@@ -40,7 +40,7 @@ def _list_charm_trace_ids(target: str, tempo: str,
     # get trace IDs for this target
     app_name = target.split("/")[0]
     params = {
-        "q": f'{{rootServiceName = "{app_name}" && unitName = "{target}"}}'
+        "q": f'{{rootServiceName = "{app_name}" && resource.juju.unit = "{target}"}}'
     }
     if limit:
         params['limit'] = limit
