@@ -201,7 +201,7 @@ from ops.charm import CharmBase
 from ops.framework import Framework
 
 try:
-    from charms.tempo_k8s.v0.snapshot import get_state, state_to_dict
+    from charms.tempo_k8s.v0.snapshot import get_env, get_state, state_to_dict
 
     _IS_SNAPSHOT_AVAILABLE = True
 except ModuleNotFoundError:
@@ -354,6 +354,15 @@ def _get_state(self: CharmBase) -> Optional[str]:
     return json.dumps(state_to_dict(state), indent=2)
 
 
+def _get_env() -> Optional[str]:
+    if not _IS_SNAPSHOT_AVAILABLE:
+        logger.warning("snapshot config marked as active, but snapshot lib is not available.")
+        return None
+
+    env = get_env(juju_only=True)
+    return json.dumps(env, indent=2)
+
+
 def _get_tracing_endpoint(
     tracing_endpoint_getter: _GetterType, self: CharmBase, charm: Type[CharmBase]
 ) -> Optional[str]:
@@ -459,6 +468,11 @@ def _setup_root_span_initializer(
         # we need to manually set the root span as current.
         attributes = {"juju.dispatch_path": dispatch_path}
         if SNAPSHOT_CONFIG.active:
+            logger.debug("gathering env...")
+            env = _get_env()
+            if env:
+                attributes["env"] = env
+
             logger.debug("gathering state...")
             state = _get_state(self)
             if state:
@@ -508,7 +522,6 @@ def _setup_root_span_initializer(
 
 def trace_charm(
     tracing_endpoint: str,
-    state: Optional[str] = None,
     server_cert: Optional[str] = None,
     service_name: Optional[str] = None,
     extra_types: Sequence[type] = (),

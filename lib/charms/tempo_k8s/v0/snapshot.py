@@ -5,6 +5,7 @@ This library acts as a bridge to scenario's
 allowing you to capture snapshots of a live charm's current state and serialize them as json.
 """
 import logging
+import os
 from dataclasses import asdict, fields, is_dataclass
 from datetime import datetime
 from pathlib import Path
@@ -198,13 +199,38 @@ def _relation_to_dict(value: "AnyRelation") -> Dict:
     return dct
 
 
+def _container_to_dict(value: scenario.Container) -> Dict:
+    dct = asdict(value)
+    dct["service_status"] = {name: val.name for name, val in value.service_status.items()}
+    return dct
+
+
+def get_env(juju_only: bool = True):
+    """Get the envvars this process is running with."""
+    if juju_only:
+        return {k: v for k, v in os.environ.items() if k.startswith("JUJU_")}
+    return os.environ.copy()
+
+
+def reconstruct_event(env: Dict[str, str], state: scenario.State) -> scenario.Event:
+    event_name = env["JUJU_DISPATCH_PATH"].split("/")[-1]
+    event = scenario.Event(event_name)
+    try:
+        event.bind(state)
+    except scenario.state.BindFailedError:
+        logger.debug(f"bind failed on {event}; ")
+        return event
+
+
 def state_to_dict(state: scenario.State) -> Dict:
     """Serialize ``scenario.State`` to a jsonifiable dict."""
     out = {}
     for f in fields(state):
         key = f.name
         raw_value = getattr(state, f.name)
-        if key == "networks":
+        if key == "containers":
+            serialized_value = [_container_to_dict(r) for r in raw_value]
+        elif key == "networks":
             serialized_value = {name: asdict(network) for name, network in raw_value.items()}
         elif key == "relations":
             serialized_value = [_relation_to_dict(r) for r in raw_value]

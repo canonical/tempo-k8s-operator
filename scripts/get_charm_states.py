@@ -10,7 +10,6 @@ from typing import Optional, List
 from urllib.parse import urlparse
 
 import requests
-import scenario
 import typer
 
 
@@ -96,7 +95,8 @@ def _get_charm_states(tempo: str,
             if not state:
                 logger.warning(f"trace {trace_id} has no attached state. skipping...")
                 continue
-            data.append((trace_id, dispatch_path, json.loads(state)))
+            env = root_span_attrs.get('env')
+            data.append((trace_id, dispatch_path, json.loads(state), json.loads(env)))
 
     if not data:
         exit(f"no states could be collected from traces {trace_ids}")
@@ -112,17 +112,17 @@ def _get_charm_states(tempo: str,
         try:
             import sys
             sys.path.append(str(Path().parent.parent.absolute()))
-            from lib.charms.tempo_k8s.v0.snapshot import dict_to_state
+            from lib.charms.tempo_k8s.v0.snapshot import dict_to_state, reconstruct_event
         except ModuleNotFoundError:
             logger.exception("failed to import dict_to_state")
             exit("failed to serialize json to scenario.State, see logs above for details")
 
-        for trace_id, dispatch_path, state_dict in data:
+        for trace_id, _, state_dict, env_dict in data:
             print(f"\n trace id: {trace_id}")
 
             # strip the 'hooks/' prefix
-            event = scenario.Event(dispatch_path.split('/')[-1])
             state = dict_to_state(state_dict)
+            event = reconstruct_event(env_dict, state)
             print("event = " + repr(event))
             print("state = " + repr(state))
 
