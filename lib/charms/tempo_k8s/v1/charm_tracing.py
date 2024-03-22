@@ -425,7 +425,7 @@ def _setup_root_span_initializer(
 
         original_event_context = framework._event_context
 
-        _service_name = service_name or self.unit.name.replace("/", "-")
+        _service_name = service_name or self.app.name
 
         resource = Resource.create(
             attributes={
@@ -467,29 +467,28 @@ def _setup_root_span_initializer(
         # Since we don't (as we need to close the span on framework.commit),
         # we need to manually set the root span as current.
         attributes = {"juju.dispatch_path": dispatch_path}
-        if SNAPSHOT_CONFIG.active:
-            logger.debug("gathering env...")
-            env = _get_env()
-            if env:
-                attributes["env"] = env
-
-            logger.debug("gathering state...")
-            state = _get_state(self)
-            if state:
-                attributes["state"] = state
-            else:
-                logger.debug(f"could not collect state for {self}")
-
-        logger.debug("initializing root 'charm exec' span")
         span = _tracer.start_span("charm exec", attributes=attributes)
-
         ctx = set_span_in_context(span)
 
-        # log a trace id so we can look it up in tempo.
+        # log a trace id, so we can grab it from e.g. jhack.
         root_trace_id = hex(span.get_span_context().trace_id)[2:]  # strip 0x prefix
         logger.debug(f"Starting root trace with id={root_trace_id!r}.")
 
         span_token = opentelemetry.context.attach(ctx)  # type: ignore
+
+        if SNAPSHOT_CONFIG.active:
+            with _span("snapshot"):
+                logger.debug("gathering env...")
+                env = _get_env()
+                if env:
+                    span.set_attribute("env", env)
+
+                logger.debug("gathering state...")
+                state = _get_state(self)
+                if state:
+                    span.set_attribute("state", state)
+                else:
+                    logger.debug(f"could not collect state for {self}")
 
         @contextmanager
         def wrap_event_context(event_name: str):

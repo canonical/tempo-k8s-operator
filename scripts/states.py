@@ -38,9 +38,9 @@ def _list_charm_trace_ids(target: str, tempo: str,
     """Output a list of trace IDs associated with a specific charm."""
     tempo_url = _get_url(tempo)
     # get trace IDs for this target
-    target_name = target.replace("/", "-")
+    app_name = target.split("/")[0]
     params = {
-        "q": f'{{rootServiceName = "{target_name}"}}'
+        "q": f'{{rootServiceName = "{app_name}" && unitName = "{target}"}}'
     }
     if limit:
         params['limit'] = limit
@@ -69,7 +69,6 @@ def _list_charm_trace_ids(target: str, tempo: str,
 
 def _get_charm_states(tempo: str,
                       trace_ids: List[str],
-                      output: Optional[Path] = None,
                       format: Format = Format.state):
     tempo_url = _get_url(tempo)
 
@@ -103,10 +102,7 @@ def _get_charm_states(tempo: str,
 
     if format is Format.json:
         data_json = json.dumps(data, indent=2)
-        if output:
-            output.write_text(data_json)
-        else:
-            print(data_json)
+        print(data_json)
 
     elif format is Format.state:
         try:
@@ -133,11 +129,11 @@ def _get_charm_states(tempo: str,
 def list_charm_trace_ids(
         tempo: str = typer.Argument(
             ...,
-            help="Tempo backend url, such as `http://10.0.0.10:4330`.",
+            help="Tempo backend url, such as `10.0.0.10`.",
         ),
         target: str = typer.Argument(
             ...,
-            help="Target unit."
+            help="Target Juju unit name, such as ``ubuntu/0`` or ``traefik/1``."
         ),
         start: datetime.datetime = typer.Option(
             None,
@@ -182,7 +178,7 @@ def list_charm_trace_ids(
 def get_charm_states(
         tempo: str = typer.Argument(
             ...,
-            help="Tempo backend url, such as `http://10.0.0.10:4330`.",
+            help="Tempo backend url. If port is omitted, defaults to 3200. If scheme is omitted, defaults to `http://`.",
         ),
         target: str = typer.Argument(
             None,
@@ -190,13 +186,9 @@ def get_charm_states(
         ),
         trace_id: Optional[List[str]] = typer.Option(
             None,
+            "-t", "--trace-id",
             help="One or more trace IDs whose states you want to fetch. "
                  "If omitted, will use all traces registered in the past 168h."),
-        output: Optional[Path] = typer.Option(
-            None, "-o", "--output",
-            help="File in which to dump the event, state pairs. "
-                 "If omitted, all will be printed to stdout."
-        ),
         format: Format = typer.Option(
             "state",
             "-f",
@@ -204,20 +196,25 @@ def get_charm_states(
             help="""Output formatting. Defaults to `scenario.State` repr."""
         )
 ):
-    """Download from a tracing backend the charm events and states associated with a juju unit.
+    """Download from a tracing backend the registered states of a charm.
 
     Usage:
-        ``get_charm_states myapp/0 http://10.0.0.10:3200``
+        ``states get http://10.0.0.10:3200 myapp/0``
     """
+    if not target and not trace_id:
+        exit("you need to specify a target or some trace IDs.")
+
     trace_ids = trace_id or _list_charm_trace_ids(
         target, tempo, start=datetime.datetime.now() - datetime.timedelta(hours=167))
-    _get_charm_states(tempo=tempo, output=output,
-                      trace_ids=trace_ids, format=format)
+    _get_charm_states(tempo=tempo, trace_ids=trace_ids, format=format)
 
 
 if __name__ == '__main__':
     # _get_charm_states("tempo3/0", tempo="http://10.1.232.152:3200")
-    app = typer.Typer(name="states")
-    app.command("list")(list_charm_trace_ids)
-    app.command("get")(get_charm_states)
+    app = typer.Typer(
+        name="states",
+    help="""Utility CLI tool to interact with the charm traces registered on a specific Tempo backend. 
+    """, no_args_is_help=True)
+    app.command("list", no_args_is_help=True)(list_charm_trace_ids)
+    app.command("get", no_args_is_help=True)(get_charm_states)
     app()

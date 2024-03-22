@@ -9,13 +9,11 @@ import re
 from typing import Optional, Tuple
 
 import charms.tempo_k8s.v1.tracing as tracing_v1
-import scenario
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
 from charms.grafana_k8s.v0.grafana_source import GrafanaSourceProvider
 from charms.loki_k8s.v0.loki_push_api import LogProxyConsumer
 from charms.observability_libs.v0.kubernetes_service_patch import KubernetesServicePatch
 from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
-from charms.tempo_k8s.v0.snapshot import get_state
 from charms.tempo_k8s.v1.charm_tracing import trace_charm
 from charms.tempo_k8s.v2.tracing import (
     ReceiverProtocol,
@@ -50,7 +48,6 @@ LEGACY_RECEIVER_PROTOCOLS = (
 
 @trace_charm(
     tracing_endpoint="tempo_otlp_http_endpoint",
-    state="state",
     extra_types=(Tempo, TracingEndpointProvider, tracing_v1.TracingEndpointProvider),
 )
 class TempoCharm(CharmBase):
@@ -280,10 +277,6 @@ class TempoCharm(CharmBase):
             )
             return
         return version
-
-    def state(self) -> scenario.State:
-        """Gather the scenario.State of this charm."""
-        return get_state(self)
 
     def tempo_otlp_http_endpoint(self) -> Optional[str]:
         """Endpoint at which the charm tracing information will be forwarded."""
