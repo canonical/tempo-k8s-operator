@@ -88,7 +88,14 @@ class SnapshotBackend:
     def get_containers(self) -> List[scenario.Container]:  # noqa: D102
         # todo allow extracting specific parts of the filesystem?
         return [
-            scenario.Container(name, can_connect=c.can_connect())
+            scenario.Container(
+                name,
+                can_connect=c.can_connect(),
+                _base_plan=c.get_plan().to_dict(),
+                service_status={
+                    s_name: s_info.current for s_name, s_info in c.get_services().items()
+                },
+            )
             for name, c in self.charm.unit.containers.items()
         ]
 
