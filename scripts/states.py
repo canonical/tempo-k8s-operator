@@ -114,9 +114,8 @@ def _get_charm_states(tempo: str,
             exit("failed to serialize json to scenario.State, see logs above for details")
 
         for trace_id, _, state_dict, env_dict in data:
-            print(f"\n trace id: {trace_id}")
+            print(f"\n# trace id: {trace_id}")
 
-            # strip the 'hooks/' prefix
             state = dict_to_state(state_dict)
             event = reconstruct_event(env_dict, state)
             print("event = " + repr(event))

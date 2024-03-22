@@ -213,6 +213,7 @@ def get_env(juju_only: bool = True):
 
 
 def reconstruct_event(env: Dict[str, str], state: scenario.State) -> scenario.Event:
+    # strip the 'hooks/' prefix
     event_name = env["JUJU_DISPATCH_PATH"].split("/")[-1]
     event = scenario.Event(event_name)
     try:
