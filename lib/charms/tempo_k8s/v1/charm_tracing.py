@@ -467,7 +467,7 @@ def _setup_root_span_initializer(
         # Since we don't (as we need to close the span on framework.commit),
         # we need to manually set the root span as current.
         attributes = {"juju.dispatch_path": dispatch_path}
-        span = _tracer.start_span("charm exec", attributes=attributes)
+        span = _tracer.start_span(f"charm-exec/{dispatch_path.split('/')[1]}", attributes=attributes)
         ctx = set_span_in_context(span)
 
         # log a trace id, so we can grab it from e.g. jhack.

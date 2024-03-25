@@ -89,7 +89,11 @@ def _get_charm_states(tempo: str,
             root_span = batch['scopeSpans'][0]['spans'][0]
             root_span_attrs = {attr['key']: attr['value'].get('stringValue')
                                for attr in root_span.get('attributes', ())}
-            dispatch_path = root_span_attrs['juju.dispatch_path']
+            dispatch_path = root_span_attrs.get('juju.dispatch_path')
+            if not dispatch_path:
+                logger.debug('dispatch path var not found in batch; skipping...')
+                continue
+
             state = root_span_attrs.get('state')
             if not state:
                 logger.warning(f"trace {trace_id} has no attached state. skipping...")
