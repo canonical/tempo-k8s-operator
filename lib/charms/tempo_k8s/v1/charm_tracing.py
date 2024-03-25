@@ -12,21 +12,19 @@ in real time from the Grafana dashboard the execution flow of your charm.
 To start using this library, you need to do two things:
 1) decorate your charm class with
 
-`@trace_charm(tracing_endpoint="my_tracing_endpoint")`
+>>> @trace_charm(tracing_endpoint="my_tracing_endpoint")
 
 2) add to your charm a "my_tracing_endpoint" (you can name this attribute whatever you like) **property**
 that returns an otlp http/https endpoint url. If you are using the `TracingEndpointProvider` as
 `self.tracing = TracingEndpointProvider(self)`, the implementation could be:
 
-```
-    @property
-    def my_tracing_endpoint(self) -> Optional[str]:
-        '''Tempo endpoint for charm tracing'''
-        if self.tracing.is_ready():
-            return self.tracing.otlp_http_endpoint()
-        else:
-            return None
-```
+>>>    @property
+>>>    def my_tracing_endpoint(self) -> Optional[str]:
+>>>        '''Tempo endpoint for charm tracing'''
+>>>        if self.tracing.is_ready():
+>>>            return self.tracing.otlp_http_endpoint()
+>>>        else:
+>>>            return None
 
 At this point your charm will be automatically instrumented so that:
 - charm execution starts a trace, containing
@@ -34,13 +32,13 @@ At this point your charm will be automatically instrumented so that:
     - every charm method call (except dunders) as a span
 
 if you wish to add more fine-grained information to the trace, you can do so by getting a hold of the tracer like so:
-```
-import opentelemetry
-...
-    @property
-    def tracer(self) -> opentelemetry.trace.Tracer:
-        return opentelemetry.trace.get_tracer(type(self).__name__)
-```
+
+>>> import opentelemetry
+>>> ...
+>>>     @property
+>>>     def tracer(self) -> opentelemetry.trace.Tracer:
+>>>         return opentelemetry.trace.get_tracer(type(self).__name__)
+
 
 By default, the tracer is named after the charm type. If you wish to override that, you can pass
 a different `service_name` argument to `trace_charm`.
@@ -58,58 +56,123 @@ of `charm_tracing` v0, you can replace it with):
 2) Update the charm method referenced to from `@trace` and `@trace_charm`,
 to return from `TracingEndpointRequirer.otlp_http_endpoint()` instead of `grpc_http`. For example:
 
-```
-    from charms.tempo_k8s.v0.charm_tracing import trace_charm
 
-    @trace_charm(
-        tracing_endpoint="my_tracing_endpoint",
-    )
-    class MyCharm(CharmBase):
-
-    ...
-
-        @property
-        def my_tracing_endpoint(self) -> Optional[str]:
-            '''Tempo endpoint for charm tracing'''
-            if self.tracing.is_ready():
-                return self.tracing.otlp_grpc_endpoint()
-            else:
-                return None
-```
+>>>    from charms.tempo_k8s.v0.charm_tracing import trace_charm
+...
+>>>    @trace_charm(
+>>>        tracing_endpoint="my_tracing_endpoint",
+>>>    )
+>>>    class MyCharm(CharmBase):
+...
+>>>    ...
+...
+>>>        @property
+>>>        def my_tracing_endpoint(self) -> Optional[str]:
+>>>            '''Tempo endpoint for charm tracing'''
+>>>            if self.tracing.is_ready():
+>>>                return self.tracing.otlp_grpc_endpoint()
+>>>            else:
+>>>                return None
 
 needs to be replaced with:
 
-```
-    from charms.tempo_k8s.v1.charm_tracing import trace_charm
-
-    @trace_charm(
-        tracing_endpoint="my_tracing_endpoint",
-    )
-    class MyCharm(CharmBase):
-
-    ...
-
-        @property
-        def my_tracing_endpoint(self) -> Optional[str]:
-            '''Tempo endpoint for charm tracing'''
-            if self.tracing.is_ready():
-                return self.tracing.otlp_http_endpoint()
-            else:
-                return None
-```
+>>>    from charms.tempo_k8s.v1.charm_tracing import trace_charm
+>>>
+>>>    @trace_charm(
+>>>        tracing_endpoint="my_tracing_endpoint",
+>>>    )
+>>>    class MyCharm(CharmBase):
+>>>
+>>>    ...
+>>>
+>>>        @property
+>>>        def my_tracing_endpoint(self) -> Optional[str]:
+>>>            '''Tempo endpoint for charm tracing'''
+>>>            if self.tracing.is_ready():
+>>>                return self.tracing.otlp_http_endpoint()
+>>>            else:
+>>>                return None
 
 3) If you were passing a certificate using `server_cert`, you need to change it to provide an *absolute* path to
 the certificate file.
-"""
 
+# Autoinstrumenting other objects
+
+The `@trace_charm` decorator accepts an `extra_types` argument to which you can pass a list of
+python classes that you also wish to autoinstrument. Method calls into these objects will become
+part of the trace.
+For example:
+
+>>>    from charms.tempo_k8s.v1.charm_tracing import trace_charm
+>>>    from somewhere import Something
+>>>
+>>>    @trace_charm(
+>>>        tracing_endpoint="my_tracing_endpoint",
+>>>        extra_types=[Something]
+>>>    )
+>>>    class MyCharm(CharmBase):
+>>>        def __init__(self, ...):
+>>>            self._something = Something(...)
+>>>            self._something.do()  # this will show up as a span
+
+
+Equivalently, you can import the `trace` decorator from the library and use it to manually annotate which classes or
+individual functions you want to be traced, like so:
+
+>>>    from charms.tempo_k8s.v1.charm_tracing import trace_charm, trace
+>>>
+>>>    @trace
+>>>    class Something:
+>>>        ...
+>>>
+>>>    @trace
+>>>    def also_do(*args):
+>>>        ...
+>>>
+>>>    @trace_charm(
+>>>        tracing_endpoint="my_tracing_endpoint",
+>>>    )
+>>>    class MyCharm(CharmBase):
+>>>        def __init__(self, ...):
+>>>            self._something = Something(...)
+>>>            self._something.do()  # this will show up as a span
+>>>            also_do()  # this too
+
+
+# Attaching state snapshots to traces
+
+`charmcraft fetch-lib charms.tempo_k8s.v0.snapshot`
+
+This library extends charm_tracing's functionality so that the charm state will be serialized to json and attached as
+an attribute to the ``charm exec`` root span.
+It will show up in grafana when you're inspecting the trace, allowing you to see at a glance the
+context that the charm was executed with.
+
+Once you've fetched it, you need to pass ``attach_state=True`` to ``trace_charm``.
+
+>>> import scenario
+>>> from charms.tempo_k8s.v1 import charm_tracing
+>>> from ops import CharmBase
+>>>
+>>> charm_tracing.configure_snapshot(active=True)
+>>>
+>>> @trace_charm(
+>>>         tracing_endpoint="tempo_otlp_http_endpoint",
+>>> )
+>>> class MyCharm(CharmBase):
+>>>     ...
+"""
+import dataclasses
 import functools
 import inspect
+import json
 import logging
 import os
 from contextlib import contextmanager
 from contextvars import Context, ContextVar, copy_context
 from pathlib import Path
 from typing import (
+    TYPE_CHECKING,
     Any,
     Callable,
     Generator,
@@ -126,17 +189,26 @@ from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExport
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import Span, TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.trace import INVALID_SPAN, Tracer
+from opentelemetry.trace import get_current_span as otlp_get_current_span
 from opentelemetry.trace import (
-    INVALID_SPAN,
-    Tracer,
     get_tracer,
     get_tracer_provider,
     set_span_in_context,
     set_tracer_provider,
 )
-from opentelemetry.trace import get_current_span as otlp_get_current_span
 from ops.charm import CharmBase
 from ops.framework import Framework
+
+try:
+    from charms.tempo_k8s.v0.snapshot import get_env, get_state, state_to_dict
+
+    _IS_SNAPSHOT_AVAILABLE = True
+except ModuleNotFoundError:
+    _IS_SNAPSHOT_AVAILABLE = False
+
+if TYPE_CHECKING:
+    pass
 
 # The unique Charmhub library identifier, never change it
 LIBID = "cb1705dcd1a14ca09b2e60187d1215c7"
@@ -147,7 +219,7 @@ LIBAPI = 1
 # Increment this PATCH version before using `charmcraft publish-lib` or reset
 # to 0 if you are raising the major API version
 
-LIBPATCH = 4
+LIBPATCH = 5
 
 PYDEPS = ["opentelemetry-exporter-otlp-proto-http>=1.21.0"]
 
@@ -157,6 +229,36 @@ tracer: ContextVar[Tracer] = ContextVar("tracer")
 _GetterType = Union[Callable[[CharmBase], Optional[str]], property]
 
 CHARM_TRACING_ENABLED = "CHARM_TRACING_ENABLED"
+
+
+@dataclasses.dataclass
+class _SnapshotConfig:
+    active: bool = False
+    """Whether a state snapshot should be attached to the 'charm exec' root span."""
+    show_secrets_insecure: bool = False
+    """Whether plaintext secrets should be included in the snapshot."""
+
+
+SNAPSHOT_CONFIG = _SnapshotConfig()
+
+
+def configure_snapshot(
+    *,
+    active: bool = False,
+    show_secrets_insecure: bool = False,
+):
+    """Configures the snapshot functionality.
+
+    Note that SNAPSHOT_CONFIG will be used when the root span is being set-up, i.e. right
+    **before** charm.__init__ is called. This means, if you want to toggle it from charm code,
+    you might need to be creative.
+    """
+    if not _IS_SNAPSHOT_AVAILABLE:
+        logger.warning("snapshot unavailable: can't configure")
+        return
+
+    global SNAPSHOT_CONFIG
+    SNAPSHOT_CONFIG = _SnapshotConfig(active=active, show_secrets_insecure=show_secrets_insecure)
 
 
 def is_enabled() -> bool:
@@ -233,11 +335,38 @@ class UntraceableObjectError(TracingError):
     """Raised when an object you're attempting to instrument cannot be autoinstrumented."""
 
 
-def _get_tracing_endpoint(tracing_endpoint_getter, self, charm):
-    if isinstance(tracing_endpoint_getter, property):
-        tracing_endpoint = tracing_endpoint_getter.__get__(self)
-    else:  # method or callable
-        tracing_endpoint = tracing_endpoint_getter(self)
+def _get_charm_attr(attr, self, charm):
+    if isinstance(attr, property):
+        value = attr.__get__(self)
+    elif callable(attr):
+        value = attr(self)
+    else:
+        raise TypeError(f"{charm}.{attr} should be a property or a callable (method)")
+    return value
+
+
+def _get_state(self: CharmBase) -> Optional[str]:
+    if not _IS_SNAPSHOT_AVAILABLE:
+        logger.warning("snapshot config marked as active, but snapshot lib is not available.")
+        return None
+
+    state = get_state(self, show_secrets_insecure=SNAPSHOT_CONFIG.show_secrets_insecure)
+    return json.dumps(state_to_dict(state), indent=2)
+
+
+def _get_env() -> Optional[str]:
+    if not _IS_SNAPSHOT_AVAILABLE:
+        logger.warning("snapshot config marked as active, but snapshot lib is not available.")
+        return None
+
+    env = get_env(juju_only=True)
+    return json.dumps(env, indent=2)
+
+
+def _get_tracing_endpoint(
+    tracing_endpoint_getter: _GetterType, self: CharmBase, charm: Type[CharmBase]
+) -> Optional[str]:
+    tracing_endpoint = _get_charm_attr(tracing_endpoint_getter, self, charm)
 
     if tracing_endpoint is None:
         logger.debug(
@@ -277,7 +406,7 @@ def _get_server_cert(server_cert_getter, self, charm):
 def _setup_root_span_initializer(
     charm: Type[CharmBase],
     tracing_endpoint_getter: _GetterType,
-    server_cert_getter: Optional[_GetterType],
+    server_cert_getter: Optional[_GetterType] = None,
     service_name: Optional[str] = None,
 ):
     """Patch the charm's initializer."""
@@ -303,11 +432,11 @@ def _setup_root_span_initializer(
                 "service.name": _service_name,
                 "compose_service": _service_name,
                 "charm_type": type(self).__name__,
-                # juju topology
-                "juju_unit": self.unit.name,
-                "juju_application": self.app.name,
-                "juju_model": self.model.name,
-                "juju_model_uuid": self.model.uuid,
+                # juju topology, but dots instead of underscores
+                "juju.unit": self.unit.name,
+                "juju.application": self.app.name,
+                "juju.model.name": self.model.name,
+                "juju.model.uuid": self.model.uuid,
             }
         )
         provider = TracerProvider(resource=resource)
@@ -337,14 +466,29 @@ def _setup_root_span_initializer(
         # on the assumption that spans will be used as contextmanagers.
         # Since we don't (as we need to close the span on framework.commit),
         # we need to manually set the root span as current.
-        span = _tracer.start_span("charm exec", attributes={"juju.dispatch_path": dispatch_path})
+        attributes = {"juju.dispatch_path": dispatch_path}
+        span = _tracer.start_span(f"charm-exec/{dispatch_path.split('/')[1]}", attributes=attributes)
         ctx = set_span_in_context(span)
 
-        # log a trace id so we can look it up in tempo.
+        # log a trace id, so we can grab it from e.g. jhack.
         root_trace_id = hex(span.get_span_context().trace_id)[2:]  # strip 0x prefix
         logger.debug(f"Starting root trace with id={root_trace_id!r}.")
 
         span_token = opentelemetry.context.attach(ctx)  # type: ignore
+
+        if SNAPSHOT_CONFIG.active:
+            with _span("snapshot"):
+                logger.debug("gathering env...")
+                env = _get_env()
+                if env:
+                    span.set_attribute("env", env)
+
+                logger.debug("gathering state...")
+                state = _get_state(self)
+                if state:
+                    span.set_attribute("state", state)
+                else:
+                    logger.debug(f"could not collect state for {self}")
 
         @contextmanager
         def wrap_event_context(event_name: str):
@@ -386,19 +530,26 @@ def trace_charm(
     Use this function to get out-of-the-box traces for all events emitted on this charm and all
     method calls on instances of this class.
 
-    Usage:
+    Basic usage:
+    >>> import scenario
     >>> from charms.tempo_k8s.v1.charm_tracing import trace_charm
     >>> from charms.tempo_k8s.v1.tracing import TracingEndpointProvider
+    >>> from charms.tempo_k8s.v0.snapshot import get_state
     >>> from ops import CharmBase
     >>>
     >>> @trace_charm(
     >>>         tracing_endpoint="tempo_otlp_http_endpoint",
+    >>>         state="state",
     >>> )
     >>> class MyCharm(CharmBase):
     >>>
     >>>     def __init__(self, framework: Framework):
     >>>         ...
     >>>         self.tracing = TracingEndpointProvider(self)
+    >>>
+    >>>     @property
+    >>>     def state(self) -> scenario.State:
+    >>>         return get_state()
     >>>
     >>>     @property
     >>>     def tempo_otlp_http_endpoint(self) -> Optional[str]:

@@ -1,8 +1,9 @@
 from unittest.mock import patch
 
 import pytest
-from charm import TempoCharm
 from scenario import Context
+
+from charm import TempoCharm
 
 
 @pytest.fixture
