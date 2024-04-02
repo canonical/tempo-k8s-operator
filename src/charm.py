@@ -2,10 +2,11 @@
 # Copyright 2024 Canonical Ltd.
 # See LICENSE file for licensing details.
 
-"""Charmed Operator for Tempo; a lightweight elasticsearch alternative."""
+"""Charmed Operator for Tempo; a lightweight object storage based tracing backend."""
 
 import logging
 import re
+import socket
 from typing import Optional, Tuple
 
 import charms.tempo_k8s.v1.tracing as tracing_v1
@@ -21,6 +22,7 @@ from charms.tempo_k8s.v2.tracing import (
     TracingEndpointProvider,
 )
 from charms.traefik_k8s.v2.ingress import IngressPerAppRequirer
+from nginx import Nginx
 from ops.charm import (
     CharmBase,
     CollectStatusEvent,
@@ -48,18 +50,21 @@ LEGACY_RECEIVER_PROTOCOLS = (
 
 @trace_charm(
     tracing_endpoint="tempo_otlp_http_endpoint",
-    extra_types=(Tempo, TracingEndpointProvider, tracing_v1.TracingEndpointProvider),
+    extra_types=(Tempo, TracingEndpointProvider, tracing_v1.TracingEndpointProvider, Nginx),
 )
 class TempoCharm(CharmBase):
     """Charmed Operator for Tempo; a distributed tracing backend."""
 
     def __init__(self, *args):
         super().__init__(*args)
+        self._nginx_container = self.unit.get_container("nginx")
         self.tempo = tempo = Tempo(
             self.unit.get_container("tempo"),
             # we need otlp_http receiver for charm_tracing
             enable_receivers=["otlp_http"],
         )
+        # set up a nginx container for routing to ingestion protocols and API
+        self.nginx = Nginx(server_name=self.hostname)
         # configure this tempo as a datasource in grafana
         self.grafana_source_provider = GrafanaSourceProvider(
             self, source_type="tempo", source_port=str(tempo.tempo_port)
@@ -74,7 +79,7 @@ class TempoCharm(CharmBase):
         )
         # Enable log forwarding for Loki and other charms that implement loki_push_api
         self._logging = LogProxyConsumer(
-            self, relation_name="logging", log_files=[self.tempo.log_path]
+            self, relation_name="logging", log_files=[self.tempo.log_path], container_name="tempo"
         )
         self._grafana_dashboards = GrafanaDashboardProvider(
             self, relation_name="grafana-dashboard"
@@ -85,12 +90,13 @@ class TempoCharm(CharmBase):
         # )
 
         self._tracing = TracingEndpointProvider(self, host=tempo.host)
-        self._ingress = IngressPerAppRequirer(self, port=self.tempo.tempo_port)
+        self._ingress = IngressPerAppRequirer(self, port=8080)
 
         self.framework.observe(self.on.tempo_pebble_ready, self._on_tempo_pebble_ready)
         self.framework.observe(
             self.on.tempo_pebble_custom_notice, self._on_tempo_pebble_custom_notice
         )
+        self.framework.observe(self.on.nginx_pebble_ready, self._on_nginx_pebble_ready)
         self.framework.observe(self.on.update_status, self._on_update_status)
         self.framework.observe(self._tracing.on.request, self._on_tracing_request)
         self.framework.observe(self.on.tracing_relation_created, self._on_tracing_relation_created)
@@ -295,6 +301,31 @@ class TempoCharm(CharmBase):
             e.add_status(WaitingStatus("Tempo API not ready just yet..."))
 
         e.add_status(ActiveStatus())
+
+    def _on_nginx_pebble_ready(self, _) -> None:
+        self._ensure_pebble_layer()
+
+    def _ensure_pebble_layer(self) -> None:
+        self._nginx_container.push(
+            # TODO add TLS support
+            self.nginx.config_path,
+            self.nginx.config(tls=False),
+            make_dirs=True,
+        )
+        self._nginx_container.add_layer("nginx", self.nginx.layer, combine=True)
+        self._nginx_container.autostart()
+
+    @property
+    def hostname(self) -> str:
+        """Unit's hostname."""
+        return socket.getfqdn()
+
+    @property
+    def internal_url(self) -> str:
+        """Returns workload's FQDN. Used for ingress."""
+        # TODO HTTPS support
+        scheme = "http"
+        return f"{scheme}://{socket.getfqdn()}:8080"
 
 
 if __name__ == "__main__":  # pragma: nocover
