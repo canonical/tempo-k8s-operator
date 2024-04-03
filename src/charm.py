@@ -63,14 +63,15 @@ class TempoCharm(CharmBase):
             # we need otlp_http receiver for charm_tracing
             enable_receivers=["otlp_http"],
         )
+        self.receiver_ports = tempo.get_ports(self.app.name)
         # set up a nginx container for routing to ingestion protocols and API
-        self.nginx = Nginx(server_name=self.hostname)
+        self.nginx = Nginx(server_name=self.hostname, ports = self.tempo.receiver_ports)
         # configure this tempo as a datasource in grafana
         self.grafana_source_provider = GrafanaSourceProvider(
             self, source_type="tempo", source_port=str(tempo.tempo_port)
         )
         # # Patch the juju-created Kubernetes service to contain the right ports
-        self._service_patcher = KubernetesServicePatch(self, tempo.get_ports(self.app.name))
+        self._service_patcher = KubernetesServicePatch(self, self.receiver_ports)
         # Provide ability for Tempo to be scraped by Prometheus using prometheus_scrape
         self._scraping = MetricsEndpointProvider(
             self,
@@ -90,7 +91,7 @@ class TempoCharm(CharmBase):
         # )
 
         self._tracing = TracingEndpointProvider(self, host=tempo.host)
-        self._ingress = IngressPerAppRequirer(self, port=8080)
+        self._ingress = IngressPerAppRequirer(self, port=8080, strip_prefix = True)
 
         self.framework.observe(self.on.tempo_pebble_ready, self._on_tempo_pebble_ready)
         self.framework.observe(

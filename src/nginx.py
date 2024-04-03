@@ -3,10 +3,12 @@
 """Nginx workload."""
 
 import logging
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import crossplane
 from ops.pebble import Layer
+
+from charms.tempo_k8s.v2.tracing import ReceiverProtocol
 
 logger = logging.getLogger(__name__)
 
@@ -17,22 +19,6 @@ KEY_PATH = f"{NGINX_DIR}/certs/server.key"
 CERT_PATH = f"{NGINX_DIR}/certs/server.cert"
 CA_CERT_PATH = f"{NGINX_DIR}/certs/ca.cert"
 
-_PORTS_BY_PROTOCOL = [
-    {
-        "directive": "upstream",
-        "args": ["api"],
-        "block": [
-            {"directive": "server", "args": [f"localhost:3200"]}
-        ],
-    },
-    {
-        "directive": "upstream",
-        "args": ["otlp_http"],
-        "block": [
-            {"directive": "server", "args": [f"localhost:4318"]}
-        ],
-    }
-]
 
 
 class Nginx:
@@ -40,8 +26,9 @@ class Nginx:
 
     config_path = NGINX_CONFIG
 
-    def __init__(self, server_name: str):
+    def __init__(self, server_name: str, ports: Dict[ReceiverProtocol, int] = None):
         self.server_name = server_name
+        self.ports = ports
 
     def config(self, tls: bool = False) -> str:
         """Build and return the Nginx configuration."""
@@ -63,21 +50,7 @@ class Nginx:
                 "args": [],
                 "block": [
                     # upstreams (load balancing)
-                    # TODO once Tempo is HA we'll need addresses_by_role similar to mimir
-                    {
-                        "directive": "upstream",
-                        "args": ["api"],
-                        "block": [
-                            {"directive": "server", "args": [f"localhost:3200"]}
-                        ],
-                    },
-                    {
-                        "directive": "upstream",
-                        "args": ["otlp_http"],
-                        "block": [
-                            {"directive": "server", "args": [f"localhost:4318"]}
-                        ],
-                    },
+                    *self._upstreams(),
                     # temp paths
                     {"directive": "client_body_temp_path", "args": ["/tmp/client_temp"]},
                     {"directive": "proxy_temp_path", "args": ["/tmp/proxy_temp_path"]},
@@ -110,6 +83,8 @@ class Nginx:
                 ],
             },
         ]
+
+        logger.info(f"Built configuration: {full_config}")
 
         return crossplane.build(full_config)
 
@@ -146,15 +121,16 @@ class Nginx:
             {"directive": "access_log", "args": ["/dev/stderr"]},
         ]
 
-    def _upstreams(self, addresses_by_role: Dict[str, Set[str]]) -> List[Dict[str, Any]]:
+    def _upstreams(self) -> List[Dict[str, Any]]:
         nginx_upstreams = []
-        for role, address_set in addresses_by_role.items():
+        for protocol, port in self.ports.items():
             nginx_upstreams.append(
                 {
                     "directive": "upstream",
-                    "args": [role],
+                    "args": [protocol],
                     "block": [
-                        {"directive": "server", "args": [f"{addr}:8080"]} for addr in address_set
+                        # TODO for HA Tempo we'll need to add redirects to worker nodes similar to mimir
+                        {"directive": "server", "args": [f"localhost:{port}"]}
                     ],
                 }
             )
@@ -178,28 +154,19 @@ class Nginx:
         return []
 
     def _locations(self) -> List[Dict[str, Any]]:
-        return [
-            {
+        locations = []
+        for protocol, _ in self.ports.items():
+            locations.append({
                 "directive": "location",
-                "args": ["/api/"],
+                "args": [f"/{protocol}/"],
                 "block": [
                     {
-                        "directive": "proxy_pass",
-                        "args": ["http://api/"],
+                        "directive": "proxy_pass" if "grpc" not in protocol else "grpc_pass",
+                        "args": [f"http://{protocol}/" if "grpc" not in protocol else f"grpc://{protocol}"],
                     },
                 ],
-            },
-            {
-                "directive": "location",
-                "args": ["/otlp_http/"],
-                "block": [
-                    {
-                        "directive": "proxy_pass",
-                        "args": ["http://otlp_http/"],
-                    },
-                ],
-            },
-        ]
+            })
+        return locations
 
     def _server(self, tls: bool = False) -> Dict[str, Any]:
         auth_enabled = False
@@ -230,7 +197,6 @@ class Nginx:
                     {"directive": "ssl_certificate_key", "args": [KEY_PATH]},
                     {"directive": "ssl_protocols", "args": ["TLSv1", "TLSv1.1", "TLSv1.2"]},
                     {"directive": "ssl_ciphers", "args": ["HIGH:!aNULL:!MD5"]},  # pyright: ignore
-                    # TODO what's tempo's equivalent of this one?
                     *self._locations(),
                 ],
             }
