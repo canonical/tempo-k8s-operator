@@ -126,15 +126,14 @@ from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExport
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import Span, TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.trace import INVALID_SPAN, Tracer
+from opentelemetry.trace import get_current_span as otlp_get_current_span
 from opentelemetry.trace import (
-    INVALID_SPAN,
-    Tracer,
     get_tracer,
     get_tracer_provider,
     set_span_in_context,
     set_tracer_provider,
 )
-from opentelemetry.trace import get_current_span as otlp_get_current_span
 from ops.charm import CharmBase
 from ops.framework import Framework
 
@@ -147,7 +146,7 @@ LIBAPI = 1
 # Increment this PATCH version before using `charmcraft publish-lib` or reset
 # to 0 if you are raising the major API version
 
-LIBPATCH = 4
+LIBPATCH = 5
 
 PYDEPS = ["opentelemetry-exporter-otlp-proto-http>=1.21.0"]
 
@@ -241,8 +240,8 @@ def _get_tracing_endpoint(tracing_endpoint_getter, self, charm):
 
     if tracing_endpoint is None:
         logger.debug(
-            "Charm tracing is disabled. Tracing endpoint is not defined - "
-            "tracing is not available or relation is not set."
+            f"{charm}.{tracing_endpoint_getter} returned None; quietly disabling "
+            f"charm_tracing for the run."
         )
         return
     elif not isinstance(tracing_endpoint, str):
@@ -311,7 +310,18 @@ def _setup_root_span_initializer(
             }
         )
         provider = TracerProvider(resource=resource)
-        tracing_endpoint = _get_tracing_endpoint(tracing_endpoint_getter, self, charm)
+        try:
+            tracing_endpoint = _get_tracing_endpoint(tracing_endpoint_getter, self, charm)
+        except Exception:
+            # if anything goes wrong with retrieving the endpoint, we go on with tracing disabled.
+            # better than breaking the charm.
+            logger.exception(
+                f"exception retrieving the tracing "
+                f"endpoint from {charm}.{tracing_endpoint_getter}; "
+                f"proceeding with charm_tracing DISABLED. "
+            )
+            return
+
         if not tracing_endpoint:
             return
 

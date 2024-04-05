@@ -3,8 +3,16 @@ import os
 from unittest.mock import patch
 
 import pytest
+import scenario
 from charms.tempo_k8s.v1.charm_tracing import CHARM_TRACING_ENABLED
 from charms.tempo_k8s.v1.charm_tracing import _autoinstrument as autoinstrument
+from charms.tempo_k8s.v2.tracing import (
+    ProtocolNotRequestedError,
+    Receiver,
+    TracingEndpointRequirer,
+    TracingProviderAppData,
+    TracingRequirerAppData,
+)
 from ops import EventBase, EventSource, Framework
 from ops.charm import CharmBase, CharmEvents
 from scenario import Context, State
@@ -147,7 +155,7 @@ def test_base_tracer_endpoint_disabled(caplog):
         ctx = Context(MyCharmSimpleDisabled, meta=MyCharmSimpleDisabled.META)
         ctx.run("start", State())
 
-        assert "Charm tracing is disabled." in caplog.text
+        assert "quietly disabling charm_tracing for the run." in caplog.text
         assert not f.called
 
 
@@ -338,3 +346,114 @@ def test_base_tracer_endpoint_custom_event(caplog):
             assert span.parent
             assert span.parent.trace_id
         assert len({(span.parent.trace_id if span.parent else 0) for span in spans}) == 2
+
+
+class MyRemoteCharm(CharmBase):
+    META = {"name": "charlie", "requires": {"tracing": {"interface": "tracing", "limit": 1}}}
+    _request = True
+
+    def __init__(self, framework: Framework):
+        super().__init__(framework)
+        self.tracing = TracingEndpointRequirer(
+            self, "tracing", protocols=(["otlp_http"] if self._request else [])
+        )
+
+    def tempo(self):
+        return self.tracing.get_endpoint("otlp_http")
+
+
+autoinstrument(MyRemoteCharm, MyRemoteCharm.tempo)
+
+
+@pytest.mark.parametrize("leader", (True, False))
+def test_tracing_requirer_remote_charm_request_response(leader):
+    # IF the leader unit (whoever it is) did request the endpoint to be activated
+    MyRemoteCharm._request = True
+    ctx = Context(MyRemoteCharm, meta=MyRemoteCharm.META)
+    # WHEN you get any event AND the remote unit has already replied
+    tracing = scenario.Relation(
+        "tracing",
+        # if we're not leader, assume the leader did its part already
+        local_app_data=TracingRequirerAppData(receivers=["otlp_http"]).dump()
+        if not leader
+        else {},
+        remote_app_data=TracingProviderAppData(
+            host="foo.com", receivers=[Receiver(port=80, protocol="otlp_http")]
+        ).dump(),
+    )
+    with ctx.manager("start", State(leader=leader, relations=[tracing])) as mgr:
+        # THEN you're good
+        assert mgr.charm.tempo() == "http://foo.com:80"
+
+
+@pytest.mark.parametrize("leader", (True, False))
+def test_tracing_requirer_remote_charm_no_request_but_response(leader):
+    # IF the leader did NOT request the endpoint to be activated
+    MyRemoteCharm._request = False
+    ctx = Context(MyRemoteCharm, meta=MyRemoteCharm.META)
+    # WHEN you get any event AND the remote unit has already replied
+    tracing = scenario.Relation(
+        "tracing",
+        # empty local app data
+        remote_app_data=TracingProviderAppData(
+            host="foo.com",
+            # but the remote end has sent the data you need
+            receivers=[Receiver(port=80, protocol="otlp_http")],
+        ).dump(),
+    )
+    with ctx.manager("start", State(leader=leader, relations=[tracing])) as mgr:
+        # THEN you're lucky, but you're good
+        assert mgr.charm.tempo() == "http://foo.com:80"
+
+
+@pytest.mark.parametrize("relation", (True, False))
+@pytest.mark.parametrize("leader", (True, False))
+def test_tracing_requirer_remote_charm_no_request_no_response(leader, relation):
+    """Verify that the charm successfully executes (with charm_tracing disabled) if the tempo() call raises."""
+    # IF the leader did NOT request the endpoint to be activated
+    MyRemoteCharm._request = False
+    ctx = Context(MyRemoteCharm, meta=MyRemoteCharm.META)
+    # WHEN you get any event
+    if relation:
+        # AND you have an empty relation
+        tracing = scenario.Relation(
+            "tracing",
+            # empty local and remote app data
+        )
+        relations = [tracing]
+    else:
+        # OR no relation at all
+        relations = []
+
+    # THEN you're not totally good: self.tempo() will raise, but charm exec will still exit 0
+    with ctx.manager("start", State(leader=leader, relations=relations)) as mgr:
+        with pytest.raises(ProtocolNotRequestedError):
+            assert mgr.charm.tempo() is None
+
+
+class MyRemoteBorkyCharm(CharmBase):
+    META = {"name": "charlie", "requires": {"tracing": {"interface": "tracing", "limit": 1}}}
+    _borky_return_value = None
+
+    def tempo(self):
+        return self._borky_return_value
+
+
+autoinstrument(MyRemoteBorkyCharm, MyRemoteBorkyCharm.tempo)
+
+
+@pytest.mark.parametrize("borky_return_value", (True, 42, object(), 0.2, [], (), {}))
+def test_borky_tempo_return_value(borky_return_value, caplog):
+    """Verify that the charm exits 0 (with charm_tracing disabled) if the tempo() call returns bad values."""
+    # IF the charm's tempo endpoint getter returns anything but None or str
+    MyRemoteBorkyCharm._borky_return_value = borky_return_value
+    ctx = Context(MyRemoteBorkyCharm, meta=MyRemoteBorkyCharm.META)
+    # WHEN you get any event
+    # THEN you're not totally good: self.tempo() will raise, but charm exec will still exit 0
+
+    ctx.run("start", State())
+    # traceback from the TypeError raised by _get_tracing_endpoint
+    assert "should return a tempo endpoint" in caplog.text
+    # logger.exception in _setup_root_span_initializer
+    assert "exception retrieving the tracing endpoint from" in caplog.text
+    assert "proceeding with charm_tracing DISABLED." in caplog.text
