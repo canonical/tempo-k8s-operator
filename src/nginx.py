@@ -1,8 +1,9 @@
-# Copyright 2023 Canonical
+# Copyright 2024 Canonical
 # See LICENSE file for licensing details.
 """Nginx workload."""
 
 import logging
+from subprocess import getoutput, CalledProcessError
 from typing import Any, Dict, List, Optional
 
 import crossplane
@@ -81,8 +82,6 @@ class Nginx:
                 ],
             },
         ]
-
-        logger.info(f"Built configuration: {full_config}")
 
         return crossplane.build(full_config)
 
@@ -174,6 +173,16 @@ class Nginx:
             )
         return locations
 
+    def is_ready(self):
+        """Whether the tempo built-in readiness check reports 'ready'."""
+        try:
+            out = getoutput(f"curl http://localhost:8080").split(
+                "\n"
+            )[-1]
+        except (CalledProcessError, IndexError):
+            return False
+        return out == "ready"
+
     def _server(self, tls: bool = False) -> Dict[str, Any]:
         auth_enabled = False
 
@@ -218,7 +227,7 @@ class Nginx:
                     "directive": "location",
                     "args": ["=", "/"],
                     "block": [
-                        {"directive": "return", "args": ["200", "'OK'"]},
+                        {"directive": "return", "args": ["200", "'ready'"]},
                         {"directive": "auth_basic", "args": ["off"]},
                     ],
                 },

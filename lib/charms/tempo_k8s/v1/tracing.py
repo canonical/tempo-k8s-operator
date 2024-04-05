@@ -93,7 +93,7 @@ LIBAPI = 1
 
 # Increment this PATCH version before using `charmcraft publish-lib` or reset
 # to 0 if you are raising the major API version
-LIBPATCH = 3
+LIBPATCH = 4
 
 PYDEPS = ["pydantic>=2"]
 
@@ -126,6 +126,8 @@ class DatabagModel(BaseModel):
     """Base databag model."""
 
     model_config = ConfigDict(
+        # ignore extra fields in config
+        extra="ignore",
         # Allow instantiating this class by field name (instead of forcing alias).
         populate_by_name=True,
         # Custom config key: whether to nest the whole datastructure (as json)

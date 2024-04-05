@@ -21,7 +21,7 @@ from charms.tempo_k8s.v2.tracing import (
     RequestEvent,
     TracingEndpointProvider,
 )
-from charms.traefik_k8s.v2.ingress import IngressPerAppRequirer
+from charms.traefik_k8s.v2.ingress import IngressPerAppRequirer, IngressPerAppReadyEvent, IngressPerAppRevokedEvent
 from nginx import Nginx
 from ops.charm import (
     CharmBase,
@@ -89,8 +89,8 @@ class TempoCharm(CharmBase):
         #     self, jobs=[{"static_configs": [{"targets": ["*:4080"]}]}]
         # )
 
-        self._tracing = TracingEndpointProvider(self, host=tempo.host)
         self._ingress = IngressPerAppRequirer(self, port=8080, strip_prefix=True)
+        self._tracing = TracingEndpointProvider(self, host=self._ingress.url if self._ingress.is_ready() else tempo.host)
 
         self.framework.observe(self.on.tempo_pebble_ready, self._on_tempo_pebble_ready)
         self.framework.observe(
@@ -319,13 +319,6 @@ class TempoCharm(CharmBase):
     def hostname(self) -> str:
         """Unit's hostname."""
         return socket.getfqdn()
-
-    @property
-    def internal_url(self) -> str:
-        """Returns workload's FQDN. Used for ingress."""
-        # TODO HTTPS support
-        scheme = "http"
-        return f"{scheme}://{socket.getfqdn()}:8080"
 
 
 if __name__ == "__main__":  # pragma: nocover

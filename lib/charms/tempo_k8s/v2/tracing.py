@@ -104,7 +104,7 @@ LIBAPI = 2
 
 # Increment this PATCH version before using `charmcraft publish-lib` or reset
 # to 0 if you are raising the major API version
-LIBPATCH = 2
+LIBPATCH = 3
 
 PYDEPS = ["pydantic"]
 
@@ -296,6 +296,7 @@ class Receiver(BaseModel):  # noqa: D101
 
     protocol: ReceiverProtocol
     port: int
+    path: Optional[str] = None
 
 
 class TracingProviderAppData(DatabagModel):  # noqa: D101
@@ -556,6 +557,7 @@ class TracingEndpointProvider(Object):
         try:
             databag = TracingRequirerAppData.load(relation.data[app])
         except (json.JSONDecodeError, pydantic.ValidationError, DataValidationError):
+            logger.exception("What was that error again?")
             logger.info(f"relation {relation} is not ready to talk tracing v2")
             raise NotReadyError()
         return databag.receivers
@@ -586,7 +588,8 @@ class TracingEndpointProvider(Object):
                 TracingProviderAppData(
                     host=self._host,
                     receivers=[
-                        Receiver(port=port, protocol=protocol) for protocol, port in receivers
+                        # TODO this should not be a hardcoded port
+                        Receiver(port=port, protocol=protocol, path=f"/{protocol}") for protocol, port in receivers
                     ],
                 ).dump(relation.data[self._charm.app])
 
@@ -802,9 +805,17 @@ class TracingEndpointRequirer(Object):
             if receiver.protocol in ["otlp_grpc", "jaeger_grpc"]:
                 if ssl:
                     logger.warning("unused ssl argument - was the right protocol called?")
+                if receiver.path:
+                    # TODO does this really work well with GRPC traces? there's grpc_pass in Tempo nginx so it should
+                    return f"{ep.host}{receiver.path}"
                 return f"{ep.host}:{receiver.port}"
             if ssl:
+                if receiver.path:
+                    # if there's a path argument, it means tempo is deployed behind ingress so port will not be there.
+                    return f"{ep.host}{receiver.path}"
                 return f"https://{ep.host}:{receiver.port}"
+            if receiver.path:
+                return f"{ep.host}{receiver.path}"
             return f"http://{ep.host}:{receiver.port}"
         except StopIteration:
             logger.error(f"no receiver found with protocol={protocol!r}")
