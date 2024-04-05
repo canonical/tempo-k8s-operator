@@ -148,7 +148,7 @@ LIBAPI = 1
 
 LIBPATCH = 5
 
-PYDEPS = ["opentelemetry-exporter-otlp-proto-http>=1.21.0"]
+PYDEPS = ["opentelemetry-exporter-otlp-proto-http==1.21.0"]
 
 logger = logging.getLogger("tracing")
 
