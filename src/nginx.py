@@ -3,12 +3,11 @@
 """Nginx workload."""
 
 import logging
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional
 
 import crossplane
-from ops.pebble import Layer
-
 from charms.tempo_k8s.v2.tracing import ReceiverProtocol
+from ops.pebble import Layer
 
 logger = logging.getLogger(__name__)
 
@@ -20,13 +19,12 @@ CERT_PATH = f"{NGINX_DIR}/certs/server.cert"
 CA_CERT_PATH = f"{NGINX_DIR}/certs/ca.cert"
 
 
-
 class Nginx:
     """Helper class to manage the nginx workload."""
 
     config_path = NGINX_CONFIG
 
-    def __init__(self, server_name: str, ports: Dict[ReceiverProtocol, int] = None):
+    def __init__(self, server_name: str, ports: Dict[ReceiverProtocol, int]):
         self.server_name = server_name
         self.ports = ports
 
@@ -156,16 +154,24 @@ class Nginx:
     def _locations(self) -> List[Dict[str, Any]]:
         locations = []
         for protocol, _ in self.ports.items():
-            locations.append({
-                "directive": "location",
-                "args": [f"/{protocol}/"],
-                "block": [
-                    {
-                        "directive": "proxy_pass" if "grpc" not in protocol else "grpc_pass",
-                        "args": [f"http://{protocol}/" if "grpc" not in protocol else f"grpc://{protocol}"],
-                    },
-                ],
-            })
+            locations.append(
+                {
+                    "directive": "location",
+                    "args": [f"/{protocol}/"],
+                    "block": [
+                        {
+                            "directive": "proxy_pass" if "grpc" not in protocol else "grpc_pass",
+                            "args": [
+                                (
+                                    f"http://{protocol}/"
+                                    if "grpc" not in protocol
+                                    else f"grpc://{protocol}"
+                                )
+                            ],
+                        },
+                    ],
+                }
+            )
         return locations
 
     def _server(self, tls: bool = False) -> Dict[str, Any]:
@@ -220,6 +226,6 @@ class Nginx:
                     "directive": "proxy_set_header",
                     "args": ["X-Scope-OrgID", "$ensured_x_scope_orgid"],
                 },
-                *self._locations()
+                *self._locations(),
             ],
         }

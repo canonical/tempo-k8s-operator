@@ -28,6 +28,7 @@ def tempo_metadata(ops_test: OpsTest):
 def tempo_oci_image(ops_test: OpsTest, tempo_metadata):
     return tempo_metadata["resources"]["tempo-image"]["upstream-source"]
 
+
 @fixture(scope="module")
 def nginx_oci_image(ops_test: OpsTest, tempo_metadata):
     return tempo_metadata["resources"]["nginx-image"]["upstream-source"]

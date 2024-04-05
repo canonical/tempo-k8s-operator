@@ -32,7 +32,6 @@ from ops.charm import (
 )
 from ops.main import main
 from ops.model import ActiveStatus, MaintenanceStatus, Relation, WaitingStatus
-
 from tempo import Tempo
 
 logger = logging.getLogger(__name__)
@@ -65,7 +64,7 @@ class TempoCharm(CharmBase):
         )
         self.receiver_ports = tempo.get_ports(self.app.name)
         # set up a nginx container for routing to ingestion protocols and API
-        self.nginx = Nginx(server_name=self.hostname, ports = self.tempo.receiver_ports)
+        self.nginx = Nginx(server_name=self.hostname, ports=self.tempo.receiver_ports)
         # configure this tempo as a datasource in grafana
         self.grafana_source_provider = GrafanaSourceProvider(
             self, source_type="tempo", source_port=str(tempo.tempo_port)
@@ -91,7 +90,7 @@ class TempoCharm(CharmBase):
         # )
 
         self._tracing = TracingEndpointProvider(self, host=tempo.host)
-        self._ingress = IngressPerAppRequirer(self, port=8080, strip_prefix = True)
+        self._ingress = IngressPerAppRequirer(self, port=8080, strip_prefix=True)
 
         self.framework.observe(self.on.tempo_pebble_ready, self._on_tempo_pebble_ready)
         self.framework.observe(
