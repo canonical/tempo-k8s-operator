@@ -6,7 +6,7 @@ import pytest
 import yaml
 from pytest_operator.plugin import OpsTest
 
-METADATA = yaml.safe_load(Path("./metadata.yaml").read_text())
+METADATA = yaml.safe_load(Path("./charmcraft.yaml").read_text())
 APP_NAME = METADATA["name"]
 TESTER_METADATA = yaml.safe_load(Path("./tests/integration/tester/metadata.yaml").read_text())
 TESTER_APP_NAME = TESTER_METADATA["name"]
