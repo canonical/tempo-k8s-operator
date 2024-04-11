@@ -83,6 +83,11 @@ class Tempo:
         return socket.getfqdn()
 
     @property
+    def url(self) -> str:
+        """Base url at which the tempo server is locally reachable."""
+        return f"http://{self.host}"
+
+    @property
     def supported_receivers(self) -> Tuple[ReceiverProtocol, ...]:
         """All receivers supported by this Tempo client."""
         return self._supported_receivers

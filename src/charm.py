@@ -10,6 +10,7 @@ import socket
 from typing import Optional, Tuple
 
 import charms.tempo_k8s.v1.tracing as tracing_v1
+import ops
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
 from charms.grafana_k8s.v0.grafana_source import GrafanaSourceProvider
 from charms.loki_k8s.v0.loki_push_api import LogProxyConsumer
@@ -21,7 +22,7 @@ from charms.tempo_k8s.v2.tracing import (
     RequestEvent,
     TracingEndpointProvider,
 )
-from charms.traefik_k8s.v2.ingress import IngressPerAppRequirer, IngressPerAppReadyEvent, IngressPerAppRevokedEvent
+from charms.traefik_k8s.v2.ingress import IngressPerAppRequirer
 from nginx import Nginx
 from ops.charm import (
     CharmBase,
@@ -88,9 +89,15 @@ class TempoCharm(CharmBase):
         # self._profiling = ProfilingEndpointProvider(
         #     self, jobs=[{"static_configs": [{"targets": ["*:4080"]}]}]
         # )
+        # TODO:
+        #  ingress route provisioning a separate TCP ingress for each receiver if GRPC doesn't work directly
 
         self._ingress = IngressPerAppRequirer(self, port=8080, strip_prefix=True)
-        self._tracing = TracingEndpointProvider(self, host=self._ingress.url if self._ingress.is_ready() else tempo.host)
+
+        # TODO:
+        self._tracing = TracingEndpointProvider(
+            self, host=self.tempo.host, external_url=self._ingress.url
+        )
 
         self.framework.observe(self.on.tempo_pebble_ready, self._on_tempo_pebble_ready)
         self.framework.observe(
@@ -103,6 +110,9 @@ class TempoCharm(CharmBase):
         self.framework.observe(self.on.tracing_relation_joined, self._on_tracing_relation_joined)
         self.framework.observe(self.on.tracing_relation_changed, self._on_tracing_relation_changed)
         self.framework.observe(self.on.collect_unit_status, self._on_collect_unit_status)
+        self.framework.observe(self._ingress.on.ready, self._on_ingress_ready)
+        self.framework.observe(self._ingress.on.revoked, self._on_ingress_revoked)
+        self.framework.observe(self.on.list_receivers_action, self._on_list_receivers_action)
 
     def _is_legacy_v1_relation(self, relation):
         if self._tracing.is_v2(relation):
@@ -125,44 +135,48 @@ class TempoCharm(CharmBase):
     def _on_tracing_request(self, e: RequestEvent):
         """Handle a remote requesting a tracing endpoint."""
         logger.debug(f"received tracing request from {e.relation.app}: {e.requested_receivers}")
-        self._update_tracing_relations()
+        self._update_tracing_v2_relations()
 
     def _on_tracing_relation_created(self, e: RelationEvent):
-        return self._update_tracing_relation(e.relation)
+        if not self._tracing.is_v2(e.relation):
+            self._publish_v1_data(e.relation)
+            # if this is the first legacy relation we get, we need to update ALL other relations
+            # as we might need to add all legacy protocols to the mix
+            self._update_tracing_v2_relations()
 
     def _on_tracing_relation_joined(self, e: RelationEvent):
-        return self._update_tracing_relation(e.relation)
+        if not self._tracing.is_v2(e.relation):
+            self._publish_v1_data(e.relation)
 
     def _on_tracing_relation_changed(self, e: RelationEvent):
-        return self._update_tracing_relation(e.relation)
+        if not self._tracing.is_v2(e.relation):
+            self._publish_v1_data(e.relation)
 
-    def _update_tracing_relation(self, relation: Relation):
+    def _update_tracing_v1_relations(self):
+        for relation in self.model.relations[self._tracing._relation_name]:
+            if not self._tracing.is_v2(relation):
+                self._publish_v1_data(relation)
+
+    def _publish_v1_data(self, relation: Relation):
         # we have a relation event; it might be caught by the v2 requirer
         # wrapper and turned into a `request` event, but also maybe not because
         # the remote isn't talking v2
-        if self._tracing.is_v2(relation):
-            # we will handle this as self._tracing.on.request on a different path
-            return
 
         if not self._is_legacy_v1_relation(relation):
-            logger.error(f"relation {relation} is not tracing v1 nor v2. Skipping...")
+            logger.error(f"relation {relation} is not tracing v1. Skipping...")
             return
 
         logger.debug(f"updating legacy v1 relation {relation}")
         # in v1, 'receiver' was called 'ingester'.
         receivers = [
-            tracing_v1.Ingester(protocol=p, port=self.tempo.receiver_ports[p])
+            tracing_v1.Ingester(protocol=p, port=self.tempo.receiver_ports[p], path=f"/{p}")
             for p in LEGACY_RECEIVER_PROTOCOLS
         ]
         tracing_v1.TracingProviderAppData(host=self.tempo.host, ingesters=receivers).dump(
             relation.data[self.app]
         )
 
-        # if this is the first legacy relation we get, we need to update ALL other relations
-        # as we might need to add all legacy protocols to the mix
-        self._update_tracing_relations()
-
-    def _update_tracing_relations(self):
+    def _update_tracing_v2_relations(self):
         tracing_relations = self.model.relations["tracing"]
         if not tracing_relations:
             # todo: set waiting status and configure tempo to run without receivers if possible,
@@ -238,6 +252,16 @@ class TempoCharm(CharmBase):
     def _on_update_status(self, _):
         """Update the status of the application."""
         self.unit.set_workload_version(self.version)
+
+    def _on_ingress_ready(self, _event):
+        # whenever there's a change in ingress, we need to update all tracing relations
+        self._update_tracing_v1_relations()
+        self._update_tracing_v2_relations()
+
+    def _on_ingress_revoked(self, _event):
+        # whenever there's a change in ingress, we need to update all tracing relations
+        self._update_tracing_v1_relations()
+        self._update_tracing_v2_relations()
 
     @property
     def version(self) -> str:
@@ -319,6 +343,12 @@ class TempoCharm(CharmBase):
     def hostname(self) -> str:
         """Unit's hostname."""
         return socket.getfqdn()
+
+    def _on_list_receivers_action(self, event: ops.ActionEvent):
+        res = {}
+        for receiver in self._requested_receivers():
+            res[receiver.replace("_", "-")] = f"{self._ingress.url or self.tempo.url}/{receiver}"
+        event.set_results(res)
 
 
 if __name__ == "__main__":  # pragma: nocover

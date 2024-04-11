@@ -106,7 +106,7 @@ IngesterProtocol = Literal[
     "otlp_grpc", "otlp_http", "zipkin", "tempo", "jaeger_http_thrift", "jaeger_grpc"
 ]
 
-RawIngester = Tuple[IngesterProtocol, int]
+RawIngester = Tuple[IngesterProtocol, int, str]
 BUILTIN_JUJU_KEYS = {"ingress-address", "private-address", "egress-subnets"}
 
 
@@ -174,7 +174,7 @@ class DatabagModel(BaseModel):
             databag = {}
         nest_under = self.model_config.get("_NEST_UNDER")
         if nest_under:
-            databag[nest_under] = self.json()
+            databag[nest_under] = self.json(exclude_none=True)
 
         dct = self.model_dump()
         for key, field in self.model_fields.items():  # type: ignore
@@ -190,6 +190,7 @@ class Ingester(BaseModel):  # noqa: D101
 
     protocol: IngesterProtocol
     port: int
+    path: Optional[str] = None
 
 
 class TracingProviderAppData(DatabagModel):  # noqa: D101
@@ -396,8 +397,8 @@ class TracingEndpointProvider(Object):
                     TracingProviderAppData(
                         host=self._host,
                         ingesters=[
-                            Ingester(port=port, protocol=protocol)
-                            for protocol, port in self._ingesters
+                            Ingester(port=port, protocol=protocol, path=path)
+                            for protocol, port, path in self._ingesters
                         ],
                     ).dump(relation.data[self._charm.app])
 
@@ -549,28 +550,43 @@ class TracingEndpointRequirer(Object):
         self, relation: Optional[Relation] = None
     ) -> Optional[TracingProviderAppData]:
         """Unmarshalled relation data."""
-        if not self.is_ready(relation or self._relation):
+        relation = relation or self._relation
+        if not self.is_ready(relation):
             return
         return TracingProviderAppData.load(relation.data[relation.app])  # type: ignore
 
     def _get_ingester(
         self, relation: Optional[Relation], protocol: IngesterProtocol, ssl: bool = False
     ):
-        ep = self.get_all_endpoints(relation)
-        if not ep:
+        app_data = self.get_all_endpoints(relation)
+        if not app_data:
             return None
-        try:
-            ingester: Ingester = next(filter(lambda i: i.protocol == protocol, ep.ingesters))
-            if ingester.protocol in ["otlp_grpc", "jaeger_grpc"]:
-                if ssl:
-                    logger.warning("unused ssl argument - was the right protocol called?")
-                return f"{ep.host}:{ingester.port}"
-            if ssl:
-                return f"https://{ep.host}:{ingester.port}"
-            return f"http://{ep.host}:{ingester.port}"
-        except StopIteration:
-            logger.error(f"no ingester found with protocol={protocol!r}")
-            return None
+        receivers: List[Ingester] = list(
+            filter(lambda i: i.protocol == protocol, app_data.ingesters)
+        )
+        if not receivers:
+            logger.error(f"no receiver found with protocol={protocol!r}")
+            return
+        if len(receivers) > 1:
+            logger.error(
+                f"too many receivers with protocol={protocol!r}; using first one. Found: {receivers}"
+            )
+            return
+
+        receiver = receivers[0]
+        # if there's an external_url argument (v2.5+), use that. Otherwise, we use the tempo local fqdn
+        if app_data.external_url:
+            base_url = app_data.external_url
+        else:
+            # FIXME: when to use https?
+            base_url = "http://" + app_data.host
+
+        if receiver.protocol.endswith("grpc"):
+            # TCP protocols don't want an http/https scheme prefix
+            base_url = base_url.split("://")[1]
+
+        suffix = receiver.path or ""
+        return f"{base_url}{suffix}"
 
     def otlp_grpc_endpoint(self, relation: Optional[Relation] = None) -> Optional[str]:
         """Ingester endpoint for the ``otlp_grpc`` protocol."""

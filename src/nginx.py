@@ -3,7 +3,7 @@
 """Nginx workload."""
 
 import logging
-from subprocess import getoutput, CalledProcessError
+from subprocess import CalledProcessError, getoutput
 from typing import Any, Dict, List, Optional
 
 import crossplane
@@ -176,9 +176,7 @@ class Nginx:
     def is_ready(self):
         """Whether the tempo built-in readiness check reports 'ready'."""
         try:
-            out = getoutput(f"curl http://localhost:8080").split(
-                "\n"
-            )[-1]
+            out = getoutput("curl http://localhost:8080").split("\n")[-1]
         except (CalledProcessError, IndexError):
             return False
         return out == "ready"
