@@ -574,12 +574,8 @@ class TracingEndpointRequirer(Object):
             return
 
         receiver = receivers[0]
-        # if there's an external_url argument (v2.5+), use that. Otherwise, we use the tempo local fqdn
-        if app_data.external_url:
-            base_url = app_data.external_url
-        else:
-            # FIXME: when to use https?
-            base_url = "http://" + app_data.host
+        # FIXME: when to use https? ASSUME HTTP
+        base_url = f"http://{app_data.host}:{receiver.port}"
 
         if receiver.protocol.endswith("grpc"):
             # TCP protocols don't want an http/https scheme prefix

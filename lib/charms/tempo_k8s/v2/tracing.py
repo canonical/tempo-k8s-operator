@@ -303,13 +303,13 @@ class TracingProviderAppData(DatabagModel):  # noqa: D101
     """Application databag model for the tracing provider."""
 
     host: str
-    """Server hostname."""
+    """Server hostname (local fqdn)."""
 
     receivers: List[Receiver]
     """Enabled receivers and ports at which they are listening."""
 
     external_url: Optional[str] = None
-    """Server url. If an ingress is present, it will be the ingress address. Else, the local fqdn."""
+    """Server url. If an ingress is present, it will be the ingress address."""
 
 
 class TracingRequirerAppData(DatabagModel):  # noqa: D101
@@ -496,7 +496,7 @@ class TracingEndpointProvider(Object):
         self,
         charm: CharmBase,
         host: str,
-        external_url: str,
+        external_url: Optional[str] = None,
         relation_name: str = DEFAULT_RELATION_NAME,
     ):
         """Initialize.
@@ -504,7 +504,8 @@ class TracingEndpointProvider(Object):
         Args:
             charm: a `CharmBase` instance that manages this instance of the Tempo service.
             host: address of the node hosting the tempo server.
-            external_url: external address of the node hosting the tempo server.
+            external_url: external address of the node hosting the tempo server,
+                if an ingress is present.
             relation_name: an optional string name of the relation between `charm`
                 and the Tempo charmed service. The default is "tracing".
 
