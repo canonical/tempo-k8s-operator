@@ -33,7 +33,7 @@ resources:
   nginx-image:
     type: oci-image
     description: OCI image for nginx
-    upstream-source: ubuntu/nginx:1.18-22.04_beta
+    upstream-source: nginx:latest
 
 provides:
   profiling-endpoint:

@@ -222,8 +222,9 @@ class Nginx:
             "args": [],
             "block": [
                 # we need http2 for grpc to work
-                {"directive": "listen", "args": ["127.0.0.1:8080", "http2"]},
-                # {"directive": "listen", "args": ["[::]:8080"]},
+                {"directive": "http2", "args": ["on"]},
+                {"directive": "listen", "args": ["127.0.0.1:8080"]},
+                {"directive": "listen", "args": ["[::]:8080"]},
                 *self._basic_auth(auth_enabled),
                 {
                     "directive": "location",
