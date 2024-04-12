@@ -10,8 +10,8 @@ from opentelemetry.sdk.trace.export import (
 )
 
 span_exporter = OTLPSpanExporter(
-    endpoint="http://10.1.232.162:4317",
-    # endpoint="http://10.1.232.162:8080/otlp_grpc",
+    # endpoint="http://10.1.232.162:4317",
+    endpoint="http://10.1.232.162:8080/otlp_grpc",
     insecure=True,
 )
 resource = Resource.create(attributes={"service.name": "tracegen"})
