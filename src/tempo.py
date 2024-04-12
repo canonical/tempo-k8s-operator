@@ -198,11 +198,6 @@ class Tempo:
 
         config = {}
 
-        def get_address(protocol):
-            if port := self.receiver_ports.get(protocol):
-                return {'address': f'0.0.0.0:{port}'}
-            return None
-
         # TODO: we only insert addresses for otlp_http and _grpc.
         #  should we plug in the addresses for all other receivers as well?
 
@@ -213,9 +208,9 @@ class Tempo:
 
         otlp_config = {}
         if "otlp_http" in receivers_set:
-            otlp_config["http"] = get_address("otlp_http")
+            otlp_config["http"] = None
         if "otlp_grpc" in receivers_set:
-            otlp_config["grpc"] = get_address("otlp_grpc")
+            otlp_config["grpc"] = None
         if otlp_config:
             config["otlp"] = {"protocols": otlp_config}
 
