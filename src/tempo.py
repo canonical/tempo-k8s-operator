@@ -27,8 +27,8 @@ class Tempo:
     # todo make configurable?
     receiver_ports: Dict[ReceiverProtocol, int] = {
         "zipkin": 9411,
-        "tempo_http": -1,  # configurable; populated by __init__
-        "tempo_grpc": -1,  # configurable; populated by __init__
+        "tempo_http": 3200,
+        "tempo_grpc": 9096,  # default grpc listen port is 9095, but that conflicts with promtail.
         "tempo": 3201,  # legacy, renamed to tempo_http
         "otlp_grpc": 4317,
         "otlp_http": 4318,
@@ -45,15 +45,9 @@ class Tempo:
     def __init__(
         self,
         container: ops.Container,
-        http_port: int = 3200,
-        grpc_port: int = 9096,
         local_host: str = "0.0.0.0",
         enable_receivers: Optional[Sequence[ReceiverProtocol]] = None,
     ):
-        self.receiver_ports["tempo_http"] = http_port
-        # default grpc listen port is 9095, but that conflicts with promtail.
-        self.receiver_ports["tempo_grpc"] = grpc_port
-
         # ports source: https://github.com/grafana/tempo/blob/main/example/docker-compose/local/docker-compose.yaml
         self._local_hostname = local_host
         self.container = container
@@ -198,9 +192,7 @@ class Tempo:
 
         config = {}
 
-        # TODO: we only insert addresses for otlp_http and _grpc.
-        #  should we plug in the addresses for all other receivers as well?
-
+        # TODO: how do we pass the ports into this config?
         if "zipkin" in receivers_set:
             config["zipkin"] = None
         if "opencensus" in receivers_set:
