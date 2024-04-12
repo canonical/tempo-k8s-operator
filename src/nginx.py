@@ -37,6 +37,8 @@ class Nginx:
         full_config = [
             {"directive": "worker_processes", "args": ["5"]},
             {"directive": "error_log", "args": ["/dev/stderr", log_level]},
+            # if it runs as daemon, pebble won't recognize it as child and be deeply unhappy
+            {"directive": "daemon", "args": ["off"]},
             {"directive": "pid", "args": ["/tmp/nginx.pid"]},
             {"directive": "worker_rlimit_nofile", "args": ["8192"]},
             {
@@ -173,8 +175,9 @@ class Nginx:
             )
         return locations
 
+    @staticmethod
     def is_ready(self):
-        """Whether the tempo built-in readiness check reports 'ready'."""
+        """Simple readiness check for nginx server at /."""
         try:
             out = getoutput("curl http://localhost:8080").split("\n")[-1]
         except (CalledProcessError, IndexError):
@@ -218,8 +221,9 @@ class Nginx:
             "directive": "server",
             "args": [],
             "block": [
-                {"directive": "listen", "args": ["8080"]},
-                {"directive": "listen", "args": ["[::]:8080"]},
+                # we need http2 for grpc to work
+                {"directive": "listen", "args": ["127.0.0.1:8080", "http2"]},
+                # {"directive": "listen", "args": ["[::]:8080"]},
                 *self._basic_auth(auth_enabled),
                 {
                     "directive": "location",

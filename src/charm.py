@@ -94,7 +94,6 @@ class TempoCharm(CharmBase):
 
         self._ingress = IngressPerAppRequirer(self, port=8080, strip_prefix=True)
 
-        # TODO:
         self._tracing = TracingEndpointProvider(
             self, host=self.tempo.host, external_url=self._ingress.url
         )

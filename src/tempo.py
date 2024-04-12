@@ -100,10 +100,6 @@ class Tempo:
         return yaml.safe_dump(
             {
                 "auth_enabled": False,
-                "server": {
-                    "http_listen_port": self.tempo_port,
-                    "grpc_listen_port": self.receiver_ports["tempo_grpc"],
-                },
                 # more configuration information can be found at
                 # https://github.com/open-telemetry/opentelemetry-collector/tree/overlord/receiver
                 "distributor": {"receivers": self._build_receivers_config(receivers)},
@@ -165,11 +161,7 @@ class Tempo:
 
     @property
     def tempo_ready_layer(self) -> Layer:
-        """Generate the pebble layer for the Tempo container."""
-        # watch -n 5 '[ $(wget -q -O- localhost:3200/ready) = "ready" ] &&
-        #                            ( /charm/bin/pebble notify canonical.com/tempo/workload-ready ) ||
-        #                            ( echo "tempo not ready" )'
-
+        """Generate the pebble layer to fire the tempo-ready custom notice."""
         return Layer(
             {
                 "services": {
@@ -206,6 +198,14 @@ class Tempo:
 
         config = {}
 
+        def get_address(protocol):
+            if port := self.receiver_ports.get(protocol):
+                return {'address': f'0.0.0.0:{port}'}
+            return None
+
+        # TODO: we only insert addresses for otlp_http and _grpc.
+        #  should we plug in the addresses for all other receivers as well?
+
         if "zipkin" in receivers_set:
             config["zipkin"] = None
         if "opencensus" in receivers_set:
@@ -213,9 +213,9 @@ class Tempo:
 
         otlp_config = {}
         if "otlp_http" in receivers_set:
-            otlp_config["http"] = None
+            otlp_config["http"] = get_address("otlp_http")
         if "otlp_grpc" in receivers_set:
-            otlp_config["grpc"] = None
+            otlp_config["grpc"] = get_address("otlp_grpc")
         if otlp_config:
             config["otlp"] = {"protocols": otlp_config}
 
