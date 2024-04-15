@@ -7,11 +7,12 @@ from subprocess import CalledProcessError, getoutput
 from typing import Any, Dict, List, Optional
 
 import crossplane
-from charms.tempo_k8s.v2.tracing import ReceiverProtocol
+import ops
 from ops.pebble import Layer
 
-logger = logging.getLogger(__name__)
+from charms.tempo_k8s.v2.tracing import ReceiverProtocol
 
+logger = logging.getLogger(__name__)
 
 NGINX_DIR = "/etc/nginx"
 NGINX_CONFIG = f"{NGINX_DIR}/nginx.conf"
@@ -22,12 +23,17 @@ CA_CERT_PATH = f"{NGINX_DIR}/certs/ca.cert"
 
 class Nginx:
     """Helper class to manage the nginx workload."""
-
+    port = 8080
     config_path = NGINX_CONFIG
+    grpc_service_path = {
+        "otlp_grpc": "/opentelemetry.proto.collector.trace.v1.TraceService/Export",
+        "tempo_grpc": "/opentelemetry.proto.collector.trace.v1.TraceService/Export",
+    }
 
-    def __init__(self, server_name: str, ports: Dict[ReceiverProtocol, int]):
+    def __init__(self, container: ops.Container, server_name: str, ports: Dict[ReceiverProtocol, int]):
         self.server_name = server_name
-        self.ports = ports
+        self.upstream_ports = ports
+        self.container = container
 
     def config(self, tls: bool = False) -> str:
         """Build and return the Nginx configuration."""
@@ -122,14 +128,14 @@ class Nginx:
 
     def _upstreams(self) -> List[Dict[str, Any]]:
         nginx_upstreams = []
-        for protocol, port in self.ports.items():
+        for protocol, port in self.upstream_ports.items():
             nginx_upstreams.append(
                 {
                     "directive": "upstream",
                     "args": [protocol],
                     "block": [
                         # TODO for HA Tempo we'll need to add redirects to worker nodes similar to mimir
-                        {"directive": "server", "args": [f"localhost:{port}"]}
+                        {"directive": "server", "args": [f"127.0.0.1:{port}"]}
                     ],
                 }
             )
@@ -154,19 +160,26 @@ class Nginx:
 
     def _locations(self) -> List[Dict[str, Any]]:
         locations = []
-        for protocol, _ in self.ports.items():
+
+        # note for the grpc location:
+        #  https://github.com/grpc/grpc-dotnet/issues/862#issuecomment-611768009
+        #  tldr: GRPC has strong opinions about servers always being at the root.
+        #  the client will ignore the /protocol/ suffix at the end of the endpoint url, so
+        #  nginx will never receive it and will instead receive the grpc service path.
+        #  Therefore, we need to route based on the individual grpc service path.
+        for protocol, _ in self.upstream_ports.items():
+            is_grpc = "grpc" in protocol  # fixme: quite rudimentary
             locations.append(
                 {
                     "directive": "location",
-                    "args": [f"/{protocol}/"],
+                    "args": [self.grpc_service_path[protocol] if is_grpc else f"/{protocol}/"],
                     "block": [
                         {
-                            "directive": "proxy_pass" if "grpc" not in protocol else "grpc_pass",
+                            "directive": f"{'grpc' if is_grpc else 'proxy'}_pass",
                             "args": [
                                 (
-                                    f"http://{protocol}/"
-                                    if "grpc" not in protocol
-                                    else f"grpc://{protocol}"
+                                        f"{'grpc' if is_grpc else 'http'}://{protocol}" +
+                                        ('' if is_grpc else '/')
                                 )
                             ],
                         },
@@ -175,13 +188,18 @@ class Nginx:
             )
         return locations
 
-    @staticmethod
     def is_ready(self):
-        """Simple readiness check for nginx server at /."""
+        """Whether the nginx workload is running."""
+        if not self.container.can_connect():
+            return False
+        if not self.container.get_service("nginx").is_running():
+            return False
+
         try:
-            out = getoutput("curl http://localhost:8080").split("\n")[-1]
+            out = getoutput(f"curl http://localhost:{self.port}").split("\n")[-1].strip("'")
         except (CalledProcessError, IndexError):
             return False
+
         return out == "ready"
 
     def _server(self, tls: bool = False) -> Dict[str, Any]:
@@ -223,8 +241,8 @@ class Nginx:
             "block": [
                 # we need http2 for grpc to work
                 {"directive": "http2", "args": ["on"]},
-                {"directive": "listen", "args": ["127.0.0.1:8080"]},
-                {"directive": "listen", "args": ["[::]:8080"]},
+                {"directive": "listen", "args": [f"127.0.0.1:{self.port}"]},
+                {"directive": "listen", "args": [f"[::]:{self.port}"]},
                 *self._basic_auth(auth_enabled),
                 {
                     "directive": "location",
