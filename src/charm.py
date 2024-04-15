@@ -195,7 +195,7 @@ class TempoCharm(CharmBase):
         if container.can_connect():
             container.push(
                 self.tempo.config_path,
-                self.tempo.get_config(self._requested_receivers()),
+                self.tempo.get_config(requested_receivers),
                 make_dirs=True,
             )
             container.replan()
@@ -217,6 +217,7 @@ class TempoCharm(CharmBase):
 
         # and publish only those we support
         requested_receivers = requested_protocols.intersection(set(self.tempo.supported_receivers))
+        requested_receivers.update(self.tempo._enabled_receivers)
         return tuple(requested_receivers)
 
     def _on_tempo_pebble_custom_notice(self, event: PebbleNoticeEvent):

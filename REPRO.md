@@ -12,11 +12,9 @@ jhack imatrix fill
 
 # wait for tempo to reach active/idle (can take a few minutes)
 juju scp ./tests/integration/tester/src/resources/webserver-dependencies.txt tempo/0:/
-
-# edit tracegen.py and replace at line 13 with tempo/0 unit IP
-juju scp ./tracegen.py tempo/0:/ 
 juju ssh tempo/0 python3 -m pip install -r /webserver-dependencies.txt
 
+juju scp ./tracegen.py tempo/0:/ 
 juju ssh tempo/0 python3 /tracegen.py
 
 # you should see:
