@@ -27,9 +27,12 @@ class Tempo:
     # todo make configurable?
     receiver_ports: Dict[ReceiverProtocol, int] = {
         "zipkin": 9411,
+
+        # fixme: these are tempo server ports; not receivers.
         "tempo_http": 3200,
-        "tempo_grpc": 9096,  # default grpc listen port is 9095, but that conflicts with promtail.
         "tempo": 3201,  # legacy, renamed to tempo_http
+
+        "tempo_grpc": 9096,  # default grpc listen port is 9095, but that conflicts with promtail.
         "otlp_grpc": 4317,
         "otlp_http": 4318,
         "jaeger_grpc": 14250,
@@ -78,7 +81,7 @@ class Tempo:
 
     @property
     def url(self) -> str:
-        """Base url at which the tempo server is locally reachable."""
+        """Base url at which the tempo server is locally reachable over http."""
         return f"http://{self.host}"
 
     @property
