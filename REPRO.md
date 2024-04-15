@@ -2,6 +2,7 @@ To reproduce nginx grcp issue:
 
 ```charmcraft pack
 juju add-model repro
+charmcraft pack
 juju deploy ./tempo-k8s_ubuntu-22.04-amd64.charm --resource nginx-image=nginx:latest --resource tempo-image=grafana/tempo:2.4.0 tempo
 juju deploy traefik-k8s --channel edge traefik
 juju deploy grafana-k8s --channel edge grafana
