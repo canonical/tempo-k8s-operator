@@ -23,7 +23,6 @@ from charms.tempo_k8s.v2.tracing import (
     TracingEndpointProvider,
 )
 from charms.traefik_k8s.v2.ingress import IngressPerAppRequirer
-from nginx import Nginx
 from ops.charm import (
     CharmBase,
     CollectStatusEvent,
@@ -33,6 +32,8 @@ from ops.charm import (
 )
 from ops.main import main
 from ops.model import ActiveStatus, MaintenanceStatus, Relation, WaitingStatus
+
+from nginx import Nginx
 from tempo import Tempo
 
 logger = logging.getLogger(__name__)
@@ -57,26 +58,28 @@ class TempoCharm(CharmBase):
 
     def __init__(self, *args):
         super().__init__(*args)
-        self._nginx_container = self.unit.get_container("nginx")
         self.tempo = tempo = Tempo(
             self.unit.get_container("tempo"),
             # we need otlp_http receiver for charm_tracing
             enable_receivers=["otlp_http"],
         )
-        self.receiver_ports = tempo.get_ports(self.app.name)
         # set up a nginx container for routing to ingestion protocols and API
-        self.nginx = Nginx(server_name=self.hostname, ports=self.tempo.receiver_ports)
+        self.nginx = Nginx(
+            self.unit.get_container("nginx"), server_name=self.hostname, ports=self.tempo.all_ports
+        )
+
         # configure this tempo as a datasource in grafana
         self.grafana_source_provider = GrafanaSourceProvider(
-            self, source_type="tempo", source_port=str(tempo.tempo_port)
+            self, source_type="tempo", source_port=str(tempo.tempo_server_port)
         )
         # # Patch the juju-created Kubernetes service to contain the right ports
-        self._service_patcher = KubernetesServicePatch(self, self.receiver_ports)
+        external_ports = tempo.get_external_ports(self.app.name)
+        self._service_patcher = KubernetesServicePatch(self, external_ports)
         # Provide ability for Tempo to be scraped by Prometheus using prometheus_scrape
         self._scraping = MetricsEndpointProvider(
             self,
             relation_name="metrics-endpoint",
-            jobs=[{"static_configs": [{"targets": [f"*:{tempo.tempo_port}"]}]}],
+            jobs=[{"static_configs": [{"targets": [f"*:{tempo.tempo_server_port}"]}]}],
         )
         # Enable log forwarding for Loki and other charms that implement loki_push_api
         self._logging = LogProxyConsumer(
@@ -195,7 +198,7 @@ class TempoCharm(CharmBase):
         if container.can_connect():
             container.push(
                 self.tempo.config_path,
-                self.tempo.get_config(self._requested_receivers()),
+                self.tempo.get_config(requested_receivers),
                 make_dirs=True,
             )
             container.replan()
@@ -216,7 +219,8 @@ class TempoCharm(CharmBase):
             requested_protocols.update(LEGACY_RECEIVER_PROTOCOLS)
 
         # and publish only those we support
-        requested_receivers = requested_protocols.intersection(set(self.tempo.supported_receivers))
+        requested_receivers = requested_protocols.intersection(set(self.tempo.receiver_ports))
+        requested_receivers.update(self.tempo.enabled_receivers)
         return tuple(requested_receivers)
 
     def _on_tempo_pebble_custom_notice(self, event: PebbleNoticeEvent):
@@ -247,6 +251,19 @@ class TempoCharm(CharmBase):
 
         self.unit.set_workload_version(self.version)
         self.unit.status = ActiveStatus()
+
+    def _on_nginx_pebble_ready(self, _) -> None:
+        self._configure_nginx()
+        self.nginx.container.autostart()
+
+    def _configure_nginx(self) -> None:
+        self.nginx.container.push(
+            # TODO add TLS support
+            self.nginx.config_path,
+            self.nginx.config(tls=False),
+            make_dirs=True,
+        )
+        self.nginx.container.add_layer("nginx", self.nginx.layer, combine=True)
 
     def _on_update_status(self, _):
         """Update the status of the application."""
@@ -320,23 +337,14 @@ class TempoCharm(CharmBase):
     def _on_collect_unit_status(self, e: CollectStatusEvent):
         if not self.tempo.container.can_connect():
             e.add_status(WaitingStatus("Tempo container not ready"))
+        if not self.nginx.container.can_connect():
+            e.add_status(WaitingStatus("Tempo container not ready"))
+        if not self.nginx.is_ready():
+            e.add_status(WaitingStatus("Nginx not ready just yet..."))
         if not self.tempo.is_ready():
             e.add_status(WaitingStatus("Tempo API not ready just yet..."))
 
         e.add_status(ActiveStatus())
-
-    def _on_nginx_pebble_ready(self, _) -> None:
-        self._ensure_pebble_layer()
-
-    def _ensure_pebble_layer(self) -> None:
-        self._nginx_container.push(
-            # TODO add TLS support
-            self.nginx.config_path,
-            self.nginx.config(tls=False),
-            make_dirs=True,
-        )
-        self._nginx_container.add_layer("nginx", self.nginx.layer, combine=True)
-        self._nginx_container.autostart()
 
     @property
     def hostname(self) -> str:

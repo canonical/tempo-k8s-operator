@@ -24,23 +24,25 @@ class Tempo:
     log_path = "/var/log/tempo.log"
     tempo_ready_notice_key = "canonical.com/tempo/workload-ready"
 
-    # todo make configurable?
+    server_ports = {
+        "tempo_http": 3200,
+        # "tempo_grpc": 9096, # default grpc listen port is 9095, but that conflicts with promtail.
+    }
+
     receiver_ports: Dict[ReceiverProtocol, int] = {
         "zipkin": 9411,
-        "tempo_http": 3200,
-        "tempo_grpc": 9096,  # default grpc listen port is 9095, but that conflicts with promtail.
-        "tempo": 3201,  # legacy, renamed to tempo_http
         "otlp_grpc": 4317,
         "otlp_http": 4318,
-        "jaeger_grpc": 14250,
         "jaeger_thrift_http": 14268,
-        "jaeger_http_thrift": 14269,  # legacy, renamed to jaeger_thrift_http
-        # todo add support for:
+        # todo if necessary add support for:
         #  "kafka": 42,
+        #  "jaeger_grpc": 14250,
         #  "opencensus": 43,
         #  "jaeger_thrift_compact": 44,
         #  "jaeger_thrift_binary": 45,
     }
+
+    all_ports = {**server_ports, **receiver_ports}
 
     def __init__(
         self,
@@ -51,24 +53,27 @@ class Tempo:
         # ports source: https://github.com/grafana/tempo/blob/main/example/docker-compose/local/docker-compose.yaml
         self._local_hostname = local_host
         self.container = container
-        self._enabled_receivers = enable_receivers or []
-        self._supported_receivers: Tuple[ReceiverProtocol, ...] = tuple(self.receiver_ports)
+        self.enabled_receivers = enable_receivers or []
 
     @property
-    def tempo_port(self) -> int:
+    def tempo_server_port(self) -> int:
         """Return the receiver port for the built-in tempo_http protocol."""
-        return self.receiver_ports["tempo_http"]
+        return self.server_ports["tempo_http"]
 
-    def get_ports(self, service_name_prefix: str) -> List[Tuple[str, int, int]]:
-        """List of service names and port mappings for the kubernetes service patch."""
+    def get_external_ports(self, service_name_prefix: str) -> List[Tuple[str, int, int]]:
+        """List of service names and port mappings for the kubernetes service patch.
+
+        Includes the tempo server as well as the receiver ports.
+        """
         # todo allow remapping ports?
+        all_ports = {**self.server_ports}
         return [
             (
-                (f"{service_name_prefix}-{protocol}").replace("_", "-"),
-                self.receiver_ports[protocol],
-                self.receiver_ports[protocol],
+                (f"{service_name_prefix}-{service_name}").replace("_", "-"),
+                all_ports[service_name],
+                all_ports[service_name],
             )
-            for protocol in self._supported_receivers
+            for service_name in all_ports
         ]
 
     @property
@@ -78,13 +83,8 @@ class Tempo:
 
     @property
     def url(self) -> str:
-        """Base url at which the tempo server is locally reachable."""
+        """Base url at which the tempo server is locally reachable over http."""
         return f"http://{self.host}"
-
-    @property
-    def supported_receivers(self) -> Tuple[ReceiverProtocol, ...]:
-        """All receivers supported by this Tempo client."""
-        return self._supported_receivers
 
     def get_config(self, receivers: Sequence[ReceiverProtocol]) -> str:
         """Generate the Tempo configuration.
@@ -94,6 +94,10 @@ class Tempo:
         return yaml.safe_dump(
             {
                 "auth_enabled": False,
+                "server": {
+                    "http_listen_port": self.tempo_server_port,
+                    # "grpc_listen_port": self.receiver_ports["tempo_grpc"],
+                },
                 # more configuration information can be found at
                 # https://github.com/open-telemetry/opentelemetry-collector/tree/overlord/receiver
                 "distributor": {"receivers": self._build_receivers_config(receivers)},
@@ -162,7 +166,7 @@ class Tempo:
                     "tempo-ready": {
                         "override": "replace",
                         "summary": "Notify charm when tempo is ready",
-                        "command": f"""watch -n 5 '[ $(wget -q -O- localhost:{self.tempo_port}/ready) = "ready" ] && 
+                        "command": f"""watch -n 5 '[ $(wget -q -O- localhost:{self.tempo_server_port}/ready) = "ready" ] && 
                                    ( /charm/bin/pebble notify {self.tempo_ready_notice_key} ) || 
                                    ( echo "tempo not ready" )'""",
                         "startup": "disabled",
@@ -174,19 +178,19 @@ class Tempo:
     def is_ready(self):
         """Whether the tempo built-in readiness check reports 'ready'."""
         try:
-            out = getoutput(f"curl http://{self._local_hostname}:{self.tempo_port}/ready").split(
-                "\n"
-            )[-1]
+            out = getoutput(
+                f"curl http://{self._local_hostname}:{self.tempo_server_port}/ready"
+            ).split("\n")[-1]
         except (CalledProcessError, IndexError):
             return False
         return out == "ready"
 
-    def _build_receivers_config(self, remote_receivers: Sequence[ReceiverProtocol]):  # noqa: C901
-        # remote_receivers: the receivers we have to enable because the requirers we're related to
+    def _build_receivers_config(self, receivers: Sequence[ReceiverProtocol]):  # noqa: C901
+        # receivers: the receivers we have to enable because the requirers we're related to
         # intend to use them
-        # self._enabled_receivers: receivers we have to enable because *this charm* will use them.
-        receivers_set = set(remote_receivers)
-        receivers_set.update(self._enabled_receivers)
+        # it already includes self.enabled_receivers: receivers we have to enable because *this charm* will use them.
+        receivers_set = set(receivers)
+
         if not receivers_set:
             logger.warning("No receivers set. Tempo will be up but not functional.")
 
