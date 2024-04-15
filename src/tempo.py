@@ -94,6 +94,10 @@ class Tempo:
         return yaml.safe_dump(
             {
                 "auth_enabled": False,
+                "server": {
+                    "http_listen_port": self.tempo_port,
+                    "grpc_listen_port": self.receiver_ports["tempo_grpc"],
+                },
                 # more configuration information can be found at
                 # https://github.com/open-telemetry/opentelemetry-collector/tree/overlord/receiver
                 "distributor": {"receivers": self._build_receivers_config(receivers)},

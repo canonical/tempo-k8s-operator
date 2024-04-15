@@ -22,4 +22,6 @@ juju ssh tempo/0 python3 /tracegen.py
 # Failed to export traces to <tempo IP>:8080, error code: StatusCode.UNIMPLEMENTED
 ```
 
-
+useful links:
+- https://github.com/open-telemetry/opentelemetry-operator/issues/902
+- https://www.nginx.com/blog/deploying-nginx-plus-as-an-api-gateway-part-3-publishing-grpc-services/
