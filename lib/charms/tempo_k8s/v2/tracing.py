@@ -837,7 +837,6 @@ class TracingEndpointRequirer(Object):
             # TCP protocols don't want an http/https scheme prefix
             base_url = base_url.split("://")[1]
 
-        # TODO does this really work well with GRPC traces? there's grpc_pass in Tempo nginx so it should
         suffix = receiver.path or ""
         return f"{base_url}{suffix}"
 

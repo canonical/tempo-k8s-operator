@@ -25,7 +25,6 @@ async def test_build_and_deploy(ops_test: OpsTest):
     tester_charm = await ops_test.build_charm("./tests/integration/tester/")
     resources = {
         "tempo-image": METADATA["resources"]["tempo-image"]["upstream-source"],
-        "nginx-image": METADATA["resources"]["nginx-image"]["upstream-source"],
     }
     resources_tester = {"workload": TESTER_METADATA["resources"]["workload"]["upstream-source"]}
 
