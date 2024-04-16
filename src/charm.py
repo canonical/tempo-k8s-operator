@@ -33,25 +33,21 @@ from ops.charm import (
 from ops.main import main
 from ops.model import ActiveStatus, MaintenanceStatus, Relation, WaitingStatus
 
-from nginx import Nginx
 from tempo import Tempo
 
 logger = logging.getLogger(__name__)
 
 LEGACY_RECEIVER_PROTOCOLS = (
-    "tempo",  # has since been renamed to "tempo_http"
     "otlp_grpc",
     "otlp_http",
     "zipkin",
-    "jaeger_http_thrift",  # has since been renamed to "jaeger_thrift_http"
-    "jaeger_grpc",
 )
 """Receiver protocol names supported by tracing v0/v1."""
 
 
 @trace_charm(
     tracing_endpoint="tempo_otlp_http_endpoint",
-    extra_types=(Tempo, TracingEndpointProvider, tracing_v1.TracingEndpointProvider, Nginx),
+    extra_types=(Tempo, TracingEndpointProvider, tracing_v1.TracingEndpointProvider),
 )
 class TempoCharm(CharmBase):
     """Charmed Operator for Tempo; a distributed tracing backend."""
@@ -63,11 +59,6 @@ class TempoCharm(CharmBase):
             # we need otlp_http receiver for charm_tracing
             enable_receivers=["otlp_http"],
         )
-        # set up a nginx container for routing to ingestion protocols and API
-        self.nginx = Nginx(
-            self.unit.get_container("nginx"), server_name=self.hostname, ports=self.tempo.all_ports
-        )
-
         # configure this tempo as a datasource in grafana
         self.grafana_source_provider = GrafanaSourceProvider(
             self, source_type="tempo", source_port=str(tempo.tempo_server_port)
@@ -105,7 +96,6 @@ class TempoCharm(CharmBase):
         self.framework.observe(
             self.on.tempo_pebble_custom_notice, self._on_tempo_pebble_custom_notice
         )
-        self.framework.observe(self.on.nginx_pebble_ready, self._on_nginx_pebble_ready)
         self.framework.observe(self.on.update_status, self._on_update_status)
         self.framework.observe(self._tracing.on.request, self._on_tracing_request)
         self.framework.observe(self.on.tracing_relation_created, self._on_tracing_relation_created)
@@ -252,19 +242,6 @@ class TempoCharm(CharmBase):
         self.unit.set_workload_version(self.version)
         self.unit.status = ActiveStatus()
 
-    def _on_nginx_pebble_ready(self, _) -> None:
-        self._configure_nginx()
-        self.nginx.container.autostart()
-
-    def _configure_nginx(self) -> None:
-        self.nginx.container.push(
-            # TODO add TLS support
-            self.nginx.config_path,
-            self.nginx.config(tls=False),
-            make_dirs=True,
-        )
-        self.nginx.container.add_layer("nginx", self.nginx.layer, combine=True)
-
     def _on_update_status(self, _):
         """Update the status of the application."""
         self.unit.set_workload_version(self.version)
@@ -337,10 +314,6 @@ class TempoCharm(CharmBase):
     def _on_collect_unit_status(self, e: CollectStatusEvent):
         if not self.tempo.container.can_connect():
             e.add_status(WaitingStatus("Tempo container not ready"))
-        if not self.nginx.container.can_connect():
-            e.add_status(WaitingStatus("Tempo container not ready"))
-        if not self.nginx.is_ready():
-            e.add_status(WaitingStatus("Nginx not ready just yet..."))
         if not self.tempo.is_ready():
             e.add_status(WaitingStatus("Tempo API not ready just yet..."))
 

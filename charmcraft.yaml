@@ -20,8 +20,6 @@ containers:
     mounts:
       - storage: data
         location: /tmp/tempo
-  nginx:
-    resource: nginx-image
 
 resources:
   tempo-image:
@@ -30,10 +28,6 @@ resources:
     # Included for simplicity in integration tests
     # see https://hub.docker.com/r/grafana/tempo/tags
     upstream-source: grafana/tempo:2.4.0
-  nginx-image:
-    type: oci-image
-    description: OCI image for nginx
-    upstream-source: nginx:latest
 
 provides:
   profiling-endpoint:
