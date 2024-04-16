@@ -32,7 +32,6 @@ from ops.charm import (
 )
 from ops.main import main
 from ops.model import ActiveStatus, MaintenanceStatus, Relation, WaitingStatus
-
 from tempo import Tempo
 
 logger = logging.getLogger(__name__)
@@ -86,7 +85,9 @@ class TempoCharm(CharmBase):
         # TODO:
         #  ingress route provisioning a separate TCP ingress for each receiver if GRPC doesn't work directly
 
-        self._ingress = IngressPerAppRequirer(self, port=8080, strip_prefix=True)
+        self._ingress = IngressPerAppRequirer(
+            self, port=self.tempo.tempo_server_port, strip_prefix=True
+        )
 
         self._tracing = TracingEndpointProvider(
             self, host=self.tempo.host, external_url=self._ingress.url

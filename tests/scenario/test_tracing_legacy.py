@@ -2,16 +2,11 @@ import json
 import socket
 
 import pytest
-from charms.tempo_k8s.v1.charm_tracing import charm_tracing_disabled
-from charms.tempo_k8s.v1.tracing import (
-    TracingProviderAppData as TracingProviderAppDataV1,
-)
-from charms.tempo_k8s.v2.tracing import (
-    TracingProviderAppData as TracingProviderAppDataV2,
-)
-from scenario import Container, Relation, State
-
 from charm import LEGACY_RECEIVER_PROTOCOLS, TempoCharm
+from charms.tempo_k8s.v1.charm_tracing import charm_tracing_disabled
+from charms.tempo_k8s.v1.tracing import TracingProviderAppData as TracingProviderAppDataV1
+from charms.tempo_k8s.v2.tracing import TracingProviderAppData as TracingProviderAppDataV2
+from scenario import Container, Relation, State
 from tempo import Tempo
 
 NO_RECEIVERS = 13
@@ -49,7 +44,6 @@ def test_tracing_v1_endpoint_published(context, base_state):
     for ingester in ingesters:
         protocol = ingester["protocol"]
         assert ingester["port"] == Tempo.receiver_ports[protocol]
-        assert ingester["path"] == f"/{protocol}"
 
     assert json.loads(tracing_out.local_app_data["host"]) == socket.getfqdn()
 
@@ -66,7 +60,7 @@ def test_tracing_v2_endpoint_published(context, evt_name, base_state):
 
     tracing_out = out.get_relations(tracing.endpoint)[0]
     assert tracing_out.local_app_data == {
-        "receivers": '[{"protocol": "otlp_http", "port": 4318, "path": "/otlp_http"}]',
+        "receivers": '[{"protocol": "otlp_http", "port": 4318}]',
         "host": json.dumps(socket.getfqdn()),
     }
 
