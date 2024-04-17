@@ -1,7 +1,64 @@
 # Copyright 2022 Canonical Ltd.
 # See LICENSE file for licensing details.
-
+name: tempo-k8s
 type: charm
+
+assumes:
+  - k8s-api
+
+  # Juju 3.0.3+ needed for secrets and open-port
+  - juju >= 3.0.3
+
+description: |
+  Tempo is a distributed tracing backend by Grafana.
+summary: |
+  Tempo is a distributed tracing backend by Grafana.
+
+containers:
+  tempo:
+    resource: tempo-image
+    mounts:
+      - storage: data
+        location: /tmp/tempo
+
+resources:
+  tempo-image:
+    type: oci-image
+    description: OCI image for Tempo
+    # Included for simplicity in integration tests
+    # see https://hub.docker.com/r/grafana/tempo/tags
+    upstream-source: grafana/tempo:2.4.0
+
+provides:
+  profiling-endpoint:
+    interface: parca_scrape
+  grafana-dashboard:
+    interface: grafana_dashboard
+  grafana-source:
+    interface: grafana_datasource
+  metrics-endpoint:
+    interface: prometheus_scrape
+  tracing:
+    interface: tracing
+
+requires:
+  logging:
+    interface: loki_push_api
+  ingress:
+    interface: ingress
+    limit: 1
+
+storage:
+  data:
+    type: filesystem
+    location: /tempo-data
+
+actions:
+  list-receivers:
+    description: |
+      Returns a list of all enabled receiver endpoints.
+
+
 bases:
   - build-on:
       - name: "ubuntu"
@@ -15,3 +72,4 @@ parts:
     charm-binary-python-packages:
       - "pydantic>=2"
       - "opentelemetry-exporter-otlp-proto-http==1.21.0"
+

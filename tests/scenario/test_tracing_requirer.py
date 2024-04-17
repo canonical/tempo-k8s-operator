@@ -36,8 +36,7 @@ def test_requirer_api(context):
     tracing = Relation(
         "tracing",
         remote_app_data={
-            "receivers": '[{"protocol": "tempo", "port": 3200}, '
-            '{"protocol": "otlp_grpc", "port": 4317}, '
+            "receivers": '[{"protocol": "otlp_grpc", "port": 4317}, '
             '{"protocol": "otlp_http", "port": 4318}, '
             '{"protocol": "zipkin", "port": 9411}]',
             "host": json.dumps(host),
@@ -45,20 +44,20 @@ def test_requirer_api(context):
     )
     state = State(leader=True, relations=[tracing])
 
-    def post_event(charm: MyCharm):
-        assert charm.tracing.otlp_grpc_endpoint() == f"{host}:4317"
-        assert charm.tracing.otlp_http_endpoint() == f"http://{host}:4318"
-
-        rel = charm.model.get_relation("tracing")
-        assert charm.tracing.is_ready(rel)
-
     with charm_tracing_disabled():
-        context.run(tracing.changed_event, state, post_event=post_event)
+        with context.manager(tracing.changed_event, state) as mgr:
+            charm = mgr.charm
+            assert charm.tracing.get_endpoint("otlp_grpc") == f"{host}:4317"
+            assert charm.tracing.get_endpoint("otlp_http") == f"http://{host}:4318"
+            assert charm.tracing.get_endpoint("zipkin") == f"http://{host}:9411"
+
+            rel = charm.model.get_relation("tracing")
+            assert charm.tracing.is_ready(rel)
 
     rchanged, epchanged = context.emitted_events
     assert isinstance(epchanged, EndpointChangedEvent)
     assert epchanged.host == host
-    assert epchanged.receivers[0].protocol == "tempo"
+    assert epchanged.receivers[0].protocol == "otlp_grpc"
     assert epchanged.host == host
 
 
@@ -66,7 +65,7 @@ def test_requirer_api(context):
     "data",
     (
         {
-            "ingesters": '[{"protocol": "tempo", "port": 3200}]',
+            "ingesters": '[{"protocol": "otlp_grpc", "port": 9999}]',
             "bar": "baz",
         },
         {

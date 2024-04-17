@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 from pathlib import Path
 
@@ -6,7 +7,7 @@ import pytest
 import yaml
 from pytest_operator.plugin import OpsTest
 
-METADATA = yaml.safe_load(Path("./metadata.yaml").read_text())
+METADATA = yaml.safe_load(Path("./charmcraft.yaml").read_text())
 APP_NAME = METADATA["name"]
 TESTER_METADATA = yaml.safe_load(Path("./tests/integration/tester/metadata.yaml").read_text())
 TESTER_APP_NAME = TESTER_METADATA["name"]
@@ -21,7 +22,9 @@ async def test_build_and_deploy(ops_test: OpsTest):
     # Then applications should eventually be created
     tempo_charm = await ops_test.build_charm(".")
     tester_charm = await ops_test.build_charm("./tests/integration/tester/")
-    resources = {"tempo-image": METADATA["resources"]["tempo-image"]["upstream-source"]}
+    resources = {
+        "tempo-image": METADATA["resources"]["tempo-image"]["upstream-source"],
+    }
     resources_tester = {"workload": TESTER_METADATA["resources"]["workload"]["upstream-source"]}
 
     await asyncio.gather(
@@ -84,7 +87,14 @@ async def test_verify_traces(ops_test: OpsTest):
         f"non-zero return code means curl encountered a >= 400 HTTP code; "
         f"cmd={cmd}"
     )
-    assert "TempoTesterCharm" in stdout
+    traces = json.loads(stdout)["traces"]
+
+    found = False
+    for trace in traces:
+        if trace["rootServiceName"] == APP_NAME and trace["rootTraceName"] == "charm exec":
+            found = True
+
+    assert found, f"There's no trace of charm exec traces in tempo. {json.dumps(traces, indent=2)}"
 
 
 @pytest.mark.abort_on_fail

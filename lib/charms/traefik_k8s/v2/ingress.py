@@ -13,7 +13,7 @@ To get started using the library, you just need to fetch the library using `char
 
 ```shell
 cd some-charm
-charmcraft fetch-lib charms.traefik_k8s.v1.ingress
+charmcraft fetch-lib charms.traefik_k8s.v2.ingress
 ```
 
 In the `metadata.yaml` of the charm, add the following:
@@ -72,7 +72,7 @@ LIBAPI = 2
 
 # Increment this PATCH version before using `charmcraft publish-lib` or reset
 # to 0 if you are raising the major API version
-LIBPATCH = 11
+LIBPATCH = 12
 
 PYDEPS = ["pydantic"]
 
@@ -107,7 +107,7 @@ if PYDANTIC_IS_V1:
                     k: json.loads(v)
                     for k, v in databag.items()
                     # Don't attempt to parse model-external values
-                    if k in {f.alias for f in cls.__fields__.values()}
+                    if k in {f.alias for f in cls.__fields__.values()}  # type: ignore
                 }
             except json.JSONDecodeError as e:
                 msg = f"invalid databag contents: expecting json. {databag}"
@@ -171,7 +171,7 @@ else:
                     k: json.loads(v)
                     for k, v in databag.items()
                     # Don't attempt to parse model-external values
-                    if k in {(f.alias or n) for n, f in cls.__fields__.items()}
+                    if k in {(f.alias or n) for n, f in cls.__fields__.items()}  # type: ignore
                 }
             except json.JSONDecodeError as e:
                 msg = f"invalid databag contents: expecting json. {databag}"
