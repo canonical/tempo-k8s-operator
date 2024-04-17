@@ -100,7 +100,6 @@ async def test_verify_traces(ops_test: OpsTest):
     assert found, f"There's no trace of charm exec traces in tempo. {json.dumps(traces, indent=2)}"
 
 
-
 @pytest.mark.abort_on_fail
 async def test_remove_relation(ops_test: OpsTest):
     # given related charms
