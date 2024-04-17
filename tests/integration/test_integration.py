@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 from pathlib import Path
 
@@ -86,7 +87,14 @@ async def test_verify_traces(ops_test: OpsTest):
         f"non-zero return code means curl encountered a >= 400 HTTP code; "
         f"cmd={cmd}"
     )
-    assert "TempoTesterCharm" in stdout
+    traces = json.loads(stdout)['traces']
+
+    found = False
+    for trace in traces:
+        if trace['rootServiceName'] == APP_NAME and trace['rootTraceName'] == 'charm exec':
+            found = True
+
+    assert found, f"There's no trace of charm exec traces in tempo. {json.dumps(traces, indent=2)}"
 
 
 @pytest.mark.abort_on_fail
