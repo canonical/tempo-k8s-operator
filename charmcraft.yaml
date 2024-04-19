@@ -6,8 +6,8 @@ type: charm
 assumes:
   - k8s-api
 
-  # Juju 3.0.3+ needed for secrets and open-port
-  - juju >= 3.0.3
+  # Juju 3.4.0 needed for pebble notify
+  - juju >= 3.4.0
 
 description: |
   Tempo is a distributed tracing backend by Grafana.
