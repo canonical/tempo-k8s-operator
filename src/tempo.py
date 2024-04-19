@@ -86,9 +86,22 @@ class Tempo:
         """Base url at which the tempo server is locally reachable over http."""
         return f"http://{self.host}"
 
-    def update_config(self, requested_receivers: List[ReceiverProtocol]) -> bool:
+    def plan(self):
+        """Update pebble plan and start the tempo-ready service."""
+        self.container.add_layer("tempo", self.pebble_layer, combine=True)
+        self.container.add_layer("tempo-ready", self.tempo_ready_layer, combine=True)
+        self.container.replan()
+
+        # is not autostart-enabled, we just run it once on pebble-ready.
+        self.container.start("tempo-ready")
+
+    def update_config(self, requested_receivers: Sequence[ReceiverProtocol]) -> bool:
         """Generate a config and push it to the container it if necessary."""
         container = self.container
+        if not container.can_connect():
+            logger.debug("Container can't connect: config update skipped.")
+            return False
+
         new_config = self.generate_config(requested_receivers)
 
         if self.get_current_config() != new_config:
