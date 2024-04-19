@@ -22,12 +22,14 @@ from charms.tempo_k8s.v2.tracing import (
     RequestEvent,
     TracingEndpointProvider,
 )
-from charms.traefik_k8s.v2.ingress import IngressPerAppRequirer
+from charms.traefik_route_k8s.v0.traefik_route import TraefikRouteRequirer
 from ops.charm import (
     CharmBase,
     CollectStatusEvent,
+    HookEvent,
     PebbleNoticeEvent,
     RelationEvent,
+    RelationJoinedEvent,
     WorkloadEvent,
 )
 from ops.main import main
@@ -86,13 +88,17 @@ class TempoCharm(CharmBase):
         # TODO:
         #  ingress route provisioning a separate TCP ingress for each receiver if GRPC doesn't work directly
 
-        self._ingress = IngressPerAppRequirer(
-            self, port=self.tempo.tempo_server_port, strip_prefix=True
+        self._ingress = TraefikRouteRequirer(self, self.model.get_relation("ingress"), "ingress")  # type: ignore
+        self._tracing = TracingEndpointProvider(
+            self, host=self.tempo.host, external_url=self._ingress.external_host
         )
 
-        self._tracing = TracingEndpointProvider(
-            self, host=self.tempo.host, external_url=self._ingress.url
-        )
+        self.framework.observe(self.on["ingress"].relation_joined, self._configure_ingress)
+        self.framework.observe(self.on.leader_elected, self._configure_ingress)
+        self.framework.observe(self.on.config_changed, self._configure_ingress)
+        self.framework.observe(self._ingress.on.ready, self._on_ingress_ready)  # pyright: ignore
+        # TODO there's no revoked ingress action with traefik_route?
+        #self.framework.observe(self._ingress.on.revoked, self._on_ingress_revoked)
 
         self.framework.observe(self.on.tempo_pebble_ready, self._on_tempo_pebble_ready)
         self.framework.observe(
@@ -104,8 +110,6 @@ class TempoCharm(CharmBase):
         self.framework.observe(self.on.tracing_relation_joined, self._on_tracing_relation_joined)
         self.framework.observe(self.on.tracing_relation_changed, self._on_tracing_relation_changed)
         self.framework.observe(self.on.collect_unit_status, self._on_collect_unit_status)
-        self.framework.observe(self._ingress.on.ready, self._on_ingress_ready)
-        self.framework.observe(self._ingress.on.revoked, self._on_ingress_revoked)
         self.framework.observe(self.on.list_receivers_action, self._on_list_receivers_action)
 
     def _is_legacy_v1_relation(self, relation):
@@ -120,6 +124,32 @@ class TempoCharm(CharmBase):
             return False
 
         return True
+
+    def _configure_ingress(self, event: HookEvent) -> None:
+        """Set up ingress if a relation is joined, config changed, or a new leader election.
+
+        Also since :class:`TraefikRouteRequirer` may not have been constructed with an existing
+        relation if a :class:`RelationJoinedEvent` comes through during the charm lifecycle, if we
+        get one here, we should recreate it, but OF will give us grief about "two objects claiming
+        to be ...", so manipulate its private `_relation` variable instead.
+
+        Args:
+            event: a :class:`HookEvent` to signal a change we may need to respond to.
+        """
+        if not self.unit.is_leader():
+            return
+
+        # If it's a RelationJoinedEvent, set it in the ingress object
+        if isinstance(event, RelationJoinedEvent):
+            self._ingress._relation = event.relation
+
+        # No matter what, check readiness -- this blindly checks whether `ingress._relation` is not
+        # None, so it overlaps a little with the above, but works as expected on leader elections
+        # and config-change
+        if self._ingress.is_ready():
+            self._update_tracing_v1_relations()
+            self._update_tracing_v2_relations()
+            self._ingress.submit_to_traefik(self._ingress_config)
 
     @property
     def legacy_v1_relations(self):
@@ -315,9 +345,68 @@ class TempoCharm(CharmBase):
     def _on_list_receivers_action(self, event: ops.ActionEvent):
         res = {}
         for receiver in self._requested_receivers():
-            res[receiver.replace("_", "-")] = f"{self._ingress.url or self.tempo.url}/{receiver}"
+            res[receiver.replace("_", "-")] = f"{self._ingress.external_host or self.tempo.url}/{receiver}"
         event.set_results(res)
 
+    @property
+    def _ingress_config(self) -> dict:
+        """Build a raw ingress configuration for Traefik."""
+
+        # TODO replace hardcoded paths with variables
+        return {
+            # TODO as entrypoints are a static configuration part, Traefik doesn't accept them
+            # "entrypoints": {
+            #     "otel_http": {
+            #         "address": ":4318"
+            #     },
+            #     "otel_grpc": {
+            #         "address": ":4317"
+            #     },
+            #     "api": {
+            #         "address": ":3200"
+            #     }
+            # },
+            "tcp": {
+                "routers": {
+                    f"juju-{self.model.name}-{self.model.app.name}-otel-grpc": {
+                        "entryPoints": ["otel-grpc"],
+                        "service": "juju-{}-{}-service-otel-grpc".format(self.model.name, self.model.app.name),
+                        # TODO better matcher
+                        "rule": "ClientIP(`0.0.0.0/0`)"
+                    },
+
+                },
+                "services": {
+                    f"juju-{self.model.name}-{self.model.app.name}-service-otel-grpc": {
+                        "loadBalancer": {"servers": [{"address": f"{self.hostname}:4317"}]}
+                    }
+                }
+            },
+            "http": {
+                "routers": {
+                    f"juju-{self.model.name}-{self.model.app.name}-otel-http": {
+                        "entryPoints": ["otel-http"],
+                        "service": "juju-{}-{}-service-otel-http".format(self.model.name, self.model.app.name),
+                        # TODO better matcher
+                        "rule": "ClientIP(`0.0.0.0/0`)"
+                    },
+                    f"juju-{self.model.name}-{self.model.app.name}-api": {
+                        "entryPoints": ["api"],
+                        "service": "juju-{}-{}-service-api".format(self.model.name, self.model.app.name),
+                        # TODO better matcher
+                        "rule": "ClientIP(`0.0.0.0/0`)"
+                    },
+                },
+                "services": {
+                    f"juju-{self.model.name}-{self.model.app.name}-service-otel-http": {
+                        "loadBalancer": {"servers": [{"url": f"http://{self.hostname}:4318"}]}
+                    },
+                    f"juju-{self.model.name}-{self.model.app.name}-service-api": {
+                        "loadBalancer": {"servers": [{"url": f"http://{self.hostname}:3200"}]}
+                    }
+                }
+            }
+        }
 
 if __name__ == "__main__":  # pragma: nocover
     main(TempoCharm)

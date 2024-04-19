@@ -45,7 +45,7 @@ requires:
   logging:
     interface: loki_push_api
   ingress:
-    interface: ingress
+    interface: traefik_route
     limit: 1
 
 storage:
