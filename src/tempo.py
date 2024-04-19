@@ -128,7 +128,10 @@ class Tempo:
         """Fetch the current configuration from the container."""
         if not self.container.can_connect():
             return None
-        return yaml.safe_load(self.container.pull(self.config_path))
+        try:
+            return yaml.safe_load(self.container.pull(self.config_path))
+        except ops.pebble.PathError:
+            return None
 
     def generate_config(self, receivers: Sequence[ReceiverProtocol]) -> dict:
         """Generate the Tempo configuration.
