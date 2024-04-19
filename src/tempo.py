@@ -86,7 +86,7 @@ class Tempo:
         """Base url at which the tempo server is locally reachable over http."""
         return f"http://{self.host}"
 
-    def update_config(self, requested_receivers:List[ReceiverProtocol]) -> bool:
+    def update_config(self, requested_receivers: List[ReceiverProtocol]) -> bool:
         """Generate a config and push it to the container it if necessary."""
         container = self.container
         new_config = self.generate_config(requested_receivers)
@@ -123,51 +123,51 @@ class Tempo:
         Only activate the provided receivers.
         """
         return {
-                "auth_enabled": False,
-                "server": {
-                    "http_listen_port": self.tempo_server_port,
-                    # "grpc_listen_port": self.receiver_ports["tempo_grpc"],
-                },
-                # more configuration information can be found at
-                # https://github.com/open-telemetry/opentelemetry-collector/tree/overlord/receiver
-                "distributor": {"receivers": self._build_receivers_config(receivers)},
-                # the length of time after a trace has not received spans to consider it complete and flush it
-                # cut the head block when it hits this number of traces or ...
-                #   this much time passes
-                "ingester": {
-                    "trace_idle_period": "10s",
-                    "max_block_bytes": 100,
-                    "max_block_duration": "30m",
-                },
-                "compactor": {
-                    "compaction": {
-                        # blocks in this time window will be compacted together
-                        "compaction_window": "1h",
-                        # maximum size of compacted blocks
-                        "max_compaction_objects": 1000000,
-                        "block_retention": "1h",
-                        "compacted_block_retention": "10m",
-                        "v2_out_buffer_bytes": 5242880,
-                    }
-                },
-                # see https://grafana.com/docs/tempo/latest/configuration/#storage
-                "storage": {
-                    "trace": {
-                        # FIXME: not good for production! backend configuration to use;
-                        #  one of "gcs", "s3", "azure" or "local"
-                        "backend": "local",
-                        "local": {"path": "/traces"},
-                        "wal": {
-                            # where to store the wal locally
-                            "path": self.wal_path
-                        },
-                        "pool": {
-                            # number of traces per index record
-                            "max_workers": 400,
-                            "queue_depth": 20000,
-                        },
-                    }
-                },
+            "auth_enabled": False,
+            "server": {
+                "http_listen_port": self.tempo_server_port,
+                # "grpc_listen_port": self.receiver_ports["tempo_grpc"],
+            },
+            # more configuration information can be found at
+            # https://github.com/open-telemetry/opentelemetry-collector/tree/overlord/receiver
+            "distributor": {"receivers": self._build_receivers_config(receivers)},
+            # the length of time after a trace has not received spans to consider it complete and flush it
+            # cut the head block when it hits this number of traces or ...
+            #   this much time passes
+            "ingester": {
+                "trace_idle_period": "10s",
+                "max_block_bytes": 100,
+                "max_block_duration": "30m",
+            },
+            "compactor": {
+                "compaction": {
+                    # blocks in this time window will be compacted together
+                    "compaction_window": "1h",
+                    # maximum size of compacted blocks
+                    "max_compaction_objects": 1000000,
+                    "block_retention": "1h",
+                    "compacted_block_retention": "10m",
+                    "v2_out_buffer_bytes": 5242880,
+                }
+            },
+            # see https://grafana.com/docs/tempo/latest/configuration/#storage
+            "storage": {
+                "trace": {
+                    # FIXME: not good for production! backend configuration to use;
+                    #  one of "gcs", "s3", "azure" or "local"
+                    "backend": "local",
+                    "local": {"path": "/traces"},
+                    "wal": {
+                        # where to store the wal locally
+                        "path": self.wal_path
+                    },
+                    "pool": {
+                        # number of traces per index record
+                        "max_workers": 400,
+                        "queue_depth": 20000,
+                    },
+                }
+            },
         }
 
     @property

@@ -194,9 +194,7 @@ class TempoCharm(CharmBase):
             restarted = self.tempo.restart()
             if not restarted:
                 # assume that this will be handled at the next pebble-ready
-                logger.debug(
-                    "Cannot reconfigure/restart tempo at this time."
-                )
+                logger.debug("Cannot reconfigure/restart tempo at this time.")
 
     def _requested_receivers(self) -> Tuple[ReceiverProtocol, ...]:
         """List what receivers we should activate, based on the active tracing relations."""
