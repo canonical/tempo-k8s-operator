@@ -86,13 +86,43 @@ class Tempo:
         """Base url at which the tempo server is locally reachable over http."""
         return f"http://{self.host}"
 
-    def get_config(self, receivers: Sequence[ReceiverProtocol]) -> str:
+    def update_config(self, requested_receivers:List[ReceiverProtocol]) -> bool:
+        """Generate a config and push it to the container it if necessary."""
+        container = self.container
+        new_config = self.generate_config(requested_receivers)
+
+        if self.get_current_config() != new_config:
+            logger.debug("Pushing new config to container...")
+            container.push(
+                self.config_path,
+                yaml.safe_dump(new_config),
+                make_dirs=True,
+            )
+            return True
+        return False
+
+    def restart(self) -> bool:
+        """Try to restart the tempo service."""
+        if not self.container.can_connect():
+            return False
+        try:
+            self.container.restart("tempo")
+        except ops.pebble.Error:
+            return False
+        return True
+
+    def get_current_config(self) -> Optional[dict]:
+        """Fetch the current configuration from the container."""
+        if not self.container.can_connect():
+            return None
+        return yaml.safe_load(self.container.pull(self.config_path))
+
+    def generate_config(self, receivers: Sequence[ReceiverProtocol]) -> dict:
         """Generate the Tempo configuration.
 
         Only activate the provided receivers.
         """
-        return yaml.safe_dump(
-            {
+        return {
                 "auth_enabled": False,
                 "server": {
                     "http_listen_port": self.tempo_server_port,
@@ -138,8 +168,7 @@ class Tempo:
                         },
                     }
                 },
-            }
-        )
+        }
 
     @property
     def pebble_layer(self) -> Layer:
