@@ -3,6 +3,7 @@
 # See LICENSE file for licensing details.
 
 import logging
+import time
 from pathlib import Path
 from typing import List, Optional
 
@@ -13,6 +14,11 @@ from charms.tempo_k8s.v1.tracing import (
 from charms.tempo_k8s.v2.tracing import (
     TracingEndpointRequirer as TracingEndpointRequirerV2,
 )
+from opentelemetry import trace
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
 from ops.charm import CharmBase, PebbleReadyEvent
 from ops.main import main
 from ops.model import (
@@ -44,7 +50,7 @@ class TempoTesterCharm(CharmBase):
 
         self.tracing_v1 = TracingEndpointRequirerV1(self, relation_name="tracing-v1")
         self.tracing_v2 = TracingEndpointRequirerV2(
-            self, relation_name="tracing-v2", protocols=["otlp_http"]
+            self, relation_name="tracing-v2", protocols=["otlp_http", "otlp_grpc"]
         )
 
         # Core lifecycle events
@@ -245,6 +251,8 @@ class TempoTesterCharm(CharmBase):
         self._update_layer(restart=True)
         self.unit.status = ActiveStatus("ready")
 
+        self._send_grpc_traces()
+
     def _get_peer_addresses(self) -> List[str]:
         """Create a list of addresses of all peer units (all units excluding current).
         The returned addresses include the port number but do not include scheme (http).
@@ -274,6 +282,32 @@ class TempoTesterCharm(CharmBase):
             return self.tracing_v2.get_endpoint("otlp_http")
         else:
             return None
+
+    @staticmethod
+    def _emit_trace(endpoint: str, log_trace_to_console: bool = False):
+        span_exporter = OTLPSpanExporter(
+            endpoint=endpoint,
+            insecure=True,
+        )
+        resource = Resource.create(attributes={"service.name": "tracegen"})
+        provider = TracerProvider(resource=resource)
+        if log_trace_to_console:
+            processor = BatchSpanProcessor(ConsoleSpanExporter())
+            provider.add_span_processor(processor)
+        span_processor = BatchSpanProcessor(span_exporter)
+        provider.add_span_processor(span_processor)
+        trace.set_tracer_provider(provider)
+
+        tracer = trace.get_tracer(__name__)
+
+        with tracer.start_as_current_span("foo"):
+            with tracer.start_as_current_span("bar"):
+                with tracer.start_as_current_span("baz"):
+                    time.sleep(0.1)
+
+    def _send_grpc_traces(self):
+        endpoint = self.tracing_v2.get_endpoint("otlp_grpc")
+        self._emit_trace(endpoint)
 
 
 if __name__ == "__main__":
