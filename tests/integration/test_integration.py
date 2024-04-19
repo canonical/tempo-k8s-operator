@@ -97,9 +97,8 @@ async def test_verify_traces_http(ops_test: OpsTest):
 
 
 async def test_verify_traces_grpc(ops_test: OpsTest):
-    # given a relation between
-    # when
-    # then
+    # the tester charm emits a single grpc trace in its common exit hook
+    # we verify it's there
     status = await ops_test.model.get_status()
     app = status["applications"][APP_NAME]
     logger.info(app.public_address)
@@ -119,7 +118,7 @@ async def test_verify_traces_grpc(ops_test: OpsTest):
 
     found = False
     for trace in traces:
-        if trace["rootServiceName"] == "tracegen":
+        if trace["rootServiceName"] == "tempo-tester-tracegen":
             found = True
 
     assert (

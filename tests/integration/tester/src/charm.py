@@ -289,7 +289,7 @@ class TempoTesterCharm(CharmBase):
             endpoint=endpoint,
             insecure=True,
         )
-        resource = Resource.create(attributes={"service.name": "tracegen"})
+        resource = Resource.create(attributes={"service.name": "tempo-tester-tracegen"})
         provider = TracerProvider(resource=resource)
         if log_trace_to_console:
             processor = BatchSpanProcessor(ConsoleSpanExporter())
