@@ -163,12 +163,13 @@ class TempoCharm(CharmBase):
         logger.debug(f"updating legacy v1 relation {relation}")
         # in v1, 'receiver' was called 'ingester'.
         receivers = [
-            tracing_v1.Ingester(protocol=p, port=self.tempo.receiver_ports[p], path=f"/{p}")
+            tracing_v1.Ingester(protocol=p, port=self.tempo.receiver_ports[p])
             for p in LEGACY_RECEIVER_PROTOCOLS
         ]
         tracing_v1.TracingProviderAppData(host=self.tempo.host, ingesters=receivers).dump(
             relation.data[self.app]
         )
+        self._restart_if_receivers_changed(self._requested_receivers())
 
     def _update_tracing_v2_relations(self):
         tracing_relations = self.model.relations["tracing"]
@@ -184,12 +185,14 @@ class TempoCharm(CharmBase):
             [(p, self.tempo.receiver_ports[p]) for p in requested_receivers]
         )
 
+        self._restart_if_receivers_changed(requested_receivers)
+
+    def _restart_if_receivers_changed(self, requested_receivers):
         # if the receivers have changed, we need to reconfigure tempo
         self.unit.status = MaintenanceStatus("reconfiguring Tempo...")
         updated = self.tempo.update_config(requested_receivers)
         if not updated:
             logger.debug("Config not updated; skipping tempo restart")
-
         if updated:
             restarted = self.tempo.restart()
             if not restarted:

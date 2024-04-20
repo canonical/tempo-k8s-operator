@@ -306,9 +306,14 @@ class TempoTesterCharm(CharmBase):
                     time.sleep(0.1)
 
     def _send_grpc_traces(self):
-        endpoint = self.tracing_v2.get_endpoint("otlp_grpc")
-        self._emit_trace(endpoint)
-
+        if self.tracing_v1.is_ready:
+            endpoint = self.tracing_v1.otlp_grpc_endpoint()
+            self._emit_trace(endpoint)
+        elif self.tracing_v2.is_ready:
+            endpoint = self.tracing_v2.get_endpoint("otlp_grpc")
+            self._emit_trace(endpoint)
+        else:
+            raise Exception("Neither v1 or v2 protocols were available to emit traces")
 
 if __name__ == "__main__":
     main(TempoTesterCharm)
