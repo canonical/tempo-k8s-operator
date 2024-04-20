@@ -106,7 +106,7 @@ IngesterProtocol = Literal[
     "otlp_grpc", "otlp_http", "zipkin", "tempo", "jaeger_http_thrift", "jaeger_grpc"
 ]
 
-RawIngester = Tuple[IngesterProtocol, int, str]
+RawIngester = Tuple[IngesterProtocol, int]
 BUILTIN_JUJU_KEYS = {"ingress-address", "private-address", "egress-subnets"}
 
 

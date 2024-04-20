@@ -315,5 +315,6 @@ class TempoTesterCharm(CharmBase):
         else:
             raise Exception("Neither v1 or v2 protocols were available to emit traces")
 
+
 if __name__ == "__main__":
     main(TempoTesterCharm)
