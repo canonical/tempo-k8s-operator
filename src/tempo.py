@@ -120,7 +120,8 @@ class Tempo:
         if not self.container.can_connect():
             return False
         retry_count = 0
-        while retry_count < 5:
+        # TODO doing `time.sleep()` and retries is a bit clunky. Is there a better way?
+        while retry_count < 10:
             try:
                 self.container.stop("tempo")
                 service_status = self.container.get_service("tempo").current
