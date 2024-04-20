@@ -169,7 +169,6 @@ class TempoCharm(CharmBase):
         tracing_v1.TracingProviderAppData(host=self.tempo.host, ingesters=receivers).dump(
             relation.data[self.app]
         )
-        self._restart_if_receivers_changed(self._requested_receivers())
 
     def _update_tracing_v2_relations(self):
         tracing_relations = self.model.relations["tracing"]

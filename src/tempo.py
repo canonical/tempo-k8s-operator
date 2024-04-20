@@ -5,6 +5,7 @@
 """Tempo workload configuration and client."""
 import logging
 import socket
+import time
 from subprocess import CalledProcessError, getoutput
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -118,11 +119,25 @@ class Tempo:
         """Try to restart the tempo service."""
         if not self.container.can_connect():
             return False
-        try:
-            self.container.restart("tempo")
-        except ops.pebble.Error:
-            return False
-        return True
+        retry_count = 0
+        while retry_count < 5:
+            try:
+                self.container.stop("tempo")
+                service_status = self.container.get_service("tempo").current
+                # verify if tempo is already inactive, then try to start a new instance
+                if service_status == ops.pebble.ServiceStatus.INACTIVE:
+                    self.container.start("tempo")
+                    return True
+                else:
+                    # old tempo is still active / errored out
+                    retry_count += 1
+                    logger.warning(f"tempo container is in status {service_status}, trying to start again in {retry_count * 2}s. retry {retry_count}")
+            except ops.pebble.Error:
+                # old tempo might not be taken down yet
+                retry_count += 1
+                logger.exception(f"Pebble error on restarting Tempo. Retrying in {retry_count * 2}s")
+            time.sleep(2 * retry_count)
+        return False
 
     def get_current_config(self) -> Optional[dict]:
         """Fetch the current configuration from the container."""
