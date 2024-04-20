@@ -131,11 +131,15 @@ class Tempo:
                 else:
                     # old tempo is still active / errored out
                     retry_count += 1
-                    logger.warning(f"tempo container is in status {service_status}, trying to start again in {retry_count * 2}s. retry {retry_count}")
+                    logger.warning(
+                        f"tempo container is in status {service_status}, trying to start again in {retry_count * 2}s. retry {retry_count}"
+                    )
             except ops.pebble.Error:
                 # old tempo might not be taken down yet
                 retry_count += 1
-                logger.exception(f"Pebble error on restarting Tempo. Retrying in {retry_count * 2}s")
+                logger.exception(
+                    f"Pebble error on restarting Tempo. Retrying in {retry_count * 2}s"
+                )
             time.sleep(2 * retry_count)
         return False
 
