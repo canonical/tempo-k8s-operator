@@ -50,7 +50,8 @@ def test_tempo_restart_on_ingress_v2_changed(context, tmp_path, requested_protoc
                 {
                     "summary": "tempo layer",
                     "description": "foo",
-                    "services": {"tempo": {"startup": "enabled"}},
+                    "services": {"tempo": {"startup": "enabled"},
+                                 "tempo-ready": {"startup": "disabled"}},
                 }
             )
         },
