@@ -52,6 +52,7 @@ def copy_charm_libs_into_tester_charm(ops_test):
     for path in copies:
         Path(path).unlink()
 
+
 @fixture(scope="module", autouse=True)
 def copy_charm_libs_into_tester_grpc_charm(ops_test):
     """Ensure the tester GRPC charm has the libraries it uses."""

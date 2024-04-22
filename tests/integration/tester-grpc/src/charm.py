@@ -29,6 +29,7 @@ from ops.pebble import Layer
 logger = logging.getLogger(__name__)
 TRACING_APP_NAME = "TempoTesterGrpcCharm"
 
+
 class TempoTesterGrpcCharm(CharmBase):
     """Charm the service."""
 
