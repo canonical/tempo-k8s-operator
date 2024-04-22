@@ -10,6 +10,7 @@ from subprocess import CalledProcessError, getoutput
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import ops
+import tenacity
 import yaml
 from charms.tempo_k8s.v2.tracing import ReceiverProtocol
 from ops.pebble import Layer
@@ -115,33 +116,37 @@ class Tempo:
             return True
         return False
 
+    @tenacity.retry(
+        # if restart FAILS (this function returns False)
+        retry=tenacity.retry_if_result(lambda r: r is False),
+        # we wait 3, 9, 27... up to 40 seconds between tries
+        wait=tenacity.wait_exponential(multiplier=3, min=1, max=40),
+        # we give up after 20 attempts
+        stop=tenacity.stop_after_attempt(20),
+        # if there's any exceptions throughout, raise them
+        reraise=True,
+    )
     def restart(self) -> bool:
         """Try to restart the tempo service."""
+
+        # restarting tempo can cause errors such as:
+        #  Could not bind to :3200 - Address in use
+        # probably because of some lag with releasing the port. We restart tempo 'too quickly'
+        # and it fails to start. As a workaround, see the @retry logic above.
+
         if not self.container.can_connect():
             return False
-        retry_count = 0
-        # TODO doing `time.sleep()` and retries is a bit clunky. Is there a better way?
-        while retry_count < 10:
-            try:
-                self.container.stop("tempo")
-                service_status = self.container.get_service("tempo").current
-                # verify if tempo is already inactive, then try to start a new instance
-                if service_status == ops.pebble.ServiceStatus.INACTIVE:
-                    self.container.start("tempo")
-                    return True
-                else:
-                    # old tempo is still active / errored out
-                    retry_count += 1
-                    logger.warning(
-                        f"tempo container is in status {service_status}, trying to start again in {retry_count * 2}s. retry {retry_count}"
-                    )
-            except ops.pebble.Error:
-                # old tempo might not be taken down yet
-                retry_count += 1
-                logger.exception(
-                    f"Pebble error on restarting Tempo. Retrying in {retry_count * 2}s"
-                )
-            time.sleep(2 * retry_count)
+
+        self.container.stop("tempo")
+        service_status = self.container.get_service("tempo").current
+        # verify if tempo is already inactive, then try to start a new instance
+        if service_status == ops.pebble.ServiceStatus.INACTIVE:
+            self.container.start("tempo")
+
+            # set the notice to start checking for tempo server readiness so we don't have to
+            # wait for an update-status
+            self.container.start("tempo-ready")
+            return True
         return False
 
     def get_current_config(self) -> Optional[dict]:
