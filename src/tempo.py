@@ -5,10 +5,12 @@
 """Tempo workload configuration and client."""
 import logging
 import socket
+import time
 from subprocess import CalledProcessError, getoutput
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import ops
+import tenacity
 import yaml
 from charms.tempo_k8s.v2.tracing import ReceiverProtocol
 from ops.pebble import Layer
@@ -86,60 +88,133 @@ class Tempo:
         """Base url at which the tempo server is locally reachable over http."""
         return f"http://{self.host}"
 
-    def get_config(self, receivers: Sequence[ReceiverProtocol]) -> str:
+    def plan(self):
+        """Update pebble plan and start the tempo-ready service."""
+        self.container.add_layer("tempo", self.pebble_layer, combine=True)
+        self.container.add_layer("tempo-ready", self.tempo_ready_layer, combine=True)
+        self.container.replan()
+
+        # is not autostart-enabled, we just run it once on pebble-ready.
+        self.container.start("tempo-ready")
+
+    def update_config(self, requested_receivers: Sequence[ReceiverProtocol]) -> bool:
+        """Generate a config and push it to the container it if necessary."""
+        container = self.container
+        if not container.can_connect():
+            logger.debug("Container can't connect: config update skipped.")
+            return False
+
+        new_config = self.generate_config(requested_receivers)
+
+        if self.get_current_config() != new_config:
+            logger.debug("Pushing new config to container...")
+            container.push(
+                self.config_path,
+                yaml.safe_dump(new_config),
+                make_dirs=True,
+            )
+            return True
+        return False
+
+    @tenacity.retry(
+        # if restart FAILS (this function returns False)
+        retry=tenacity.retry_if_result(lambda r: r is False),
+        # we wait 3, 9, 27... up to 40 seconds between tries
+        wait=tenacity.wait_exponential(multiplier=3, min=1, max=40),
+        # we give up after 20 attempts
+        stop=tenacity.stop_after_attempt(20),
+        # if there's any exceptions throughout, raise them
+        reraise=True,
+    )
+    def restart(self) -> bool:
+        """Try to restart the tempo service."""
+
+        # restarting tempo can cause errors such as:
+        #  Could not bind to :3200 - Address in use
+        # probably because of some lag with releasing the port. We restart tempo 'too quickly'
+        # and it fails to start. As a workaround, see the @retry logic above.
+
+        if not self.container.can_connect():
+            return False
+
+        self.container.stop("tempo")
+        service_status = self.container.get_service("tempo").current
+
+        # verify if tempo is already inactive, then try to start a new instance
+        if service_status == ops.pebble.ServiceStatus.INACTIVE:
+            try:
+                self.container.start("tempo")
+            except ops.pebble.ChangeError:
+                # if tempo fails to start, we'll try again after retry backoff
+                return False
+
+            # set the notice to start checking for tempo server readiness so we don't have to
+            # wait for an update-status
+            self.container.start("tempo-ready")
+            return True
+        return False
+
+    def get_current_config(self) -> Optional[dict]:
+        """Fetch the current configuration from the container."""
+        if not self.container.can_connect():
+            return None
+        try:
+            return yaml.safe_load(self.container.pull(self.config_path))
+        except ops.pebble.PathError:
+            return None
+
+    def generate_config(self, receivers: Sequence[ReceiverProtocol]) -> dict:
         """Generate the Tempo configuration.
 
         Only activate the provided receivers.
         """
-        return yaml.safe_dump(
-            {
-                "auth_enabled": False,
-                "server": {
-                    "http_listen_port": self.tempo_server_port,
-                    # "grpc_listen_port": self.receiver_ports["tempo_grpc"],
-                },
-                # more configuration information can be found at
-                # https://github.com/open-telemetry/opentelemetry-collector/tree/overlord/receiver
-                "distributor": {"receivers": self._build_receivers_config(receivers)},
-                # the length of time after a trace has not received spans to consider it complete and flush it
-                # cut the head block when it hits this number of traces or ...
-                #   this much time passes
-                "ingester": {
-                    "trace_idle_period": "10s",
-                    "max_block_bytes": 100,
-                    "max_block_duration": "30m",
-                },
-                "compactor": {
-                    "compaction": {
-                        # blocks in this time window will be compacted together
-                        "compaction_window": "1h",
-                        # maximum size of compacted blocks
-                        "max_compaction_objects": 1000000,
-                        "block_retention": "1h",
-                        "compacted_block_retention": "10m",
-                        "v2_out_buffer_bytes": 5242880,
-                    }
-                },
-                # see https://grafana.com/docs/tempo/latest/configuration/#storage
-                "storage": {
-                    "trace": {
-                        # FIXME: not good for production! backend configuration to use;
-                        #  one of "gcs", "s3", "azure" or "local"
-                        "backend": "local",
-                        "local": {"path": "/traces"},
-                        "wal": {
-                            # where to store the wal locally
-                            "path": self.wal_path
-                        },
-                        "pool": {
-                            # number of traces per index record
-                            "max_workers": 400,
-                            "queue_depth": 20000,
-                        },
-                    }
-                },
-            }
-        )
+        return {
+            "auth_enabled": False,
+            "server": {
+                "http_listen_port": self.tempo_server_port,
+                # "grpc_listen_port": self.receiver_ports["tempo_grpc"],
+            },
+            # more configuration information can be found at
+            # https://github.com/open-telemetry/opentelemetry-collector/tree/overlord/receiver
+            "distributor": {"receivers": self._build_receivers_config(receivers)},
+            # the length of time after a trace has not received spans to consider it complete and flush it
+            # cut the head block when it hits this number of traces or ...
+            #   this much time passes
+            "ingester": {
+                "trace_idle_period": "10s",
+                "max_block_bytes": 100,
+                "max_block_duration": "30m",
+            },
+            "compactor": {
+                "compaction": {
+                    # blocks in this time window will be compacted together
+                    "compaction_window": "1h",
+                    # maximum size of compacted blocks
+                    "max_compaction_objects": 1000000,
+                    "block_retention": "1h",
+                    "compacted_block_retention": "10m",
+                    "v2_out_buffer_bytes": 5242880,
+                }
+            },
+            # see https://grafana.com/docs/tempo/latest/configuration/#storage
+            "storage": {
+                "trace": {
+                    # FIXME: not good for production! backend configuration to use;
+                    #  one of "gcs", "s3", "azure" or "local"
+                    "backend": "local",
+                    "local": {"path": "/traces"},
+                    "wal": {
+                        # where to store the wal locally
+                        "path": self.wal_path
+                    },
+                    "pool": {
+                        # number of traces per index record
+                        "max_workers": 400,
+                        "queue_depth": 20000,
+                    },
+                }
+            },
+        }
 
     @property
     def pebble_layer(self) -> Layer:

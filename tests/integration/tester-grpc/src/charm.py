@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright 2022 pietro
+# Copyright 2024 Canonical Inc.
 # See LICENSE file for licensing details.
 
 import logging
@@ -7,13 +7,14 @@ import time
 from pathlib import Path
 from typing import List, Optional
 
-from charms.tempo_k8s.v1.charm_tracing import trace_charm
-from charms.tempo_k8s.v1.tracing import (
-    TracingEndpointRequirer as TracingEndpointRequirerV1,
-)
 from charms.tempo_k8s.v2.tracing import (
     TracingEndpointRequirer as TracingEndpointRequirerV2,
 )
+from opentelemetry import trace
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
 from ops.charm import CharmBase, PebbleReadyEvent
 from ops.main import main
 from ops.model import (
@@ -26,11 +27,10 @@ from ops.model import (
 from ops.pebble import Layer
 
 logger = logging.getLogger(__name__)
-TRACING_APP_NAME = "TempoTesterCharm"
+TRACING_APP_NAME = "TempoTesterGrpcCharm"
 
 
-@trace_charm(tracing_endpoint="tempo_otlp_http_endpoint", service_name=TRACING_APP_NAME)
-class TempoTesterCharm(CharmBase):
+class TempoTesterGrpcCharm(CharmBase):
     """Charm the service."""
 
     _layer_name = _service_name = "tester"
@@ -43,9 +43,8 @@ class TempoTesterCharm(CharmBase):
 
         self.container: Container = self.unit.get_container(self._container_name)
 
-        self.tracing_v1 = TracingEndpointRequirerV1(self, relation_name="tracing-v1")
         self.tracing_v2 = TracingEndpointRequirerV2(
-            self, relation_name="tracing-v2", protocols=["otlp_http", "otlp_grpc"]
+            self, relation_name="tracing-v2", protocols=["otlp_grpc"]
         )
 
         # Core lifecycle events
@@ -54,7 +53,6 @@ class TempoTesterCharm(CharmBase):
         # Peer relation events
         self.framework.observe(self.on[self._peer_relation_name].relation_joined, self._update)
         self.framework.observe(self.on[self._peer_relation_name].relation_changed, self._update)
-        self.framework.observe(self.tracing_v1.on.endpoint_changed, self._update)
         self.framework.observe(self.tracing_v2.on.endpoint_changed, self._update)
 
     @property
@@ -107,7 +105,7 @@ class TempoTesterCharm(CharmBase):
             "PORT": self.config["port"],
             "HOST": self.config["host"],
             "APP_NAME": self.app.name,
-            "TEMPO_ENDPOINT": str(self.tracing_v1.otlp_http_endpoint or ""),
+            "TEMPO_ENDPOINT": str(self.tracing_v2.get_endpoint("otlp_grpc") or ""),
         }
         logging.info(f"Initing pebble layer with env: {str(env)}")
 
@@ -228,7 +226,7 @@ class TempoTesterCharm(CharmBase):
             self.unit.status = MaintenanceStatus("waiting for IP address...")
             return
 
-        if not (self.tracing_v1.is_ready() or self.tracing_v2.is_ready()):
+        if not self.tracing_v2.is_ready():
             self.unit.status = WaitingStatus("waiting for tracing to be ready...")
             return
 
@@ -246,6 +244,8 @@ class TempoTesterCharm(CharmBase):
         self._update_layer(restart=True)
         self.unit.status = ActiveStatus("ready")
 
+        self._send_grpc_traces()
+
     def _get_peer_addresses(self) -> List[str]:
         """Create a list of addresses of all peer units (all units excluding current).
         The returned addresses include the port number but do not include scheme (http).
@@ -262,20 +262,44 @@ class TempoTesterCharm(CharmBase):
 
         return addresses
 
-    def tempo_otlp_http_endpoint(self) -> Optional[str]:
+    def tempo_otlp_grpc_endpoint(self) -> Optional[str]:
         """Endpoint at which the charm tracing information will be forwarded."""
-        tracing_v1_ready = self.tracing_v1.is_ready()
-        tracing_v2_ready = self.tracing_v2.is_ready()
-
-        if tracing_v1_ready and tracing_v2_ready:
-            raise ValueError("cannot relate tracing v1 and v2 simultaneously")
-        elif tracing_v1_ready:
-            return self.tracing_v1.otlp_http_endpoint()
-        elif tracing_v2_ready:
-            return self.tracing_v2.get_endpoint("otlp_http")
+        if self.tracing_v2.is_ready():
+            return self.tracing_v2.get_endpoint("otlp_grpc")
         else:
             return None
 
+    @staticmethod
+    def _emit_trace(endpoint: str, log_trace_to_console: bool = False):
+        logger.info(f"Emitting traces to endpoint {endpoint}")
+        span_exporter = OTLPSpanExporter(
+            endpoint=endpoint,
+            insecure=True,
+        )
+        resource = Resource.create(attributes={"service.name": TRACING_APP_NAME})
+        provider = TracerProvider(resource=resource)
+        if log_trace_to_console:
+            processor = BatchSpanProcessor(ConsoleSpanExporter())
+            provider.add_span_processor(processor)
+        span_processor = BatchSpanProcessor(span_exporter)
+        provider.add_span_processor(span_processor)
+        trace.set_tracer_provider(provider)
+
+        tracer = trace.get_tracer(__name__)
+        logger.info(f"tracer instance: {tracer}")
+
+        with tracer.start_as_current_span("foo"):
+            with tracer.start_as_current_span("bar"):
+                with tracer.start_as_current_span("baz"):
+                    time.sleep(0.1)
+                    logger.info("spans emitted")
+
+    def _send_grpc_traces(self):
+        if self.tracing_v2.is_ready():
+            logger.info("v2 tracing is ready")
+            endpoint = self.tempo_otlp_grpc_endpoint()
+            self._emit_trace(endpoint)
+
 
 if __name__ == "__main__":
-    main(TempoTesterCharm)
+    main(TempoTesterGrpcCharm)

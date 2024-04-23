@@ -51,3 +51,25 @@ def copy_charm_libs_into_tester_charm(ops_test):
     # cleanup: remove all libs
     for path in copies:
         Path(path).unlink()
+
+
+@fixture(scope="module", autouse=True)
+def copy_charm_libs_into_tester_grpc_charm(ops_test):
+    """Ensure the tester GRPC charm has the libraries it uses."""
+    libraries = [
+        "tempo_k8s/v2/tracing.py",
+    ]
+
+    copies = []
+
+    for lib in libraries:
+        install_path = f"tests/integration/tester-grpc/lib/charms/{lib}"
+        os.makedirs(os.path.dirname(install_path), exist_ok=True)
+        shutil.copyfile(f"lib/charms/{lib}", install_path)
+        copies.append(install_path)
+
+    yield
+
+    # cleanup: remove all libs
+    for path in copies:
+        Path(path).unlink()

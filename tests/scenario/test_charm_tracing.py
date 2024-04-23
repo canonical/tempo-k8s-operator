@@ -374,9 +374,9 @@ def test_tracing_requirer_remote_charm_request_response(leader):
     tracing = scenario.Relation(
         "tracing",
         # if we're not leader, assume the leader did its part already
-        local_app_data=TracingRequirerAppData(receivers=["otlp_http"]).dump()
-        if not leader
-        else {},
+        local_app_data=(
+            TracingRequirerAppData(receivers=["otlp_http"]).dump() if not leader else {}
+        ),
         remote_app_data=TracingProviderAppData(
             host="foo.com", receivers=[Receiver(port=80, protocol="otlp_http")]
         ).dump(),

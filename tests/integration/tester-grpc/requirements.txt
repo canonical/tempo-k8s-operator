@@ -1,0 +1,2 @@
+ops >= 1.4.0
+opentelemetry-exporter-otlp-proto-grpc>=1.21.0

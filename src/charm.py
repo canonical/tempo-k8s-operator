@@ -163,7 +163,7 @@ class TempoCharm(CharmBase):
         logger.debug(f"updating legacy v1 relation {relation}")
         # in v1, 'receiver' was called 'ingester'.
         receivers = [
-            tracing_v1.Ingester(protocol=p, port=self.tempo.receiver_ports[p], path=f"/{p}")
+            tracing_v1.Ingester(protocol=p, port=self.tempo.receiver_ports[p])
             for p in LEGACY_RECEIVER_PROTOCOLS
         ]
         tracing_v1.TracingProviderAppData(host=self.tempo.host, ingesters=receivers).dump(
@@ -184,21 +184,19 @@ class TempoCharm(CharmBase):
             [(p, self.tempo.receiver_ports[p]) for p in requested_receivers]
         )
 
+        self._restart_if_receivers_changed(requested_receivers)
+
+    def _restart_if_receivers_changed(self, requested_receivers):
         # if the receivers have changed, we need to reconfigure tempo
         self.unit.status = MaintenanceStatus("reconfiguring Tempo...")
-        container = self.tempo.container
-        if container.can_connect():
-            container.push(
-                self.tempo.config_path,
-                self.tempo.get_config(requested_receivers),
-                make_dirs=True,
-            )
-            container.replan()
-        else:
-            # assume that this will be handled at the next pebble-ready
-            logger.debug(
-                "Cannot reconfigure/restart tempo at this time: container cannot connect."
-            )
+        updated = self.tempo.update_config(requested_receivers)
+        if not updated:
+            logger.debug("Config not updated; skipping tempo restart")
+        if updated:
+            restarted = self.tempo.restart()
+            if not restarted:
+                # assume that this will be handled at the next pebble-ready
+                logger.debug("Cannot reconfigure/restart tempo at this time.")
 
     def _requested_receivers(self) -> Tuple[ReceiverProtocol, ...]:
         """List what receivers we should activate, based on the active tracing relations."""
@@ -222,24 +220,12 @@ class TempoCharm(CharmBase):
             self.tempo.container.stop("tempo-ready")
 
     def _on_tempo_pebble_ready(self, event: WorkloadEvent):
-        container = event.workload
-
-        if not container.can_connect():
+        if not self.tempo.container.can_connect():
+            logger.warning("container not ready, cannot configure; will retry soon")
             return event.defer()
 
-        # drop tempo_config.yaml into the container
-        container.push(
-            self.tempo.config_path,
-            self.tempo.get_config(self._requested_receivers()),
-            make_dirs=True,
-        )
-
-        container.add_layer("tempo", self.tempo.pebble_layer, combine=True)
-        container.add_layer("tempo-ready", self.tempo.tempo_ready_layer, combine=True)
-        container.replan()
-
-        # is not autostart-enabled, we just run it once on pebble-ready.
-        container.start("tempo-ready")
+        self.tempo.update_config(self._requested_receivers())
+        self.tempo.plan()
 
         self.unit.set_workload_version(self.version)
         self.unit.status = ActiveStatus()
