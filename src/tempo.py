@@ -139,9 +139,14 @@ class Tempo:
 
         self.container.stop("tempo")
         service_status = self.container.get_service("tempo").current
+
         # verify if tempo is already inactive, then try to start a new instance
         if service_status == ops.pebble.ServiceStatus.INACTIVE:
-            self.container.start("tempo")
+            try:
+                self.container.start("tempo")
+            except ops.pebble.ChangeError:
+                # if tempo fails to start, we'll try again after retry backoff
+                return False
 
             # set the notice to start checking for tempo server readiness so we don't have to
             # wait for an update-status
