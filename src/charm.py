@@ -149,7 +149,7 @@ class TempoCharm(CharmBase):
         if self._ingress.is_ready():
             self._update_tracing_v1_relations()
             self._update_tracing_v2_relations()
-            self._ingress.submit_to_traefik(self._ingress_config)
+            self._ingress.submit_to_traefik(self._ingress_config, static=self._static_ingress_config)
 
     @property
     def legacy_v1_relations(self):
@@ -349,23 +349,27 @@ class TempoCharm(CharmBase):
         event.set_results(res)
 
     @property
+    def _static_ingress_config(self) -> dict:
+        return {
+            "entryPoints": {
+                "otel-http": {
+                    "address": ":4318"
+                },
+                "otel-grpc": {
+                    "address": ":4317"
+                },
+                "api": {
+                    "address": ":3200"
+                }
+            }
+        }
+
+    @property
     def _ingress_config(self) -> dict:
         """Build a raw ingress configuration for Traefik."""
 
         # TODO replace hardcoded paths with variables
         return {
-            # TODO as entrypoints are a static configuration part, Traefik doesn't accept them
-            # "entrypoints": {
-            #     "otel_http": {
-            #         "address": ":4318"
-            #     },
-            #     "otel_grpc": {
-            #         "address": ":4317"
-            #     },
-            #     "api": {
-            #         "address": ":3200"
-            #     }
-            # },
             "tcp": {
                 "routers": {
                     f"juju-{self.model.name}-{self.model.app.name}-otel-grpc": {
