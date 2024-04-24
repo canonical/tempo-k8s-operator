@@ -5,15 +5,16 @@
 """Tempo workload configuration and client."""
 import logging
 import socket
-import time
+from pathlib import Path
 from subprocess import CalledProcessError, getoutput
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import ops
 import tenacity
 import yaml
-from charms.tempo_k8s.v2.tracing import ReceiverProtocol
 from ops.pebble import Layer
+
+from charms.tempo_k8s.v2.tracing import ReceiverProtocol
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,11 @@ class Tempo:
     """Class representing the Tempo client workload configuration."""
 
     config_path = "/etc/tempo/tempo.yaml"
+
+    tls_cert_path = Path("/etc/tempo/tls/tls.crt")
+    tls_key_path = Path("/etc/tempo/tls/tls.key")
+    tls_ca_path = Path("/etc/tempo/tls/tls.ca")
+
     wal_path = "/etc/tempo/tempo_wal"
     log_path = "/var/log/tempo.log"
     tempo_ready_notice_key = "canonical.com/tempo/workload-ready"
@@ -47,12 +53,18 @@ class Tempo:
     all_ports = {**server_ports, **receiver_ports}
 
     def __init__(
-        self,
-        container: ops.Container,
-        local_host: str = "0.0.0.0",
-        enable_receivers: Optional[Sequence[ReceiverProtocol]] = None,
+            self,
+            container: ops.Container,
+            external_host: str,
+            local_host: str = "0.0.0.0",
+            enable_receivers: Optional[Sequence[ReceiverProtocol]] = None,
     ):
         # ports source: https://github.com/grafana/tempo/blob/main/example/docker-compose/local/docker-compose.yaml
+
+        # fqdn, if an ingress is not available, else the ingress address.
+        self._external_hostname = external_host
+
+        # local hostname at which the server will be running
         self._local_hostname = local_host
         self.container = container
         self.enabled_receivers = enable_receivers or []
@@ -79,14 +91,10 @@ class Tempo:
         ]
 
     @property
-    def host(self) -> str:
-        """Hostname at which tempo is running."""
-        return socket.getfqdn()
-
-    @property
     def url(self) -> str:
         """Base url at which the tempo server is locally reachable over http."""
-        return f"http://{self.host}"
+        scheme = "https" if self.tls_ready else "http"
+        return f"{scheme}://{self._external_hostname}"
 
     def plan(self):
         """Update pebble plan and start the tempo-ready service."""
@@ -163,6 +171,43 @@ class Tempo:
         except ops.pebble.PathError:
             return None
 
+    def configure_tls(self, *, cert: str, key: str, ca: str):
+        """Push cert, key and CA to the tempo container."""
+        self.container.push(self.tls_cert_path, cert, make_dirs=True)
+        self.container.push(self.tls_key_path, key, make_dirs=True)
+        self.container.push(self.tls_ca_path, ca, make_dirs=True)
+
+    def clear_tls_config(self):
+        """Remove cert, key and CA files from the tempo container."""
+        self.container.remove_path(self.tls_cert_path, recursive=True)
+        self.container.remove_path(self.tls_key_path, recursive=True)
+        self.container.remove_path(self.tls_ca_path, recursive=True)
+
+    @property
+    def tls_ready(self) -> bool:
+        """Whether cert, key, and ca paths are found on disk and Tempo is ready to use tls."""
+        return all(x.exists() for x in (
+            self.tls_cert_path,
+            self.tls_key_path,
+            self.tls_ca_path
+        ))
+
+    def _build_server_config(self):
+        server_config = {
+            "http_listen_port": self.tempo_server_port,
+            # "grpc_listen_port": self.receiver_ports["tempo_grpc"],
+        }
+        if self.tls_ready:
+            server_config["http_tls_config"] = {
+                "cert_file": str(self.tls_cert_path),
+                "key_file": str(self.tls_key_path),
+                "client_ca_file": str(self.tls_ca_path),
+                "client_auth_type": "VerifyClientCertIfGiven",
+            }
+            server_config["tls_min_version"] = "VersionTLS12"
+
+        return server_config
+
     def generate_config(self, receivers: Sequence[ReceiverProtocol]) -> dict:
         """Generate the Tempo configuration.
 
@@ -170,10 +215,7 @@ class Tempo:
         """
         return {
             "auth_enabled": False,
-            "server": {
-                "http_listen_port": self.tempo_server_port,
-                # "grpc_listen_port": self.receiver_ports["tempo_grpc"],
-            },
+            "server": self._build_server_config(),
             # more configuration information can be found at
             # https://github.com/open-telemetry/opentelemetry-collector/tree/overlord/receiver
             "distributor": {"receivers": self._build_receivers_config(receivers)},
@@ -269,31 +311,40 @@ class Tempo:
         if not receivers_set:
             logger.warning("No receivers set. Tempo will be up but not functional.")
 
+        if self.tls_ready:
+            receiver_config = {
+                "ca_file": self.tls_ca_path,
+                "cert_file": self.tls_cert_path,
+                "key_file": self.tls_key_path,
+                "min_version": "VersionTLS12",
+            }
+        else:
+            receiver_config = None
+
         config = {}
 
-        # TODO: how do we pass the ports into this config?
         if "zipkin" in receivers_set:
-            config["zipkin"] = None
+            config["zipkin"] = receiver_config
         if "opencensus" in receivers_set:
-            config["opencensus"] = None
+            config["opencensus"] = receiver_config
 
         otlp_config = {}
         if "otlp_http" in receivers_set:
-            otlp_config["http"] = None
+            otlp_config["http"] = receiver_config
         if "otlp_grpc" in receivers_set:
-            otlp_config["grpc"] = None
+            otlp_config["grpc"] = receiver_config
         if otlp_config:
             config["otlp"] = {"protocols": otlp_config}
 
         jaeger_config = {}
         if "jaeger_thrift_http" in receivers_set:
-            jaeger_config["thrift_http"] = None
+            jaeger_config["thrift_http"] = receiver_config
         if "jaeger_grpc" in receivers_set:
-            jaeger_config["grpc"] = None
+            jaeger_config["grpc"] = receiver_config
         if "jaeger_thrift_binary" in receivers_set:
-            jaeger_config["thrift_binary"] = None
+            jaeger_config["thrift_binary"] = receiver_config
         if "jaeger_thrift_compact" in receivers_set:
-            jaeger_config["thrift_compact"] = None
+            jaeger_config["thrift_compact"] = receiver_config
         if jaeger_config:
             config["jaeger"] = {"protocols": jaeger_config}
 

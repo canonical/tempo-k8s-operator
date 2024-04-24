@@ -9,20 +9,7 @@ import re
 import socket
 from typing import Optional, Tuple
 
-import charms.tempo_k8s.v1.tracing as tracing_v1
 import ops
-from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
-from charms.grafana_k8s.v0.grafana_source import GrafanaSourceProvider
-from charms.loki_k8s.v0.loki_push_api import LogProxyConsumer
-from charms.observability_libs.v0.kubernetes_service_patch import KubernetesServicePatch
-from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
-from charms.tempo_k8s.v1.charm_tracing import trace_charm
-from charms.tempo_k8s.v2.tracing import (
-    ReceiverProtocol,
-    RequestEvent,
-    TracingEndpointProvider,
-)
-from charms.traefik_k8s.v2.ingress import IngressPerAppRequirer
 from ops.charm import (
     CharmBase,
     CollectStatusEvent,
@@ -33,6 +20,20 @@ from ops.charm import (
 from ops.main import main
 from ops.model import ActiveStatus, MaintenanceStatus, Relation, WaitingStatus
 
+import charms.tempo_k8s.v1.tracing as tracing_v1
+from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
+from charms.grafana_k8s.v0.grafana_source import GrafanaSourceProvider
+from charms.loki_k8s.v0.loki_push_api import LogProxyConsumer
+from charms.observability_libs.v0.kubernetes_service_patch import KubernetesServicePatch
+from charms.observability_libs.v1.cert_handler import CertHandler
+from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
+from charms.tempo_k8s.v1.charm_tracing import trace_charm
+from charms.tempo_k8s.v2.tracing import (
+    ReceiverProtocol,
+    RequestEvent,
+    TracingEndpointProvider,
+)
+from charms.traefik_k8s.v2.ingress import IngressPerAppRequirer
 from tempo import Tempo
 
 logger = logging.getLogger(__name__)
@@ -56,9 +57,16 @@ class TempoCharm(CharmBase):
         super().__init__(*args)
         self.tempo = tempo = Tempo(
             self.unit.get_container("tempo"),
+            external_host=self.hostname,
             # we need otlp_http receiver for charm_tracing
             enable_receivers=["otlp_http"],
         )
+
+        self.cert_handler = CertHandler(
+            self,
+            key="tempo-server-cert",
+            sans=[self.hostname])
+
         # configure this tempo as a datasource in grafana
         self.grafana_source_provider = GrafanaSourceProvider(
             self, source_type="tempo", source_port=str(tempo.tempo_server_port)
@@ -79,10 +87,7 @@ class TempoCharm(CharmBase):
         self._grafana_dashboards = GrafanaDashboardProvider(
             self, relation_name="grafana-dashboard"
         )
-        # Enable profiling over a relation with Parca
-        # self._profiling = ProfilingEndpointProvider(
-        #     self, jobs=[{"static_configs": [{"targets": ["*:4080"]}]}]
-        # )
+
         # TODO:
         #  ingress route provisioning a separate TCP ingress for each receiver if GRPC doesn't work directly
 
@@ -91,7 +96,7 @@ class TempoCharm(CharmBase):
         )
 
         self._tracing = TracingEndpointProvider(
-            self, host=self.tempo.host, external_url=self._ingress.url
+            self, host=self.hostname, external_url=self._ingress.url
         )
 
         self.framework.observe(self.on.tempo_pebble_ready, self._on_tempo_pebble_ready)
@@ -107,6 +112,35 @@ class TempoCharm(CharmBase):
         self.framework.observe(self._ingress.on.ready, self._on_ingress_ready)
         self.framework.observe(self._ingress.on.revoked, self._on_ingress_revoked)
         self.framework.observe(self.on.list_receivers_action, self._on_list_receivers_action)
+        self.framework.observe(self.cert_handler.on.cert_changed, self._on_cert_handler_changed)
+
+    @property
+    def tls_available(self) -> bool:
+        return (
+                self.cert_handler.enabled
+                and (self.cert_handler.server_cert is not None)
+                and (self.cert_handler.private_key is not None)
+                and (self.cert_handler.ca_cert is not None)
+        )
+
+    def _on_cert_handler_changed(self, _):
+        was_ready = self.tempo.tls_ready
+
+        if self.tls_available:
+            logger.debug("enabling TLS")
+            self.tempo.configure_tls(
+                cert=self.cert_handler.server_cert,
+                key=self.cert_handler.private_key,
+                ca=self.cert_handler.ca_cert
+            )
+        else:
+            logger.debug("disabling TLS")
+            self.tempo.clear_tls_config()
+
+        if was_ready != self.tempo.tls_ready:
+            # tls readiness change means config change.
+            self.tempo.update_config(self._requested_receivers())
+            self.tempo.restart()
 
     def _is_legacy_v1_relation(self, relation):
         if self._tracing.is_v2(relation):
@@ -115,7 +149,7 @@ class TempoCharm(CharmBase):
         juju_keys = {"egress-subnets", "ingress-address", "private-address"}
         # v1 relations are expected to have no data at all (excluding juju keys)
         if relation.data[relation.app] or any(
-            set(relation.data[u]).difference(juju_keys) for u in relation.units
+                set(relation.data[u]).difference(juju_keys) for u in relation.units
         ):
             return False
 
