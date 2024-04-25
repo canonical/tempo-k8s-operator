@@ -590,7 +590,7 @@ class TracingEndpointProvider(Object):
             try:
                 TracingProviderAppData(
                     host=self._host,
-                    external_url=self._external_url,
+                    external_url=f"http://{self._external_url}" if self._external_url else None,
                     receivers=[
                         Receiver(port=port, protocol=protocol) for protocol, port in receivers
                     ],
@@ -822,7 +822,7 @@ class TracingEndpointRequirer(Object):
         receiver = receivers[0]
         # if there's an external_url argument (v2.5+), use that. Otherwise, we use the tempo local fqdn
         if app_data.external_url:
-            url = f"http://{app_data.external_url}"
+            url = f"{app_data.external_url}:{receiver.port}"
         else:
             # FIXME: if we don't get an external url but only a
             #  hostname, we don't know what scheme we need to be using. ASSUME HTTP
