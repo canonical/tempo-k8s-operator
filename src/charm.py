@@ -34,7 +34,6 @@ from ops.charm import (
 )
 from ops.main import main
 from ops.model import ActiveStatus, MaintenanceStatus, Relation, WaitingStatus
-
 from tempo import Tempo
 
 logger = logging.getLogger(__name__)
@@ -354,63 +353,56 @@ class TempoCharm(CharmBase):
 
     @property
     def _static_ingress_config(self) -> dict:
-        return {
-            "entryPoints": {
-                "otel-http": {"address": ":4318"},
-                "otel-grpc": {"address": ":4317"},
-                "api": {"address": ":3200"},
-            }
-        }
+        entry_points = {}
+        for protocol, port in self.tempo.all_ports.items():
+            sanitized_protocol = protocol.replace("_", "-")
+            entry_points[sanitized_protocol] = {"address": f":{port}"}
+
+        return {"entryPoints": entry_points}
 
     @property
     def _ingress_config(self) -> dict:
         """Build a raw ingress configuration for Traefik."""
-        # TODO replace hardcoded paths with variables
+        tcp_routers = {}
+        tcp_services = {}
+        http_routers = {}
+        http_services = {}
+        for protocol, port in self.tempo.all_ports.items():
+            sanitized_protocol = protocol.replace("_", "-")
+            if sanitized_protocol.endswith("grpc"):
+                # grpc handling
+                tcp_routers[
+                    f"juju-{self.model.name}-{self.model.app.name}-{sanitized_protocol}"
+                ] = {
+                    "entryPoints": [sanitized_protocol],
+                    "service": f"juju-{self.model.name}-{self.model.app.name}-service-{sanitized_protocol}",
+                    # TODO better matcher
+                    "rule": "ClientIP(`0.0.0.0/0`)",
+                }
+                tcp_services[
+                    f"juju-{self.model.name}-{self.model.app.name}-service-{sanitized_protocol}"
+                ] = {"loadBalancer": {"servers": [{"address": f"{self.hostname}:{port}"}]}}
+            else:
+                # it's a http protocol, so we use a http section of the dynamic configuration
+                http_routers[
+                    f"juju-{self.model.name}-{self.model.app.name}-{sanitized_protocol}"
+                ] = {
+                    "entryPoints": [sanitized_protocol],
+                    "service": f"juju-{self.model.name}-{self.model.app.name}-service-{sanitized_protocol}",
+                    # TODO better matcher
+                    "rule": "ClientIP(`0.0.0.0/0`)",
+                }
+                http_services[
+                    f"juju-{self.model.name}-{self.model.app.name}-{sanitized_protocol}"
+                ] = {"loadBalancer": {"servers": [{"url": f"http://{self.hostname}:{port}"}]}}
         return {
             "tcp": {
-                "routers": {
-                    f"juju-{self.model.name}-{self.model.app.name}-otel-grpc": {
-                        "entryPoints": ["otel-grpc"],
-                        "service": "juju-{}-{}-service-otel-grpc".format(
-                            self.model.name, self.model.app.name
-                        ),
-                        # TODO better matcher
-                        "rule": "ClientIP(`0.0.0.0/0`)",
-                    },
-                },
-                "services": {
-                    f"juju-{self.model.name}-{self.model.app.name}-service-otel-grpc": {
-                        "loadBalancer": {"servers": [{"address": f"{self.hostname}:4317"}]}
-                    }
-                },
+                "routers": tcp_routers,
+                "services": tcp_services,
             },
             "http": {
-                "routers": {
-                    f"juju-{self.model.name}-{self.model.app.name}-otel-http": {
-                        "entryPoints": ["otel-http"],
-                        "service": "juju-{}-{}-service-otel-http".format(
-                            self.model.name, self.model.app.name
-                        ),
-                        # TODO better matcher
-                        "rule": "ClientIP(`0.0.0.0/0`)",
-                    },
-                    f"juju-{self.model.name}-{self.model.app.name}-api": {
-                        "entryPoints": ["api"],
-                        "service": "juju-{}-{}-service-api".format(
-                            self.model.name, self.model.app.name
-                        ),
-                        # TODO better matcher
-                        "rule": "ClientIP(`0.0.0.0/0`)",
-                    },
-                },
-                "services": {
-                    f"juju-{self.model.name}-{self.model.app.name}-service-otel-http": {
-                        "loadBalancer": {"servers": [{"url": f"http://{self.hostname}:4318"}]}
-                    },
-                    f"juju-{self.model.name}-{self.model.app.name}-service-api": {
-                        "loadBalancer": {"servers": [{"url": f"http://{self.hostname}:3200"}]}
-                    },
-                },
+                "routers": http_routers,
+                "services": http_services,
             },
         }
 
