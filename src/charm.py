@@ -98,7 +98,7 @@ class TempoCharm(CharmBase):
         self.framework.observe(self.on.config_changed, self._configure_ingress)
         self.framework.observe(self._ingress.on.ready, self._on_ingress_ready)  # pyright: ignore
         # TODO there's no revoked ingress action with traefik_route?
-        #self.framework.observe(self._ingress.on.revoked, self._on_ingress_revoked)
+        # self.framework.observe(self._ingress.on.revoked, self._on_ingress_revoked)
 
         self.framework.observe(self.on.tempo_pebble_ready, self._on_tempo_pebble_ready)
         self.framework.observe(
@@ -149,7 +149,9 @@ class TempoCharm(CharmBase):
         if self._ingress.is_ready():
             self._update_tracing_v1_relations()
             self._update_tracing_v2_relations()
-            self._ingress.submit_to_traefik(self._ingress_config, static=self._static_ingress_config)
+            self._ingress.submit_to_traefik(
+                self._ingress_config, static=self._static_ingress_config
+            )
 
     @property
     def legacy_v1_relations(self):
@@ -345,60 +347,60 @@ class TempoCharm(CharmBase):
     def _on_list_receivers_action(self, event: ops.ActionEvent):
         res = {}
         for receiver in self._requested_receivers():
-            res[receiver.replace("_", "-")] = f"{self._ingress.external_host or self.tempo.url}/{receiver}"
+            res[receiver.replace("_", "-")] = (
+                f"{self._ingress.external_host or self.tempo.url}/{receiver}"
+            )
         event.set_results(res)
 
     @property
     def _static_ingress_config(self) -> dict:
         return {
             "entryPoints": {
-                "otel-http": {
-                    "address": ":4318"
-                },
-                "otel-grpc": {
-                    "address": ":4317"
-                },
-                "api": {
-                    "address": ":3200"
-                }
+                "otel-http": {"address": ":4318"},
+                "otel-grpc": {"address": ":4317"},
+                "api": {"address": ":3200"},
             }
         }
 
     @property
     def _ingress_config(self) -> dict:
         """Build a raw ingress configuration for Traefik."""
-
         # TODO replace hardcoded paths with variables
         return {
             "tcp": {
                 "routers": {
                     f"juju-{self.model.name}-{self.model.app.name}-otel-grpc": {
                         "entryPoints": ["otel-grpc"],
-                        "service": "juju-{}-{}-service-otel-grpc".format(self.model.name, self.model.app.name),
+                        "service": "juju-{}-{}-service-otel-grpc".format(
+                            self.model.name, self.model.app.name
+                        ),
                         # TODO better matcher
-                        "rule": "ClientIP(`0.0.0.0/0`)"
+                        "rule": "ClientIP(`0.0.0.0/0`)",
                     },
-
                 },
                 "services": {
                     f"juju-{self.model.name}-{self.model.app.name}-service-otel-grpc": {
                         "loadBalancer": {"servers": [{"address": f"{self.hostname}:4317"}]}
                     }
-                }
+                },
             },
             "http": {
                 "routers": {
                     f"juju-{self.model.name}-{self.model.app.name}-otel-http": {
                         "entryPoints": ["otel-http"],
-                        "service": "juju-{}-{}-service-otel-http".format(self.model.name, self.model.app.name),
+                        "service": "juju-{}-{}-service-otel-http".format(
+                            self.model.name, self.model.app.name
+                        ),
                         # TODO better matcher
-                        "rule": "ClientIP(`0.0.0.0/0`)"
+                        "rule": "ClientIP(`0.0.0.0/0`)",
                     },
                     f"juju-{self.model.name}-{self.model.app.name}-api": {
                         "entryPoints": ["api"],
-                        "service": "juju-{}-{}-service-api".format(self.model.name, self.model.app.name),
+                        "service": "juju-{}-{}-service-api".format(
+                            self.model.name, self.model.app.name
+                        ),
                         # TODO better matcher
-                        "rule": "ClientIP(`0.0.0.0/0`)"
+                        "rule": "ClientIP(`0.0.0.0/0`)",
                     },
                 },
                 "services": {
@@ -407,10 +409,11 @@ class TempoCharm(CharmBase):
                     },
                     f"juju-{self.model.name}-{self.model.app.name}-service-api": {
                         "loadBalancer": {"servers": [{"url": f"http://{self.hostname}:3200"}]}
-                    }
-                }
-            }
+                    },
+                },
+            },
         }
+
 
 if __name__ == "__main__":  # pragma: nocover
     main(TempoCharm)
