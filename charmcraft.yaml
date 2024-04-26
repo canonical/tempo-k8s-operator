@@ -10,9 +10,8 @@ assumes:
   - juju >= 3.4.0
 
 description: |
-  Tempo provides tracing endpoints for charms and a decorator to auto-instrument the 
-  charms to push traces using common opensource tracing protocols, including Jaeger,
-  Zipkin, and OpenTelemetry. Then, propagate those pushed traces into a Grafana instance.
+  Tempo is a distributed tracing backend by Grafana, supporting Jaeger,
+  Zipkin, and OpenTelemetry protocols.
 
 summary: |
   Tempo is a distributed tracing backend by Grafana.
