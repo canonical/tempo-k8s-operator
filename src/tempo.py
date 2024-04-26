@@ -191,8 +191,9 @@ class Tempo:
                     "compaction_window": "1h",
                     # maximum size of compacted blocks
                     "max_compaction_objects": 1000000,
-                    "block_retention": "1h",
-                    "compacted_block_retention": "10m",
+                    # total trace retention
+                    "block_retention": "30d",
+                    "compacted_block_retention": "1h",
                     "v2_out_buffer_bytes": 5242880,
                 }
             },
