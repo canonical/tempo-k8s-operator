@@ -393,7 +393,7 @@ class TempoCharm(CharmBase):
                     "rule": "ClientIP(`0.0.0.0/0`)",
                 }
                 http_services[
-                    f"juju-{self.model.name}-{self.model.app.name}-{sanitized_protocol}"
+                    f"juju-{self.model.name}-{self.model.app.name}-service-{sanitized_protocol}"
                 ] = {"loadBalancer": {"servers": [{"url": f"http://{self.hostname}:{port}"}]}}
         return {
             "tcp": {
