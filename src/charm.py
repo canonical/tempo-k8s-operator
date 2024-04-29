@@ -64,8 +64,12 @@ class TempoCharm(CharmBase):
             # we need otlp_http receiver for charm_tracing
             enable_receivers=["otlp_http"],
         )
+        self._ingress = TraefikRouteRequirer(self, self.model.get_relation("ingress"), "ingress")  # type: ignore
 
-        self.cert_handler = CertHandler(self, key="tempo-server-cert", sans=[self.hostname])
+        self.cert_handler = CertHandler(
+            self, key="tempo-server-cert",
+            sans=[self.hostname],
+        )
 
         # configure this tempo as a datasource in grafana
         self.grafana_source_provider = GrafanaSourceProvider(
@@ -91,9 +95,8 @@ class TempoCharm(CharmBase):
         # TODO:
         #  ingress route provisioning a separate TCP ingress for each receiver if GRPC doesn't work directly
 
-        self._ingress = TraefikRouteRequirer(self, self.model.get_relation("ingress"), "ingress")  # type: ignore
         self._tracing = TracingEndpointProvider(
-            self, host=self.tempo.host, external_url=self._ingress.external_host
+            self, host=self.hostname, external_url=self._ingress.external_host
         )
 
         self.framework.observe(self.on["ingress"].relation_joined, self._configure_ingress)
@@ -119,10 +122,10 @@ class TempoCharm(CharmBase):
     @property
     def tls_available(self) -> bool:
         return (
-            self.cert_handler.enabled
-            and (self.cert_handler.server_cert is not None)
-            and (self.cert_handler.private_key is not None)
-            and (self.cert_handler.ca_cert is not None)
+                self.cert_handler.enabled
+                and (self.cert_handler.server_cert is not None)
+                and (self.cert_handler.private_key is not None)
+                and (self.cert_handler.ca_cert is not None)
         )
 
     def _on_cert_handler_changed(self, _):
@@ -151,7 +154,7 @@ class TempoCharm(CharmBase):
         juju_keys = {"egress-subnets", "ingress-address", "private-address"}
         # v1 relations are expected to have no data at all (excluding juju keys)
         if relation.data[relation.app] or any(
-            set(relation.data[u]).difference(juju_keys) for u in relation.units
+                set(relation.data[u]).difference(juju_keys) for u in relation.units
         ):
             return False
 

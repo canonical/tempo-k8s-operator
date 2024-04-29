@@ -4,7 +4,6 @@
 
 """Tempo workload configuration and client."""
 import logging
-import socket
 from pathlib import Path
 from subprocess import CalledProcessError, getoutput
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -12,8 +11,9 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import ops
 import tenacity
 import yaml
-from charms.tempo_k8s.v2.tracing import ReceiverProtocol
 from ops.pebble import Layer
+
+from charms.tempo_k8s.v2.tracing import ReceiverProtocol
 
 logger = logging.getLogger(__name__)
 
@@ -52,11 +52,11 @@ class Tempo:
     all_ports = {**server_ports, **receiver_ports}
 
     def __init__(
-        self,
-        container: ops.Container,
-        external_host: str,
-        local_host: str = "0.0.0.0",
-        enable_receivers: Optional[Sequence[ReceiverProtocol]] = None,
+            self,
+            container: ops.Container,
+            external_host: str,
+            local_host: str = "0.0.0.0",
+            enable_receivers: Optional[Sequence[ReceiverProtocol]] = None,
     ):
         # ports source: https://github.com/grafana/tempo/blob/main/example/docker-compose/local/docker-compose.yaml
 
@@ -190,7 +190,11 @@ class Tempo:
     @property
     def tls_ready(self) -> bool:
         """Whether cert, key, and ca paths are found on disk and Tempo is ready to use tls."""
-        return all(x.exists() for x in (self.tls_cert_path, self.tls_key_path, self.tls_ca_path))
+        return all(self.container.exists(tls_path) for tls_path in
+                   (
+                       self.tls_cert_path, self.tls_key_path, self.tls_ca_path
+                   )
+                   )
 
     def _build_server_config(self):
         server_config = {
@@ -315,9 +319,9 @@ class Tempo:
 
         if self.tls_ready:
             receiver_config = {
-                "ca_file": self.tls_ca_path,
-                "cert_file": self.tls_cert_path,
-                "key_file": self.tls_key_path,
+                "ca_file": str(self.tls_ca_path),
+                "cert_file": str(self.tls_cert_path),
+                "key_file": str(self.tls_key_path),
                 "min_version": "VersionTLS12",
             }
         else:
