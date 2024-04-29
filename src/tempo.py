@@ -34,7 +34,7 @@ class Tempo:
 
     server_ports = {
         "tempo_http": 3200,
-        # "tempo_grpc": 9096, # default grpc listen port is 9095, but that conflicts with promtail.
+        "tempo_grpc": 9096,  # default grpc listen port is 9095, but that conflicts with promtail.
     }
 
     receiver_ports: Dict[ReceiverProtocol, int] = {
@@ -70,9 +70,14 @@ class Tempo:
         self.enabled_receivers = enable_receivers or []
 
     @property
-    def tempo_server_port(self) -> int:
+    def tempo_http_server_port(self) -> int:
         """Return the receiver port for the built-in tempo_http protocol."""
         return self.server_ports["tempo_http"]
+
+    @property
+    def tempo_grpc_server_port(self) -> int:
+        """Return the receiver port for the built-in tempo_http protocol."""
+        return self.server_ports["tempo_grpc"]
 
     def get_external_ports(self, service_name_prefix: str) -> List[Tuple[str, int, int]]:
         """List of service names and port mappings for the kubernetes service patch.
@@ -194,8 +199,10 @@ class Tempo:
 
     def _build_server_config(self):
         server_config = {
-            "http_listen_port": self.tempo_server_port,
-            # "grpc_listen_port": self.receiver_ports["tempo_grpc"],
+            "http_listen_port": self.tempo_http_server_port,
+            # we need to specify a grpc server port even if we're not using the grpc server,
+            # otherwise it will default to 9595 and make promtail bork
+            "grpc_listen_port": self.tempo_grpc_server_port,
         }
         if self.tls_ready:
             server_config["http_tls_config"] = {
@@ -283,7 +290,7 @@ class Tempo:
                     "tempo-ready": {
                         "override": "replace",
                         "summary": "Notify charm when tempo is ready",
-                        "command": f"""watch -n 5 '[ $(wget -q -O- localhost:{self.tempo_server_port}/ready) = "ready" ] && 
+                        "command": f"""watch -n 5 '[ $(wget -q -O- localhost:{self.tempo_http_server_port}/ready) = "ready" ] && 
                                    ( /charm/bin/pebble notify {self.tempo_ready_notice_key} ) || 
                                    ( echo "tempo not ready" )'""",
                         "startup": "disabled",
@@ -296,7 +303,7 @@ class Tempo:
         """Whether the tempo built-in readiness check reports 'ready'."""
         try:
             out = getoutput(
-                f"curl http://{self._local_hostname}:{self.tempo_server_port}/ready"
+                f"curl http://{self._local_hostname}:{self.tempo_http_server_port}/ready"
             ).split("\n")[-1]
         except (CalledProcessError, IndexError):
             return False

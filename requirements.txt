@@ -10,7 +10,10 @@ tenacity==8.2.3
 # lib/charms/tempo_k8s/v1/charm_tracing.py
 opentelemetry-exporter-otlp-proto-http==1.21.0
 
-# lib/charms/tempo_k8s/v1/tracing.py requires pydantic; we have higher standards:
+# lib/charms/tls_certificates_interface/v2/tls_certificates.py
+jsonschema
+cryptography
+# lib/charms/tempo_k8s/v1/tracing.py
 pydantic>=2
 # lib/charms/prometheus_k8s/v0/prometheus_scrape.py
 cosl

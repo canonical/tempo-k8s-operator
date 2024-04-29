@@ -69,7 +69,7 @@ class TempoCharm(CharmBase):
 
         # configure this tempo as a datasource in grafana
         self.grafana_source_provider = GrafanaSourceProvider(
-            self, source_type="tempo", source_port=str(tempo.tempo_server_port)
+            self, source_type="tempo", source_port=str(tempo.tempo_http_server_port)
         )
         # # Patch the juju-created Kubernetes service to contain the right ports
         external_ports = tempo.get_external_ports(self.app.name)
@@ -78,7 +78,7 @@ class TempoCharm(CharmBase):
         self._scraping = MetricsEndpointProvider(
             self,
             relation_name="metrics-endpoint",
-            jobs=[{"static_configs": [{"targets": [f"*:{tempo.tempo_server_port}"]}]}],
+            jobs=[{"static_configs": [{"targets": [f"*:{tempo.tempo_http_server_port}"]}]}],
         )
         # Enable log forwarding for Loki and other charms that implement loki_push_api
         self._logging = LogProxyConsumer(
@@ -90,9 +90,8 @@ class TempoCharm(CharmBase):
 
         # TODO:
         #  ingress route provisioning a separate TCP ingress for each receiver if GRPC doesn't work directly
-
         self._ingress = IngressPerAppRequirer(
-            self, port=self.tempo.tempo_server_port, strip_prefix=True
+            self, port=self.tempo.tempo_http_server_port, strip_prefix=True
         )
 
         self._tracing = TracingEndpointProvider(
@@ -200,7 +199,7 @@ class TempoCharm(CharmBase):
             tracing_v1.Ingester(protocol=p, port=self.tempo.receiver_ports[p])
             for p in LEGACY_RECEIVER_PROTOCOLS
         ]
-        tracing_v1.TracingProviderAppData(host=self.tempo.host, ingesters=receivers).dump(
+        tracing_v1.TracingProviderAppData(host=self.hostname, ingesters=receivers).dump(
             relation.data[self.app]
         )
 

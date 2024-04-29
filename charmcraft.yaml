@@ -90,5 +90,7 @@ parts:
   charm:
     charm-binary-python-packages:
       - "pydantic>=2"
+      - "cryptography"
+      - "jsonschema"
       - "opentelemetry-exporter-otlp-proto-http==1.21.0"
 
