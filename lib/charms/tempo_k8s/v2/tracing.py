@@ -104,7 +104,7 @@ LIBAPI = 2
 
 # Increment this PATCH version before using `charmcraft publish-lib` or reset
 # to 0 if you are raising the major API version
-LIBPATCH = 3
+LIBPATCH = 4
 
 PYDEPS = ["pydantic"]
 
@@ -822,7 +822,7 @@ class TracingEndpointRequirer(Object):
         receiver = receivers[0]
         # if there's an external_url argument (v2.5+), use that. Otherwise, we use the tempo local fqdn
         if app_data.external_url:
-            url = app_data.external_url
+            url = f"http://{app_data.external_url}"
         else:
             # FIXME: if we don't get an external url but only a
             #  hostname, we don't know what scheme we need to be using. ASSUME HTTP

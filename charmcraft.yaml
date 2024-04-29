@@ -55,7 +55,7 @@ requires:
     description: |
       Integration with Loki to push Tempo logs to the observability stack.
   ingress:
-    interface: ingress
+    interface: traefik_route
     limit: 1
     description: |
       Ingress URL for exposing the Tempo server and receivers to the outer world.
