@@ -9,18 +9,8 @@ import re
 import socket
 from typing import Optional, Tuple
 
-import ops
-from ops.charm import (
-    CharmBase,
-    CollectStatusEvent,
-    PebbleNoticeEvent,
-    RelationEvent,
-    WorkloadEvent,
-)
-from ops.main import main
-from ops.model import ActiveStatus, MaintenanceStatus, Relation, WaitingStatus
-
 import charms.tempo_k8s.v1.tracing as tracing_v1
+import ops
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
 from charms.grafana_k8s.v0.grafana_source import GrafanaSourceProvider
 from charms.loki_k8s.v0.loki_push_api import LogProxyConsumer
@@ -75,10 +65,7 @@ class TempoCharm(CharmBase):
             enable_receivers=["otlp_http"],
         )
 
-        self.cert_handler = CertHandler(
-            self,
-            key="tempo-server-cert",
-            sans=[self.hostname])
+        self.cert_handler = CertHandler(self, key="tempo-server-cert", sans=[self.hostname])
 
         # configure this tempo as a datasource in grafana
         self.grafana_source_provider = GrafanaSourceProvider(
@@ -114,7 +101,7 @@ class TempoCharm(CharmBase):
         self.framework.observe(self.on.config_changed, self._configure_ingress)
         self.framework.observe(self._ingress.on.ready, self._on_ingress_ready)  # pyright: ignore
         # TODO there's no revoked ingress action with traefik_route?
-        #self.framework.observe(self._ingress.on.revoked, self._on_ingress_revoked)
+        # self.framework.observe(self._ingress.on.revoked, self._on_ingress_revoked)
 
         self.framework.observe(self.on.tempo_pebble_ready, self._on_tempo_pebble_ready)
         self.framework.observe(
@@ -132,10 +119,10 @@ class TempoCharm(CharmBase):
     @property
     def tls_available(self) -> bool:
         return (
-                self.cert_handler.enabled
-                and (self.cert_handler.server_cert is not None)
-                and (self.cert_handler.private_key is not None)
-                and (self.cert_handler.ca_cert is not None)
+            self.cert_handler.enabled
+            and (self.cert_handler.server_cert is not None)
+            and (self.cert_handler.private_key is not None)
+            and (self.cert_handler.ca_cert is not None)
         )
 
     def _on_cert_handler_changed(self, _):
@@ -146,7 +133,7 @@ class TempoCharm(CharmBase):
             self.tempo.configure_tls(
                 cert=self.cert_handler.server_cert,
                 key=self.cert_handler.private_key,
-                ca=self.cert_handler.ca_cert
+                ca=self.cert_handler.ca_cert,
             )
         else:
             logger.debug("disabling TLS")
@@ -164,7 +151,7 @@ class TempoCharm(CharmBase):
         juju_keys = {"egress-subnets", "ingress-address", "private-address"}
         # v1 relations are expected to have no data at all (excluding juju keys)
         if relation.data[relation.app] or any(
-                set(relation.data[u]).difference(juju_keys) for u in relation.units
+            set(relation.data[u]).difference(juju_keys) for u in relation.units
         ):
             return False
 
@@ -194,7 +181,9 @@ class TempoCharm(CharmBase):
         if self._ingress.is_ready():
             self._update_tracing_v1_relations()
             self._update_tracing_v2_relations()
-            self._ingress.submit_to_traefik(self._ingress_config, static=self._static_ingress_config)
+            self._ingress.submit_to_traefik(
+                self._ingress_config, static=self._static_ingress_config
+            )
 
     @property
     def legacy_v1_relations(self):
@@ -390,22 +379,18 @@ class TempoCharm(CharmBase):
     def _on_list_receivers_action(self, event: ops.ActionEvent):
         res = {}
         for receiver in self._requested_receivers():
-            res[receiver.replace("_", "-")] = f"{self._ingress.external_host or self.tempo.url}/{receiver}"
+            res[receiver.replace("_", "-")] = (
+                f"{self._ingress.external_host or self.tempo.url}/{receiver}"
+            )
         event.set_results(res)
 
     @property
     def _static_ingress_config(self) -> dict:
         return {
             "entryPoints": {
-                "otel-http": {
-                    "address": ":4318"
-                },
-                "otel-grpc": {
-                    "address": ":4317"
-                },
-                "api": {
-                    "address": ":3200"
-                }
+                "otel-http": {"address": ":4318"},
+                "otel-grpc": {"address": ":4317"},
+                "api": {"address": ":3200"},
             }
         }
 
@@ -419,31 +404,36 @@ class TempoCharm(CharmBase):
                 "routers": {
                     f"juju-{self.model.name}-{self.model.app.name}-otel-grpc": {
                         "entryPoints": ["otel-grpc"],
-                        "service": "juju-{}-{}-service-otel-grpc".format(self.model.name, self.model.app.name),
+                        "service": "juju-{}-{}-service-otel-grpc".format(
+                            self.model.name, self.model.app.name
+                        ),
                         # TODO better matcher
-                        "rule": "ClientIP(`0.0.0.0/0`)"
+                        "rule": "ClientIP(`0.0.0.0/0`)",
                     },
-
                 },
                 "services": {
                     f"juju-{self.model.name}-{self.model.app.name}-service-otel-grpc": {
                         "loadBalancer": {"servers": [{"address": f"{self.hostname}:4317"}]}
                     }
-                }
+                },
             },
             "http": {
                 "routers": {
                     f"juju-{self.model.name}-{self.model.app.name}-otel-http": {
                         "entryPoints": ["otel-http"],
-                        "service": "juju-{}-{}-service-otel-http".format(self.model.name, self.model.app.name),
+                        "service": "juju-{}-{}-service-otel-http".format(
+                            self.model.name, self.model.app.name
+                        ),
                         # TODO better matcher
-                        "rule": "ClientIP(`0.0.0.0/0`)"
+                        "rule": "ClientIP(`0.0.0.0/0`)",
                     },
                     f"juju-{self.model.name}-{self.model.app.name}-api": {
                         "entryPoints": ["api"],
-                        "service": "juju-{}-{}-service-api".format(self.model.name, self.model.app.name),
+                        "service": "juju-{}-{}-service-api".format(
+                            self.model.name, self.model.app.name
+                        ),
                         # TODO better matcher
-                        "rule": "ClientIP(`0.0.0.0/0`)"
+                        "rule": "ClientIP(`0.0.0.0/0`)",
                     },
                 },
                 "services": {
@@ -452,10 +442,11 @@ class TempoCharm(CharmBase):
                     },
                     f"juju-{self.model.name}-{self.model.app.name}-service-api": {
                         "loadBalancer": {"servers": [{"url": f"http://{self.hostname}:3200"}]}
-                    }
-                }
-            }
+                    },
+                },
+            },
         }
+
 
 if __name__ == "__main__":  # pragma: nocover
     main(TempoCharm)
