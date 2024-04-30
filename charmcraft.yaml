@@ -58,6 +58,9 @@ requires:
   ingress:
     interface: traefik_route
     limit: 1
+    description: |
+      Adds an ingressed endpoint used for cross-model communication.
+      Uses `traefik_route` to open ports on Traefik host for tracing ingesters.
 
 storage:
   data:
