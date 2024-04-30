@@ -4,20 +4,21 @@ import logging
 import random
 import tempfile
 from pathlib import Path
+from subprocess import getoutput
 
 import pytest
 import requests
 import yaml
 from pytest_operator.plugin import OpsTest
 
-from scripts.tracegen import emit_trace
+from tempo import Tempo
 from tests.integration.helpers import get_relation_data
 
 METADATA = yaml.safe_load(Path("./charmcraft.yaml").read_text())
 APP_NAME = "tempo"
 SSC = "self-signed-certificates"
 SSC_APP_NAME = "ssc"
-
+TRACEGEN_SCRIPT_PATH = Path() / "scripts" / "tracegen.py"
 logger = logging.getLogger(__name__)
 
 
@@ -28,22 +29,33 @@ def nonce():
 
 
 def get_traces(tempo_host: str, nonce, service_name="tracegen"):
-    req = requests.get(tempo_host + ":3200/api/search", params={"service.name": service_name, "nonce": nonce})
+    query = f'{{ resource.nonce = "{nonce}" }}'
+    url = "https://" + tempo_host + ":3200/api/search"
+    req = requests.get(
+        url,
+        params={"query": query},
+        # it would fail to verify as the cert was issued for fqdn, not IP.
+        verify=False
+    )
     assert req.status_code == 200
     return json.loads(req.text)["traces"]
 
 
-async def get_tempo_host(ops_test: OpsTest):
+async def get_tempo_ip(ops_test: OpsTest):
     status = await ops_test.model.get_status()
     app = status["applications"][APP_NAME]
     return app.public_address
 
 
+async def get_tempo_internal_host(ops_test: OpsTest):
+    return f"https://{APP_NAME}-0.{APP_NAME}-endpoints.{ops_test.model.name}.svc.cluster.local"
+
+
 @pytest.fixture(scope="function")
 def server_cert():
-    data = get_relation_data(requirer_endpoint=f"{APP_NAME}:certificates",
-                             provider_endpoint=f"{SSC_APP_NAME}:certificates")
-    cert = json.loads(data.provider.application_data['certificates'])['certificate']
+    data = get_relation_data(requirer_endpoint=f"{APP_NAME}/0:certificates",
+                             provider_endpoint=f"{SSC_APP_NAME}/0:certificates")
+    cert = json.loads(data.provider.application_data['certificates'])[0]['certificate']
 
     with tempfile.NamedTemporaryFile() as f:
         p = Path(f.name)
@@ -85,27 +97,48 @@ async def test_relate(ops_test: OpsTest):
     )
 
 
-async def test_verify_trace_http_no_tls_fails(ops_test: OpsTest, nonce):
-    tempo_host = await get_tempo_host(ops_test)
+@pytest.mark.setup
+@pytest.mark.abort_on_fail
+async def test_push_tracegen_script_and_deps(ops_test: OpsTest):
+    await ops_test.juju("scp", TRACEGEN_SCRIPT_PATH, f"{APP_NAME}/0:tracegen.py")
+    await ops_test.juju("ssh", f"{APP_NAME}/0",
+                        "python3 -m pip install opentelemetry-exporter-otlp-proto-grpc opentelemetry-exporter-otlp-proto-http")
+
+
+async def emit_trace(ops_test: OpsTest, nonce, proto:str="http", verbose=0):
+    """Use juju ssh to run tracegen from the tempo charm; to avoid any DNS issues."""
+    hostname = await get_tempo_internal_host(ops_test)
+    cmd = (f"juju ssh -m {ops_test.model_name} {APP_NAME}/0 "
+           f"TRACEGEN_ENDPOINT={hostname}:4318/v1/traces "
+           f"TRACEGEN_VERBOSE={verbose} "
+           f"TRACEGEN_PROTOCOL={proto} "
+           f"TRACEGEN_CERT={Tempo.server_cert_path} "
+           f"TRACEGEN_NONCE={nonce} "
+           "python3 /tracegen.py")
+
+    return getoutput(cmd)
+
+
+async def test_verify_trace_http_no_tls_fails(ops_test: OpsTest, server_cert, nonce):
     # IF tempo is related to SSC
     # WHEN we emit an http trace, **unsecured**
-    emit_trace(tempo_host, nonce=nonce)  # this should fail
+    await emit_trace(ops_test, nonce=nonce)  # this should fail
     # THEN we can verify it's not been ingested
-    assert not get_traces(tempo_host, nonce=nonce)
+    tempo_ip = await get_tempo_ip(ops_test)
+    traces = get_traces(tempo_ip, nonce=nonce)
+    assert not traces
 
 
 async def test_verify_trace_http_tls(ops_test: OpsTest, nonce, server_cert):
-    tempo_host = await get_tempo_host(ops_test)
-    emit_trace(tempo_host, nonce=nonce, cert=server_cert)
+    await emit_trace(ops_test, nonce=nonce)
     # THEN we can verify it's been ingested
-    assert not get_traces(tempo_host, nonce=nonce)
+    assert get_traces(await get_tempo_ip(ops_test), nonce=nonce)
 
 
 async def test_verify_traces_grpc_tls(ops_test: OpsTest, nonce, server_cert):
-    tempo_host = await get_tempo_host(ops_test)
-    emit_trace(tempo_host, nonce=nonce, cert=server_cert, protocol="grpc")
+    await emit_trace(ops_test, nonce=nonce, proto="grpc")
     # THEN we can verify it's been ingested
-    assert not get_traces(tempo_host, nonce=nonce)
+    assert get_traces(await get_tempo_ip(ops_test), nonce=nonce)
 
 
 @pytest.mark.teardown

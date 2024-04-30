@@ -58,9 +58,6 @@ LEGACY_RECEIVER_PROTOCOLS = (
 class TempoCharm(CharmBase):
     """Charmed Operator for Tempo; a distributed tracing backend."""
 
-    # TODO: right place?
-    _server_cert_path = Path("/var/lib/juju/tls/server.cert")
-
     def __init__(self, *args):
         super().__init__(*args)
         self.tempo = tempo = Tempo(
@@ -138,7 +135,7 @@ class TempoCharm(CharmBase):
         # are routable virtually exclusively inside the cluster (as they rely)
         # on the cluster's DNS service, while the ip address is _sometimes_
         # routable from the outside, e.g., when deploying on MicroK8s on Linux.
-        scheme = "https" if self.server_cert() else "http"
+        scheme = "https" if self.server_cert else "http"
 
         # FIXME: continue
         return f"{scheme}://{self.hostname}:{self.tempo.tempo_http_server_port}"
@@ -157,6 +154,7 @@ class TempoCharm(CharmBase):
 
         if self.tls_available:
             logger.debug("enabling TLS")
+
             self.tempo.configure_tls(
                 cert=self.cert_handler.server_cert,
                 key=self.cert_handler.private_key,
@@ -388,9 +386,9 @@ class TempoCharm(CharmBase):
         """Endpoint at which the charm tracing information will be forwarded."""
         # the charm container and the tempo workload container have apparently the same
         # IP, so we can talk to tempo at localhost.
-        # TODO switch to HTTPS once SSL support is added
         if self.tempo.is_ready():
-            return f"http://localhost:{self.tempo.receiver_ports['otlp_http']}"
+            s = "s" if self.tls_available else ""
+            return f"http{s}://localhost:{self.tempo.receiver_ports['otlp_http']}"
 
         return None
 
@@ -480,7 +478,7 @@ class TempoCharm(CharmBase):
 
     def _update_cert_path(self):
         """Ensure that certhandler's client cert is in sync with what is on disk."""
-        server_cert_path = self._server_cert_path
+        server_cert_path = Path(self.tempo.server_cert_path)
         if cert := self.cert_handler.server_cert:
             if not server_cert_path.exists():
                 server_cert_path.parent.mkdir(parents=True, exist_ok=True)

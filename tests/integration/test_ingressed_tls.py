@@ -44,8 +44,8 @@ async def get_tempo_host(ops_test: OpsTest):
 
 @pytest.fixture(scope="function")
 def server_cert():
-    data = get_relation_data(requirer_endpoint=f"{APP_NAME}:certificates",
-                             provider_endpoint=f"{SSC_APP_NAME}:certificates")
+    data = get_relation_data(requirer_endpoint=f"{APP_NAME}/0:certificates",
+                             provider_endpoint=f"{SSC_APP_NAME}/0:certificates")
     cert = json.loads(data.provider.application_data['certificates'])['certificate']
 
     with tempfile.NamedTemporaryFile() as f:
@@ -104,14 +104,14 @@ async def test_verify_trace_http_tls(ops_test: OpsTest, nonce, server_cert):
     tempo_host = await get_tempo_host(ops_test)
     emit_trace(tempo_host, nonce=nonce, cert=server_cert)
     # THEN we can verify it's been ingested
-    assert not get_traces(tempo_host, nonce=nonce)
+    assert get_traces(tempo_host, nonce=nonce)
 
 
 async def test_verify_traces_grpc_tls(ops_test: OpsTest, nonce, server_cert):
     tempo_host = await get_tempo_host(ops_test)
     emit_trace(tempo_host, nonce=nonce, cert=server_cert, protocol="grpc")
     # THEN we can verify it's been ingested
-    assert not get_traces(tempo_host, nonce=nonce)
+    assert get_traces(tempo_host, nonce=nonce)
 
 
 @pytest.mark.teardown

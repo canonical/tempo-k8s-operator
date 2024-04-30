@@ -1,8 +1,7 @@
-import time
+import os, time
 from pathlib import Path
 from typing import Literal, Any
 
-from grpc import ChannelCredentials
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
     OTLPSpanExporter as GRPCExporter
@@ -23,29 +22,29 @@ def emit_trace(
         protocol: Literal["grpc", "http", "ALL"] = "grpc",
         nonce: Any = None
 ):
+    os.environ['OTEL_EXPORTER_OTLP_TRACES_CERTIFICATE'] = str(Path(cert).absolute()) if cert else ""
+
     if protocol == "grpc":
         span_exporter = GRPCExporter(
             endpoint=endpoint,
             insecure=not cert,
-            credentials=ChannelCredentials(cert) if cert else None
         )
     elif protocol == "http":
         span_exporter = HTTPExporter(
             endpoint=endpoint,
-            certificate_file=str(Path(cert).absolute()) if cert else None,
         )
     else:  # ALL
-        emit_trace(endpoint, log_trace_to_console, cert, "grpc", nonce=nonce)
-        emit_trace(endpoint, log_trace_to_console, cert, "http", nonce=nonce)
-        return
+        return (emit_trace(endpoint, log_trace_to_console, cert, "grpc", nonce=nonce) and
+                emit_trace(endpoint, log_trace_to_console, cert, "http", nonce=nonce))
 
-    _export_trace(span_exporter, log_trace_to_console=log_trace_to_console, nonce=nonce)
+    return _export_trace(span_exporter, log_trace_to_console=log_trace_to_console, nonce=nonce)
 
 
 def _export_trace(span_exporter, log_trace_to_console: bool = False, nonce: Any = None):
     resource = Resource.create(attributes={
         "service.name": "tracegen",
-        "nonce": str(nonce)}
+        "nonce": str(nonce)
+    }
     )
     provider = TracerProvider(resource=resource)
 
@@ -64,14 +63,14 @@ def _export_trace(span_exporter, log_trace_to_console: bool = False, nonce: Any 
             with tracer.start_as_current_span("baz"):
                 time.sleep(.1)
 
+    return span_exporter.force_flush()
+
 
 if __name__ == '__main__':
-    import os
-
     emit_trace(
         endpoint=os.getenv("TRACEGEN_ENDPOINT", "http://127.0.0.1:8080"),
         cert=os.getenv("TRACEGEN_CERT", None),
         log_trace_to_console=os.getenv("TRACEGEN_VERBOSE", False),
-        protocol=os.getenv("TRACEGEN_PROTOCOL", "ALL"),
-        nonce=os.getenv("TRACEGEN_NONCE", None)
+        protocol=os.getenv("TRACEGEN_PROTOCOL", "http"),
+        nonce=os.getenv("TRACEGEN_NONCE", "24")
     )

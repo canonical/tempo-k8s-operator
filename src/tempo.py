@@ -4,6 +4,7 @@
 
 """Tempo workload configuration and client."""
 import logging
+from pathlib import Path
 from subprocess import CalledProcessError, getoutput
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -22,6 +23,10 @@ class Tempo:
 
     config_path = "/etc/tempo/tempo.yaml"
 
+    # cert path on charm container
+    server_cert_path = "/usr/local/share/ca-certificates/ca.crt"
+
+    # cert paths on tempo container
     tls_cert_path = "/etc/tempo/tls/server.crt"
     tls_key_path = "/etc/tempo/tls/server.key"
     tls_ca_path = "/usr/local/share/ca-certificates/ca.crt"
@@ -180,6 +185,9 @@ class Tempo:
 
     def configure_tls(self, *, cert: str, key: str, ca: str):
         """Push cert, key and CA to the tempo container."""
+        # we save the cacert in the charm container too (for notices)
+        Path(self.server_cert_path).write_text(ca)
+
         self.container.push(self.tls_cert_path, cert, make_dirs=True)
         self.container.push(self.tls_key_path, key, make_dirs=True)
         self.container.push(self.tls_ca_path, ca, make_dirs=True)
@@ -329,7 +337,7 @@ class Tempo:
     def is_ready(self):
         """Whether the tempo built-in readiness check reports 'ready'."""
         if self.tls_ready:
-            tls, s = " -k", "s"
+            tls, s = f" --cacert {self.server_cert_path}", "s"
         else:
             tls = s = ""
         cmd = f"curl{tls} http{s}://{self._local_hostname}:{self.tempo_http_server_port}/ready"
