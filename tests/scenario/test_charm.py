@@ -1,5 +1,5 @@
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch, PropertyMock
 
 import pytest
 import yaml
@@ -8,7 +8,6 @@ from charms.tempo_k8s.v2.tracing import TracingRequirerAppData
 from ops import pebble
 from scenario import Container, Mount, Relation, State
 from scenario.sequences import check_builtin_sequences
-
 from tempo import Tempo
 
 TEMPO_CHARM_ROOT = Path(__file__).parent.parent.parent
@@ -16,7 +15,8 @@ TEMPO_CHARM_ROOT = Path(__file__).parent.parent.parent
 
 @pytest.fixture(params=(True, False))
 def base_state(request):
-    return State(leader=request.param, containers=[Container("tempo", can_connect=False)])
+    return State(leader=request.param,
+                 containers=[Container("tempo", can_connect=True)])
 
 
 def test_builtin_sequences(tempo_charm, base_state):
@@ -38,8 +38,10 @@ def test_tempo_restart_on_ingress_v2_changed(context, tmp_path, requested_protoc
 
     container = MagicMock()
     container.can_connect = lambda: True
-
+    # prevent tls_ready from reporting True
+    container.exists = lambda path: False if path in [Tempo.tls_cert_path, Tempo.tls_key_path, Tempo.tls_ca_path] else True
     initial_config = Tempo(container).generate_config(["otlp_http"])
+
     tempo_config.write_text(yaml.safe_dump(initial_config))
 
     tempo = Container(

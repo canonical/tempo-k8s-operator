@@ -4,6 +4,7 @@
 
 """Tempo workload configuration and client."""
 import logging
+import socket
 from pathlib import Path
 from subprocess import CalledProcessError, getoutput
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -61,13 +62,13 @@ class Tempo:
     def __init__(
         self,
         container: ops.Container,
-        external_host: str,
+        external_host: Optional[str]=None,
         enable_receivers: Optional[Sequence[ReceiverProtocol]] = None,
     ):
         # ports source: https://github.com/grafana/tempo/blob/main/example/docker-compose/local/docker-compose.yaml
 
         # fqdn, if an ingress is not available, else the ingress address.
-        self._external_hostname = external_host
+        self._external_hostname = external_host or socket.getfqdn()
         self.container = container
         self.enabled_receivers = enable_receivers or []
 
@@ -143,7 +144,6 @@ class Tempo:
     )
     def restart(self) -> bool:
         """Try to restart the tempo service."""
-
         # restarting tempo can cause errors such as:
         #  Could not bind to :3200 - Address in use
         # probably because of some lag with releasing the port. We restart tempo 'too quickly'
@@ -226,7 +226,6 @@ class Tempo:
 
         Only activate the provided receivers.
         """
-
         config = {
             "auth_enabled": False,
             "server": self._build_server_config(),

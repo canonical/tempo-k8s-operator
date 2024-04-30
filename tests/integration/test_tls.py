@@ -10,9 +10,9 @@ import pytest
 import requests
 import yaml
 from pytest_operator.plugin import OpsTest
+from tempo import Tempo
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from tempo import Tempo
 from tests.integration.helpers import get_relation_data
 
 METADATA = yaml.safe_load(Path("./charmcraft.yaml").read_text())
@@ -151,7 +151,7 @@ async def test_verify_trace_http_tls(ops_test: OpsTest, nonce, server_cert):
 @pytest.mark.xfail  # expected to fail because in this context the grpc receiver is not enabled
 async def test_verify_traces_grpc_tls(ops_test: OpsTest, nonce, server_cert):
     # WHEN we emit a trace secured with TLS
-    result = await emit_trace(ops_test, nonce=nonce, verbose=1, proto="grpc")
+    await emit_trace(ops_test, nonce=nonce, verbose=1, proto="grpc")
     # THEN we can verify it's been ingested
     await get_traces_patiently(ops_test, nonce)
 

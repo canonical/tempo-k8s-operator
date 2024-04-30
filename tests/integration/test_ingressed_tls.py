@@ -68,7 +68,7 @@ async def test_build_and_deploy(ops_test: OpsTest):
     await asyncio.gather(
         ops_test.model.deploy(tempo_charm, resources=resources, application_name=APP_NAME),
         ops_test.model.deploy(SSC, application_name=SSC_APP_NAME),
-        ops_test.model.deploy(TRAEFIK, application_name=TRAEFIK_APP_NAMEF),
+        ops_test.model.deploy(TRAEFIK, application_name=TRAEFIK_APP_NAME),
     )
 
     await asyncio.gather(

@@ -24,7 +24,6 @@ from charms.tempo_k8s.v2.tracing import (
     RequestEvent,
     TracingEndpointProvider,
 )
-from charms.traefik_k8s.v2.ingress import IngressPerAppRequirer
 from charms.traefik_route_k8s.v0.traefik_route import TraefikRouteRequirer
 from ops.charm import (
     CharmBase,
@@ -37,7 +36,6 @@ from ops.charm import (
 )
 from ops.main import main
 from ops.model import ActiveStatus, MaintenanceStatus, Relation, WaitingStatus
-
 from tempo import Tempo
 
 logger = logging.getLogger(__name__)
@@ -424,7 +422,6 @@ class TempoCharm(CharmBase):
     @property
     def _ingress_config(self) -> dict:
         """Build a raw ingress configuration for Traefik."""
-
         # TODO replace hardcoded paths with variables
         return {
             "tcp": {
