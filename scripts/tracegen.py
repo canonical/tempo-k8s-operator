@@ -1,6 +1,6 @@
 import time
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Any
 
 from grpc import ChannelCredentials
 from opentelemetry import trace
@@ -20,7 +20,8 @@ def emit_trace(
         endpoint: str,
         log_trace_to_console: bool = False,
         cert: Path = None,
-        protocol: Literal["grpc", "http", "ALL"] = "grpc"
+        protocol: Literal["grpc", "http", "ALL"] = "grpc",
+        nonce: Any = None
 ):
     if protocol == "grpc":
         span_exporter = GRPCExporter(
@@ -34,15 +35,18 @@ def emit_trace(
             certificate_file=str(Path(cert).absolute()) if cert else None,
         )
     else:  # ALL
-        emit_trace(endpoint, log_trace_to_console, cert, "grpc")
-        emit_trace(endpoint, log_trace_to_console, cert, "http")
+        emit_trace(endpoint, log_trace_to_console, cert, "grpc", nonce=nonce)
+        emit_trace(endpoint, log_trace_to_console, cert, "http", nonce=nonce)
         return
 
-    _export_trace(span_exporter, log_trace_to_console=log_trace_to_console)
+    _export_trace(span_exporter, log_trace_to_console=log_trace_to_console, nonce=nonce)
 
 
-def _export_trace(span_exporter, log_trace_to_console: bool = False, ):
-    resource = Resource.create(attributes={"service.name": "tracegen"})
+def _export_trace(span_exporter, log_trace_to_console: bool = False, nonce: Any = None):
+    resource = Resource.create(attributes={
+        "service.name": "tracegen",
+        "nonce": str(nonce)}
+    )
     provider = TracerProvider(resource=resource)
 
     if log_trace_to_console:
@@ -68,5 +72,6 @@ if __name__ == '__main__':
         endpoint=os.getenv("TRACEGEN_ENDPOINT", "http://127.0.0.1:8080"),
         cert=os.getenv("TRACEGEN_CERT", None),
         log_trace_to_console=os.getenv("TRACEGEN_VERBOSE", False),
-        protocol=os.getenv("TRACEGEN_PROTOCOL", "ALL")
+        protocol=os.getenv("TRACEGEN_PROTOCOL", "ALL"),
+        nonce=os.getenv("TRACEGEN_NONCE", None)
     )

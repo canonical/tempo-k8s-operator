@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 import requests
 import yaml
+from juju.application import Application
 from pytest_operator.plugin import OpsTest
 
 from scripts.tracegen import emit_trace
@@ -17,6 +18,8 @@ METADATA = yaml.safe_load(Path("./charmcraft.yaml").read_text())
 APP_NAME = "tempo"
 SSC = "self-signed-certificates"
 SSC_APP_NAME = "ssc"
+TRAEFIK = "traefik-k8s"
+TRAEFIK_APP_NAME = "trfk"
 
 logger = logging.getLogger(__name__)
 
@@ -34,9 +37,9 @@ def get_traces(tempo_host: str, nonce, service_name="tracegen"):
 
 
 async def get_tempo_host(ops_test: OpsTest):
-    status = await ops_test.model.get_status()
-    app = status["applications"][APP_NAME]
-    return app.public_address
+    traefik_app: Application = await ops_test.model.applications[TRAEFIK_APP_NAME]
+    endpoints = await traefik_app.run("show-proxied-endpoints")
+    return endpoints
 
 
 @pytest.fixture(scope="function")
@@ -61,11 +64,12 @@ async def test_build_and_deploy(ops_test: OpsTest):
     await asyncio.gather(
         ops_test.model.deploy(tempo_charm, resources=resources, application_name=APP_NAME),
         ops_test.model.deploy(SSC, application_name=SSC_APP_NAME),
+        ops_test.model.deploy(TRAEFIK, application_name=TRAEFIK_APP_NAMEF),
     )
 
     await asyncio.gather(
         ops_test.model.wait_for_idle(
-            apps=[APP_NAME, SSC_APP_NAME],
+            apps=[APP_NAME, SSC_APP_NAME, TRAEFIK_APP_NAME],
             status="active",
             raise_on_blocked=True,
             timeout=10000,
@@ -78,8 +82,10 @@ async def test_build_and_deploy(ops_test: OpsTest):
 @pytest.mark.abort_on_fail
 async def test_relate(ops_test: OpsTest):
     await ops_test.model.integrate(APP_NAME + ":certificates", SSC_APP_NAME + ":certificates")
+    await ops_test.model.integrate(SSC_APP_NAME + ":certificates", TRAEFIK_APP_NAME + ":certificates")
+    await ops_test.model.integrate(APP_NAME + ":ingress", TRAEFIK_APP_NAME + ":traefik-route")
     await ops_test.model.wait_for_idle(
-        apps=[APP_NAME, SSC_APP_NAME],
+        apps=[APP_NAME, SSC_APP_NAME, TRAEFIK_APP_NAME],
         status="active",
         timeout=1000,
     )

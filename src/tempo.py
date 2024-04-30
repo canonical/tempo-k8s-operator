@@ -310,13 +310,14 @@ class Tempo:
     @property
     def tempo_ready_layer(self) -> Layer:
         """Generate the pebble layer to fire the tempo-ready custom notice."""
+        s = "s" if self.tls_ready else ""
         return Layer(
             {
                 "services": {
                     "tempo-ready": {
                         "override": "replace",
                         "summary": "Notify charm when tempo is ready",
-                        "command": f"""watch -n 5 '[ $(wget -q -O- localhost:{self.tempo_http_server_port}/ready) = "ready" ] && 
+                        "command": f"""watch -n 5 '[ $(wget -q -O- --no-check-certificate http{s}://localhost:{self.tempo_http_server_port}/ready) = "ready" ] && 
                                    ( /charm/bin/pebble notify {self.tempo_ready_notice_key} ) || 
                                    ( echo "tempo not ready" )'""",
                         "startup": "disabled",
@@ -327,10 +328,13 @@ class Tempo:
 
     def is_ready(self):
         """Whether the tempo built-in readiness check reports 'ready'."""
+        if self.tls_ready:
+            tls, s = " -k", "s"
+        else:
+            tls = s = ""
+        cmd = f"curl{tls} http{s}://{self._local_hostname}:{self.tempo_http_server_port}/ready"
         try:
-            out = getoutput(
-                f"curl http://{self._local_hostname}:{self.tempo_http_server_port}/ready"
-            ).split("\n")[-1]
+            out = getoutput(cmd).split("\n")[-1]
         except (CalledProcessError, IndexError):
             return False
         return out == "ready"
