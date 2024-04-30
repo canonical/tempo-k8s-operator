@@ -10,6 +10,7 @@ import pytest
 import requests
 import yaml
 from pytest_operator.plugin import OpsTest
+from tenacity import stop_after_attempt, retry, wait_exponential
 
 from tempo import Tempo
 from tests.integration.helpers import get_relation_data
@@ -28,17 +29,25 @@ def nonce():
     return str(random.random())[2:]
 
 
-def get_traces(tempo_host: str, nonce, service_name="tracegen"):
-    query = f'{{ resource.nonce = "{nonce}" }}'
+def get_traces(tempo_host: str, nonce):
     url = "https://" + tempo_host + ":3200/api/search"
     req = requests.get(
         url,
-        params={"query": query},
+        params={"q": f'{{ .nonce = "{nonce}" }}'},
         # it would fail to verify as the cert was issued for fqdn, not IP.
         verify=False
     )
     assert req.status_code == 200
     return json.loads(req.text)["traces"]
+
+
+@retry(
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=1, min=4, max=10)
+)
+async def get_traces_patiently(ops_test, nonce):
+    assert get_traces(await get_tempo_ip(ops_test), nonce=nonce)
+
 
 
 async def get_tempo_ip(ops_test: OpsTest):
@@ -105,7 +114,7 @@ async def test_push_tracegen_script_and_deps(ops_test: OpsTest):
                         "python3 -m pip install opentelemetry-exporter-otlp-proto-grpc opentelemetry-exporter-otlp-proto-http")
 
 
-async def emit_trace(ops_test: OpsTest, nonce, proto:str="http", verbose=0):
+async def emit_trace(ops_test: OpsTest, nonce, proto: str = "http", verbose=0):
     """Use juju ssh to run tracegen from the tempo charm; to avoid any DNS issues."""
     hostname = await get_tempo_internal_host(ops_test)
     cmd = (f"juju ssh -m {ops_test.model_name} {APP_NAME}/0 "
@@ -130,15 +139,18 @@ async def test_verify_trace_http_no_tls_fails(ops_test: OpsTest, server_cert, no
 
 
 async def test_verify_trace_http_tls(ops_test: OpsTest, nonce, server_cert):
+    # WHEN we emit a trace secured with TLS
     await emit_trace(ops_test, nonce=nonce)
-    # THEN we can verify it's been ingested
-    assert get_traces(await get_tempo_ip(ops_test), nonce=nonce)
+    # THEN we can verify it's eventually ingested
+    await get_traces_patiently(ops_test, nonce)
 
 
+@pytest.mark.xfail # expected to fail because in this context the grpc receiver is not enabled
 async def test_verify_traces_grpc_tls(ops_test: OpsTest, nonce, server_cert):
-    await emit_trace(ops_test, nonce=nonce, proto="grpc")
+    # WHEN we emit a trace secured with TLS
+    result = await emit_trace(ops_test, nonce=nonce, verbose=1, proto="grpc")
     # THEN we can verify it's been ingested
-    assert get_traces(await get_tempo_ip(ops_test), nonce=nonce)
+    await get_traces_patiently(ops_test, nonce)
 
 
 @pytest.mark.teardown

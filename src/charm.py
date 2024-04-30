@@ -136,8 +136,6 @@ class TempoCharm(CharmBase):
         # on the cluster's DNS service, while the ip address is _sometimes_
         # routable from the outside, e.g., when deploying on MicroK8s on Linux.
         scheme = "https" if self.server_cert else "http"
-
-        # FIXME: continue
         return f"{scheme}://{self.hostname}:{self.tempo.tempo_http_server_port}"
 
     @property

@@ -63,16 +63,12 @@ class Tempo:
             self,
             container: ops.Container,
             external_host: str,
-            local_host: str = "0.0.0.0",
             enable_receivers: Optional[Sequence[ReceiverProtocol]] = None,
     ):
         # ports source: https://github.com/grafana/tempo/blob/main/example/docker-compose/local/docker-compose.yaml
 
         # fqdn, if an ingress is not available, else the ingress address.
         self._external_hostname = external_host
-
-        # local hostname at which the server will be running
-        self._local_hostname = local_host
         self.container = container
         self.enabled_receivers = enable_receivers or []
 
@@ -340,7 +336,10 @@ class Tempo:
             tls, s = f" --cacert {self.server_cert_path}", "s"
         else:
             tls = s = ""
-        cmd = f"curl{tls} http{s}://{self._local_hostname}:{self.tempo_http_server_port}/ready"
+
+        # cert is for fqdn/ingress, not for IP
+        cmd = f"curl{tls} http{s}://{self._external_hostname}:{self.tempo_http_server_port}/ready"
+
         try:
             out = getoutput(cmd).split("\n")[-1]
         except (CalledProcessError, IndexError):
