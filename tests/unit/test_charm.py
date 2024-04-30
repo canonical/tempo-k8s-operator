@@ -1,17 +1,18 @@
 # Copyright 2024 Canonical Ltd.
 # See LICENSE file for licensing details.
 
-import json
 import logging
 import unittest
-from unittest.mock import Mock, patch
-import yaml
+from unittest.mock import patch
 
-from charm import TempoCharm
+import yaml
 from ops.model import ActiveStatus
 from ops.testing import Harness
 
+from charm import TempoCharm
+
 CONTAINER_NAME = "tempo"
+
 
 class TestTempoCharm(unittest.TestCase):
     @patch("charm.KubernetesServicePatch", lambda x, y: None)
@@ -21,7 +22,7 @@ class TestTempoCharm(unittest.TestCase):
         self.addCleanup(self.harness.cleanup)
         self.harness.set_leader(True)
         self.harness.begin_with_initial_hooks()
-        self.maxDiff = None # we're comparing big traefik configs in tests
+        self.maxDiff = None  # we're comparing big traefik configs in tests
 
     def test_tempo_pebble_ready(self):
         service = self._container.get_service("tempo")
@@ -40,6 +41,7 @@ class TestTempoCharm(unittest.TestCase):
         }
         self.assertEqual(self.harness.charm._static_ingress_config, expected_entrypoints)
 
+    @patch("socket.getfqdn", lambda: "1.2.3.4")
     def test_ingress_relation_is_set_with_dynamic_config(self):
         self.harness.set_leader(True)
         self.harness.container_pebble_ready("tempo")
@@ -52,14 +54,14 @@ class TestTempoCharm(unittest.TestCase):
                     "juju-testmodel-tempo-k8s-otlp-grpc": {
                         "entryPoints": ["otlp-grpc"],
                         "rule": "ClientIP(`0.0.0.0/0`)",
-                        "service": "juju-testmodel-tempo-k8s-service-otlp-grpc"
+                        "service": "juju-testmodel-tempo-k8s-service-otlp-grpc",
                     }
                 },
                 "services": {
                     "juju-testmodel-tempo-k8s-service-otlp-grpc": {
-                        "loadBalancer": {"servers": [{"address": "charm-dev:4317"}]}
+                        "loadBalancer": {"servers": [{"address": "1.2.3.4:4317"}]}
                     }
-                }
+                },
             },
             "http": {
                 "routers": {
@@ -86,35 +88,19 @@ class TestTempoCharm(unittest.TestCase):
                 },
                 "services": {
                     "juju-testmodel-tempo-k8s-service-jaeger-thrift-http": {
-                        "loadBalancer": {
-                            "servers": [
-                                {"url": "http://charm-dev:14268"}
-                            ]
-                        }
+                        "loadBalancer": {"servers": [{"url": "http://1.2.3.4:14268"}]}
                     },
                     "juju-testmodel-tempo-k8s-service-otlp-http": {
-                        "loadBalancer": {
-                            "servers": [
-                                {"url": "http://charm-dev:4318"}
-                            ]
-                        }
+                        "loadBalancer": {"servers": [{"url": "http://1.2.3.4:4318"}]}
                     },
                     "juju-testmodel-tempo-k8s-service-tempo-http": {
-                        "loadBalancer": {
-                            "servers": [
-                                {"url": "http://charm-dev:3200"}
-                            ]
-                        }
+                        "loadBalancer": {"servers": [{"url": "http://1.2.3.4:3200"}]}
                     },
                     "juju-testmodel-tempo-k8s-service-zipkin": {
-                        "loadBalancer": {
-                            "servers": [
-                                {"url": "http://charm-dev:9411"}
-                            ]
-                        }
+                        "loadBalancer": {"servers": [{"url": "http://1.2.3.4:9411"}]}
                     },
                 },
-            }
+            },
         }
 
         rel_data = self.harness.get_relation_data(rel_id, self.harness.charm.app.name)
@@ -123,24 +109,19 @@ class TestTempoCharm(unittest.TestCase):
         # https://github.com/canonical/grafana-k8s-operator/blob/main/tests/unit/test_charm.py#L348
         self.assertEqual(yaml.safe_load(rel_data["config"]), expected_rel_data)
 
-    def test_tracing_relation_has_external_url_in_databag_when_set(self):
+    def test_tracing_relation_updates_protocols_as_requested(self):
         self.harness.set_leader(True)
         self.harness.container_pebble_ready("tempo")
-        rel_id = self.harness.add_relation("ingress", "traefik")
-        self.harness.add_relation_unit(rel_id, "traefik/0")
-        self.harness.update_relation_data(
-            rel_id, "traefik", {"external_host": "1.2.3.4", "scheme": "http"}
-        )
 
         tracing_rel_id = self.harness.add_relation("tracing", "grafana")
         self.harness.add_relation_unit(tracing_rel_id, "grafana/0")
         self.harness.update_relation_data(
-            tracing_rel_id, "grafana", {"receivers": "[\"otlp_http\"]"}
+            tracing_rel_id, "grafana", {"receivers": '["otlp_http"]'}
         )
 
         rel_data = self.harness.get_relation_data(tracing_rel_id, self.harness.charm.app.name)
         logging.warning(rel_data)
-        self.assertEqual(rel_data["external_url"], "http://1.2.3.4")
+        self.assertEqual(rel_data["receivers"], '[{"protocol": "otlp_http", "port": 4318}]')
 
     @property
     def _container(self):

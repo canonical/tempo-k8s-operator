@@ -61,6 +61,42 @@ def test_requirer_api(context):
     assert epchanged.host == host
 
 
+def test_ingressed_requirer_api(context):
+    # WHEN external_url is present in remote app databag
+    external_url = "http://1.2.3.4"
+    host = socket.getfqdn()
+    tracing = Relation(
+        "tracing",
+        remote_app_data={
+            "receivers": '[{"protocol": "otlp_grpc", "port": 4317}, '
+            '{"protocol": "otlp_http", "port": 4318}, '
+            '{"protocol": "zipkin", "port": 9411}]',
+            "host": json.dumps(host),
+            "external_url": json.dumps(external_url),
+        },
+    )
+    state = State(leader=True, relations=[tracing])
+
+    # THEN get_endpoint uses external URL instead of the host
+    with charm_tracing_disabled():
+        with context.manager(tracing.changed_event, state) as mgr:
+            charm = mgr.charm
+            assert (
+                charm.tracing.get_endpoint("otlp_grpc") == f"{external_url.split('://')[1]}:4317"
+            )
+            assert charm.tracing.get_endpoint("otlp_http") == f"{external_url}:4318"
+            assert charm.tracing.get_endpoint("zipkin") == f"{external_url}:9411"
+
+            rel = charm.model.get_relation("tracing")
+            assert charm.tracing.is_ready(rel)
+
+    rchanged, epchanged = context.emitted_events
+    assert isinstance(epchanged, EndpointChangedEvent)
+    assert epchanged.host == host
+    assert epchanged.receivers[0].protocol == "otlp_grpc"
+    assert epchanged.external_url == external_url
+
+
 @pytest.mark.parametrize(
     "data",
     (
