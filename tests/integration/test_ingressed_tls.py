@@ -31,7 +31,9 @@ def nonce():
 
 
 def get_traces(tempo_host: str, nonce, service_name="tracegen"):
-    req = requests.get(tempo_host + ":3200/api/search", params={"service.name": service_name, "nonce": nonce})
+    req = requests.get(
+        tempo_host + ":3200/api/search", params={"service.name": service_name, "nonce": nonce}
+    )
     assert req.status_code == 200
     return json.loads(req.text)["traces"]
 
@@ -44,9 +46,11 @@ async def get_tempo_host(ops_test: OpsTest):
 
 @pytest.fixture(scope="function")
 def server_cert():
-    data = get_relation_data(requirer_endpoint=f"{APP_NAME}/0:certificates",
-                             provider_endpoint=f"{SSC_APP_NAME}/0:certificates")
-    cert = json.loads(data.provider.application_data['certificates'])['certificate']
+    data = get_relation_data(
+        requirer_endpoint=f"{APP_NAME}/0:certificates",
+        provider_endpoint=f"{SSC_APP_NAME}/0:certificates",
+    )
+    cert = json.loads(data.provider.application_data["certificates"])["certificate"]
 
     with tempfile.NamedTemporaryFile() as f:
         p = Path(f.name)
@@ -82,7 +86,9 @@ async def test_build_and_deploy(ops_test: OpsTest):
 @pytest.mark.abort_on_fail
 async def test_relate(ops_test: OpsTest):
     await ops_test.model.integrate(APP_NAME + ":certificates", SSC_APP_NAME + ":certificates")
-    await ops_test.model.integrate(SSC_APP_NAME + ":certificates", TRAEFIK_APP_NAME + ":certificates")
+    await ops_test.model.integrate(
+        SSC_APP_NAME + ":certificates", TRAEFIK_APP_NAME + ":certificates"
+    )
     await ops_test.model.integrate(APP_NAME + ":ingress", TRAEFIK_APP_NAME + ":traefik-route")
     await ops_test.model.wait_for_idle(
         apps=[APP_NAME, SSC_APP_NAME, TRAEFIK_APP_NAME],
@@ -117,7 +123,9 @@ async def test_verify_traces_grpc_tls(ops_test: OpsTest, nonce, server_cert):
 @pytest.mark.teardown
 @pytest.mark.abort_on_fail
 async def test_remove_relation(ops_test: OpsTest):
-    await ops_test.juju("remove-relation", APP_NAME + ":certificates", SSC_APP_NAME + ":certificates")
+    await ops_test.juju(
+        "remove-relation", APP_NAME + ":certificates", SSC_APP_NAME + ":certificates"
+    )
     await asyncio.gather(
         ops_test.model.wait_for_idle(
             apps=[APP_NAME], status="active", raise_on_blocked=True, timeout=1000

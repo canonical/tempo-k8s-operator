@@ -69,14 +69,14 @@ class TempoCharm(CharmBase):
         self._ingress = TraefikRouteRequirer(self, self.model.get_relation("ingress"), "ingress")  # type: ignore
 
         self.cert_handler = CertHandler(
-            self, key="tempo-server-cert",
+            self,
+            key="tempo-server-cert",
             sans=[self.hostname],
         )
 
         # configure this tempo as a datasource in grafana
         self.grafana_source_provider = GrafanaSourceProvider(
-            self, source_type="tempo",
-            source_url=self._external_url
+            self, source_type="tempo", source_url=self._external_url
         )
         # # Patch the juju-created Kubernetes service to contain the right ports
         external_ports = tempo.get_external_ports(self.app.name)
@@ -141,10 +141,10 @@ class TempoCharm(CharmBase):
     @property
     def tls_available(self) -> bool:
         return (
-                self.cert_handler.enabled
-                and (self.cert_handler.server_cert is not None)
-                and (self.cert_handler.private_key is not None)
-                and (self.cert_handler.ca_cert is not None)
+            self.cert_handler.enabled
+            and (self.cert_handler.server_cert is not None)
+            and (self.cert_handler.private_key is not None)
+            and (self.cert_handler.ca_cert is not None)
         )
 
     def _on_cert_handler_changed(self, _):
@@ -174,7 +174,7 @@ class TempoCharm(CharmBase):
         juju_keys = {"egress-subnets", "ingress-address", "private-address"}
         # v1 relations are expected to have no data at all (excluding juju keys)
         if relation.data[relation.app] or any(
-                set(relation.data[u]).difference(juju_keys) for u in relation.units
+            set(relation.data[u]).difference(juju_keys) for u in relation.units
         ):
             return False
 

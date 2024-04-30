@@ -68,10 +68,10 @@ def get_relation_by_endpoint(relations, local_endpoint, remote_endpoint, remote_
         r
         for r in relations
         if (
-                   (r["endpoint"] == local_endpoint and r["related-endpoint"] == remote_endpoint)
-                   or (r["endpoint"] == remote_endpoint and r["related-endpoint"] == local_endpoint)
-           )
-           and remote_obj in r["related-units"]
+            (r["endpoint"] == local_endpoint and r["related-endpoint"] == remote_endpoint)
+            or (r["endpoint"] == remote_endpoint and r["related-endpoint"] == local_endpoint)
+        )
+        and remote_obj in r["related-units"]
     ]
     if not matches:
         raise ValueError(
@@ -98,7 +98,7 @@ class UnitRelationData:
 
 
 def get_content(
-        obj: str, other_obj, include_default_juju_keys: bool = False, model: str = None
+    obj: str, other_obj, include_default_juju_keys: bool = False, model: str = None
 ) -> UnitRelationData:
     """Get the content of the databag of `obj`, as seen from `other_obj`."""
     unit_name, endpoint = obj.split(":")
@@ -140,11 +140,11 @@ class RelationData:
 
 
 def get_relation_data(
-        *,
-        provider_endpoint: str,
-        requirer_endpoint: str,
-        include_default_juju_keys: bool = False,
-        model: str = None,
+    *,
+    provider_endpoint: str,
+    requirer_endpoint: str,
+    include_default_juju_keys: bool = False,
+    model: str = None,
 ):
     """Get relation databags for a juju relation.
 

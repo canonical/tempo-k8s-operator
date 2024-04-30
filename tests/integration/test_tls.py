@@ -10,7 +10,7 @@ import pytest
 import requests
 import yaml
 from pytest_operator.plugin import OpsTest
-from tenacity import stop_after_attempt, retry, wait_exponential
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 from tempo import Tempo
 from tests.integration.helpers import get_relation_data
@@ -35,19 +35,15 @@ def get_traces(tempo_host: str, nonce):
         url,
         params={"q": f'{{ .nonce = "{nonce}" }}'},
         # it would fail to verify as the cert was issued for fqdn, not IP.
-        verify=False
+        verify=False,
     )
     assert req.status_code == 200
     return json.loads(req.text)["traces"]
 
 
-@retry(
-    stop=stop_after_attempt(5),
-    wait=wait_exponential(multiplier=1, min=4, max=10)
-)
+@retry(stop=stop_after_attempt(5), wait=wait_exponential(multiplier=1, min=4, max=10))
 async def get_traces_patiently(ops_test, nonce):
     assert get_traces(await get_tempo_ip(ops_test), nonce=nonce)
-
 
 
 async def get_tempo_ip(ops_test: OpsTest):
@@ -62,9 +58,11 @@ async def get_tempo_internal_host(ops_test: OpsTest):
 
 @pytest.fixture(scope="function")
 def server_cert():
-    data = get_relation_data(requirer_endpoint=f"{APP_NAME}/0:certificates",
-                             provider_endpoint=f"{SSC_APP_NAME}/0:certificates")
-    cert = json.loads(data.provider.application_data['certificates'])[0]['certificate']
+    data = get_relation_data(
+        requirer_endpoint=f"{APP_NAME}/0:certificates",
+        provider_endpoint=f"{SSC_APP_NAME}/0:certificates",
+    )
+    cert = json.loads(data.provider.application_data["certificates"])[0]["certificate"]
 
     with tempfile.NamedTemporaryFile() as f:
         p = Path(f.name)
@@ -110,20 +108,25 @@ async def test_relate(ops_test: OpsTest):
 @pytest.mark.abort_on_fail
 async def test_push_tracegen_script_and_deps(ops_test: OpsTest):
     await ops_test.juju("scp", TRACEGEN_SCRIPT_PATH, f"{APP_NAME}/0:tracegen.py")
-    await ops_test.juju("ssh", f"{APP_NAME}/0",
-                        "python3 -m pip install opentelemetry-exporter-otlp-proto-grpc opentelemetry-exporter-otlp-proto-http")
+    await ops_test.juju(
+        "ssh",
+        f"{APP_NAME}/0",
+        "python3 -m pip install opentelemetry-exporter-otlp-proto-grpc opentelemetry-exporter-otlp-proto-http",
+    )
 
 
 async def emit_trace(ops_test: OpsTest, nonce, proto: str = "http", verbose=0):
     """Use juju ssh to run tracegen from the tempo charm; to avoid any DNS issues."""
     hostname = await get_tempo_internal_host(ops_test)
-    cmd = (f"juju ssh -m {ops_test.model_name} {APP_NAME}/0 "
-           f"TRACEGEN_ENDPOINT={hostname}:4318/v1/traces "
-           f"TRACEGEN_VERBOSE={verbose} "
-           f"TRACEGEN_PROTOCOL={proto} "
-           f"TRACEGEN_CERT={Tempo.server_cert_path} "
-           f"TRACEGEN_NONCE={nonce} "
-           "python3 /tracegen.py")
+    cmd = (
+        f"juju ssh -m {ops_test.model_name} {APP_NAME}/0 "
+        f"TRACEGEN_ENDPOINT={hostname}:4318/v1/traces "
+        f"TRACEGEN_VERBOSE={verbose} "
+        f"TRACEGEN_PROTOCOL={proto} "
+        f"TRACEGEN_CERT={Tempo.server_cert_path} "
+        f"TRACEGEN_NONCE={nonce} "
+        "python3 /tracegen.py"
+    )
 
     return getoutput(cmd)
 
@@ -145,7 +148,7 @@ async def test_verify_trace_http_tls(ops_test: OpsTest, nonce, server_cert):
     await get_traces_patiently(ops_test, nonce)
 
 
-@pytest.mark.xfail # expected to fail because in this context the grpc receiver is not enabled
+@pytest.mark.xfail  # expected to fail because in this context the grpc receiver is not enabled
 async def test_verify_traces_grpc_tls(ops_test: OpsTest, nonce, server_cert):
     # WHEN we emit a trace secured with TLS
     result = await emit_trace(ops_test, nonce=nonce, verbose=1, proto="grpc")
@@ -156,7 +159,9 @@ async def test_verify_traces_grpc_tls(ops_test: OpsTest, nonce, server_cert):
 @pytest.mark.teardown
 @pytest.mark.abort_on_fail
 async def test_remove_relation(ops_test: OpsTest):
-    await ops_test.juju("remove-relation", APP_NAME + ":certificates", SSC_APP_NAME + ":certificates")
+    await ops_test.juju(
+        "remove-relation", APP_NAME + ":certificates", SSC_APP_NAME + ":certificates"
+    )
     await asyncio.gather(
         ops_test.model.wait_for_idle(
             apps=[APP_NAME], status="active", raise_on_blocked=True, timeout=1000
