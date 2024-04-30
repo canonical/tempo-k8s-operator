@@ -7,6 +7,7 @@
 import logging
 import re
 import socket
+from pathlib import Path
 from typing import Optional, Tuple
 
 import charms.tempo_k8s.v1.tracing as tracing_v1
@@ -51,10 +52,14 @@ LEGACY_RECEIVER_PROTOCOLS = (
 
 @trace_charm(
     tracing_endpoint="tempo_otlp_http_endpoint",
+    server_cert="server_cert",
     extra_types=(Tempo, TracingEndpointProvider, tracing_v1.TracingEndpointProvider),
 )
 class TempoCharm(CharmBase):
     """Charmed Operator for Tempo; a distributed tracing backend."""
+
+    # TODO: right place?
+    _server_cert_path = Path("/var/lib/juju/tls/server.cert")
 
     def __init__(self, *args):
         super().__init__(*args)
@@ -73,7 +78,8 @@ class TempoCharm(CharmBase):
 
         # configure this tempo as a datasource in grafana
         self.grafana_source_provider = GrafanaSourceProvider(
-            self, source_type="tempo", source_port=str(tempo.tempo_http_server_port)
+            self, source_type="tempo",
+            source_url=self._external_url
         )
         # # Patch the juju-created Kubernetes service to contain the right ports
         external_ports = tempo.get_external_ports(self.app.name)
@@ -118,6 +124,24 @@ class TempoCharm(CharmBase):
         self.framework.observe(self.on.collect_unit_status, self._on_collect_unit_status)
         self.framework.observe(self.on.list_receivers_action, self._on_list_receivers_action)
         self.framework.observe(self.cert_handler.on.cert_changed, self._on_cert_handler_changed)
+
+    @property
+    def _external_url(self) -> str:
+        """Return the external hostname to be passed to ingress via the relation."""
+        if ingress_url := self._ingress.external_host:
+            logger.debug("This unit's ingress URL: %s", ingress_url)
+            return ingress_url
+
+        # If we do not have an ingress, then use the pod hostname.
+        # The reason to prefer this over the pod name (which is the actual
+        # hostname visible from the pod) or a K8s service, is that those
+        # are routable virtually exclusively inside the cluster (as they rely)
+        # on the cluster's DNS service, while the ip address is _sometimes_
+        # routable from the outside, e.g., when deploying on MicroK8s on Linux.
+        scheme = "https" if self.server_cert() else "http"
+
+        # FIXME: continue
+        return f"{scheme}://{self.hostname}:{self.tempo.tempo_http_server_port}"
 
     @property
     def tls_available(self) -> bool:
@@ -356,6 +380,10 @@ class TempoCharm(CharmBase):
             return
         return version
 
+    def server_cert(self) -> Optional[Path]:
+        """Server certificate for charm tracing tls."""
+        return self._update_cert_path()
+
     def tempo_otlp_http_endpoint(self) -> Optional[str]:
         """Endpoint at which the charm tracing information will be forwarded."""
         # the charm container and the tempo workload container have apparently the same
@@ -449,6 +477,19 @@ class TempoCharm(CharmBase):
                 },
             },
         }
+
+    def _update_cert_path(self):
+        """Ensure that certhandler's client cert is in sync with what is on disk."""
+        server_cert_path = self._server_cert_path
+        if cert := self.cert_handler.server_cert:
+            if not server_cert_path.exists():
+                server_cert_path.parent.mkdir(parents=True, exist_ok=True)
+                server_cert_path.write_text(cert)
+            return server_cert_path
+        else:
+            if server_cert_path.exists():
+                server_cert_path.unlink()
+            return None
 
 
 if __name__ == "__main__":  # pragma: nocover

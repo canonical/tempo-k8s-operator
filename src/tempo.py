@@ -4,7 +4,6 @@
 
 """Tempo workload configuration and client."""
 import logging
-from pathlib import Path
 from subprocess import CalledProcessError, getoutput
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -23,9 +22,13 @@ class Tempo:
 
     config_path = "/etc/tempo/tempo.yaml"
 
-    tls_cert_path = Path("/etc/tempo/tls/tls.crt")
-    tls_key_path = Path("/etc/tempo/tls/tls.key")
-    tls_ca_path = Path("/etc/tempo/tls/tls.ca")
+    tls_cert_path = "/etc/tempo/tls/server.crt"
+    tls_key_path = "/etc/tempo/tls/server.key"
+    tls_ca_path = "/usr/local/share/ca-certificates/ca.crt"
+
+    _tls_min_version = ""
+    # cfr https://grafana.com/docs/enterprise-traces/latest/configure/reference/#supported-contents-and-default-values
+    # "VersionTLS12"
 
     wal_path = "/etc/tempo/tempo_wal"
     log_path = "/var/log/tempo.log"
@@ -180,6 +183,7 @@ class Tempo:
         self.container.push(self.tls_cert_path, cert, make_dirs=True)
         self.container.push(self.tls_key_path, key, make_dirs=True)
         self.container.push(self.tls_ca_path, ca, make_dirs=True)
+        self.container.exec(["update-ca-certificates"])
 
     def clear_tls_config(self):
         """Remove cert, key and CA files from the tempo container."""
@@ -191,9 +195,7 @@ class Tempo:
     def tls_ready(self) -> bool:
         """Whether cert, key, and ca paths are found on disk and Tempo is ready to use tls."""
         return all(self.container.exists(tls_path) for tls_path in
-                   (
-                       self.tls_cert_path, self.tls_key_path, self.tls_ca_path
-                   )
+                   (self.tls_cert_path, self.tls_key_path, self.tls_ca_path)
                    )
 
     def _build_server_config(self):
@@ -204,13 +206,14 @@ class Tempo:
             "grpc_listen_port": self.tempo_grpc_server_port,
         }
         if self.tls_ready:
-            server_config["http_tls_config"] = {
-                "cert_file": str(self.tls_cert_path),
-                "key_file": str(self.tls_key_path),
-                "client_ca_file": str(self.tls_ca_path),
-                "client_auth_type": "VerifyClientCertIfGiven",
-            }
-            server_config["tls_min_version"] = "VersionTLS12"
+            for cfg in ("http_tls_config", "grpc_tls_config"):
+                server_config[cfg] = {
+                    "cert_file": str(self.tls_cert_path),
+                    "key_file": str(self.tls_key_path),
+                    "client_ca_file": str(self.tls_ca_path),
+                    "client_auth_type": "VerifyClientCertIfGiven",
+                }
+            server_config["tls_min_version"] = self._tls_min_version
 
         return server_config
 
@@ -219,7 +222,8 @@ class Tempo:
 
         Only activate the provided receivers.
         """
-        return {
+
+        config = {
             "auth_enabled": False,
             "server": self._build_server_config(),
             # more configuration information can be found at
@@ -263,6 +267,29 @@ class Tempo:
                 }
             },
         }
+
+        if self.tls_ready:
+            # cfr:
+            # https://grafana.com/docs/tempo/latest/configuration/network/tls/#client-configuration
+            tls_config = {
+                "tls_enabled": True,
+                "tls_cert_path": self.tls_cert_path,
+                "tls_key_path": self.tls_key_path,
+                "tls_ca_path": self.tls_ca_path,
+
+                # try with fqdn?
+                "tls_server_name": self._external_hostname,
+            }
+            config["ingester_client"] = {"grpc_client_config": tls_config}
+            config["metrics_generator_client"] = {"grpc_client_config": tls_config}
+
+            # docs say it's `querier.query-frontend` but tempo complains about that
+            config["querier"] = {"frontend_worker": {"grpc_client_config": tls_config}}
+
+            # this is not an error.
+            config["memberlist"] = tls_config
+
+        return config
 
     @property
     def pebble_layer(self) -> Layer:
@@ -319,10 +346,12 @@ class Tempo:
 
         if self.tls_ready:
             receiver_config = {
-                "ca_file": str(self.tls_ca_path),
-                "cert_file": str(self.tls_cert_path),
-                "key_file": str(self.tls_key_path),
-                "min_version": "VersionTLS12",
+                "tls": {
+                    "ca_file": str(self.tls_ca_path),
+                    "cert_file": str(self.tls_cert_path),
+                    "key_file": str(self.tls_key_path),
+                    "min_version": self._tls_min_version,
+                }
             }
         else:
             receiver_config = None
