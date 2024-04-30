@@ -125,24 +125,17 @@ class TempoCharm(CharmBase):
 
         return True
 
-    def _configure_ingress(self, event: HookEvent) -> None:
-        """Make sure the traefik route relation data is up to date."""
+    def _configure_ingress(self, _) -> None:
+        """Make sure the traefik route and tracing relation data are up to date."""
         if not self.unit.is_leader():
             return
 
-        # If it's a RelationJoinedEvent, set it in the ingress object
-        if isinstance(event, RelationJoinedEvent):
-            self._ingress._relation = event.relation
-
-        # No matter what, check readiness -- this blindly checks whether `ingress._relation` is not
-        # None, so it overlaps a little with the above, but works as expected on leader elections
-        # and config-change
         if self._ingress.is_ready():
-            self._update_tracing_v1_relations()
-            self._update_tracing_v2_relations()
             self._ingress.submit_to_traefik(
                 self._ingress_config, static=self._static_ingress_config
             )
+            self._update_tracing_v1_relations()
+            self._update_tracing_v2_relations()
 
     @property
     def legacy_v1_relations(self):
@@ -170,10 +163,17 @@ class TempoCharm(CharmBase):
             self._publish_v1_data(e.relation)
 
     def _on_ingress_relation_created(self, e: RelationEvent):
-        self._configure_ingress(e)
+        if self._ingress.is_ready():
+            self._ingress.submit_to_traefik(
+                self._ingress_config, static=self._static_ingress_config
+            )
 
     def _on_ingress_relation_joined(self, e: RelationEvent):
-        self._configure_ingress(e)
+        self._ingress._relation = e.relation
+        if self._ingress.is_ready():
+            self._ingress.submit_to_traefik(
+                self._ingress_config, static=self._static_ingress_config
+            )
 
     def _on_leader_elected(self, e: HookEvent):
         # as traefik_route goes through app data, we need to take lead of traefik_route if our leader dies.
