@@ -64,7 +64,10 @@ class TempoCharm(CharmBase):
             # we need otlp_http receiver for charm_tracing
             enable_receivers=["otlp_http"],
         )
-        self._ingress = TraefikRouteRequirer(self, self.model.get_relation("ingress"), "ingress")  # type: ignore
+
+        # TODO:
+        #  ingress route provisioning a separate TCP ingress for each receiver if GRPC doesn't work directly
+        self.ingress = TraefikRouteRequirer(self, self.model.get_relation("ingress"), "ingress")  # type: ignore
 
         self.cert_handler = CertHandler(
             self,
@@ -93,19 +96,16 @@ class TempoCharm(CharmBase):
             self, relation_name="grafana-dashboard"
         )
 
-        # TODO:
-        #  ingress route provisioning a separate TCP ingress for each receiver if GRPC doesn't work directly
-
         self._tracing = TracingEndpointProvider(
-            self, host=self.hostname, external_url=self._ingress.external_host
+            self, host=self.hostname, external_url=self.ingress.external_host
         )
 
         self.framework.observe(self.on["ingress"].relation_joined, self._configure_ingress)
         self.framework.observe(self.on.leader_elected, self._configure_ingress)
         self.framework.observe(self.on.config_changed, self._configure_ingress)
-        self.framework.observe(self._ingress.on.ready, self._on_ingress_ready)  # pyright: ignore
+        self.framework.observe(self.ingress.on.ready, self._on_ingress_ready)  # pyright: ignore
         # TODO there's no revoked ingress action with traefik_route?
-        # self.framework.observe(self._ingress.on.revoked, self._on_ingress_revoked)
+        # self.framework.observe(self.ingress.on.revoked, self._on_ingress_revoked)
 
         self.framework.observe(self.on.tempo_pebble_ready, self._on_tempo_pebble_ready)
         self.framework.observe(
@@ -123,7 +123,7 @@ class TempoCharm(CharmBase):
     @property
     def _external_url(self) -> str:
         """Return the external hostname to be passed to ingress via the relation."""
-        if ingress_url := self._ingress.external_host:
+        if ingress_url := self.ingress.external_host:
             logger.debug("This unit's ingress URL: %s", ingress_url)
             return ingress_url
 
@@ -133,7 +133,7 @@ class TempoCharm(CharmBase):
         # are routable virtually exclusively inside the cluster (as they rely)
         # on the cluster's DNS service, while the ip address is _sometimes_
         # routable from the outside, e.g., when deploying on MicroK8s on Linux.
-        scheme = "https" if self.server_cert else "http"
+        scheme = "https" if self.tls_available else "http"
         return f"{scheme}://{self.hostname}:{self.tempo.tempo_http_server_port}"
 
     @property
@@ -150,7 +150,6 @@ class TempoCharm(CharmBase):
 
         if self.tls_available:
             logger.debug("enabling TLS")
-
             self.tempo.configure_tls(
                 cert=self.cert_handler.server_cert,
                 key=self.cert_handler.private_key,
@@ -164,6 +163,10 @@ class TempoCharm(CharmBase):
             # tls readiness change means config change.
             self.tempo.update_config(self._requested_receivers())
             self.tempo.restart()
+
+        # sync the server cert with the charm container.
+        # technically, because of charm tracing, this will be called first thing on each event
+        self._update_server_cert()
 
     def _is_legacy_v1_relation(self, relation):
         if self._tracing.is_v2(relation):
@@ -194,15 +197,15 @@ class TempoCharm(CharmBase):
 
         # If it's a RelationJoinedEvent, set it in the ingress object
         if isinstance(event, RelationJoinedEvent):
-            self._ingress._relation = event.relation
+            self.ingress._relation = event.relation
 
         # No matter what, check readiness -- this blindly checks whether `ingress._relation` is not
         # None, so it overlaps a little with the above, but works as expected on leader elections
         # and config-change
-        if self._ingress.is_ready():
+        if self.ingress.is_ready():
             self._update_tracing_v1_relations()
             self._update_tracing_v2_relations()
-            self._ingress.submit_to_traefik(
+            self.ingress.submit_to_traefik(
                 self._ingress_config, static=self._static_ingress_config
             )
 
@@ -374,9 +377,20 @@ class TempoCharm(CharmBase):
             return
         return version
 
-    def server_cert(self) -> Optional[Path]:
-        """Server certificate for charm tracing tls."""
-        return self._update_cert_path()
+    def server_cert(self):
+        """For charm tracing."""
+        self._update_server_cert()
+        return self.tempo.server_cert_path
+
+    def _update_server_cert(self):
+        """Server certificate for charm tracing tls, if tls is enabled."""
+        server_cert = Path(self.tempo.server_cert_path)
+        if self.tls_available:
+            if not server_cert.exists():
+                server_cert.parent.mkdir(parents=True, exist_ok=True)
+                server_cert.write_text(self.cert_handler.server_cert)
+        else:  # tls unavailable: delete local cert
+            server_cert.unlink(missing_ok=True)
 
     def tempo_otlp_http_endpoint(self) -> Optional[str]:
         """Endpoint at which the charm tracing information will be forwarded."""
@@ -404,85 +418,65 @@ class TempoCharm(CharmBase):
     def _on_list_receivers_action(self, event: ops.ActionEvent):
         res = {}
         for receiver in self._requested_receivers():
-            res[receiver.replace("_", "-")] = (
-                f"{self._ingress.external_host or self.tempo.url}/{receiver}"
-            )
+            res[
+                receiver.replace("_", "-")
+            ] = f"{self.ingress.external_host or self.tempo.url}/{receiver}"
         event.set_results(res)
 
     @property
     def _static_ingress_config(self) -> dict:
-        return {
-            "entryPoints": {
-                "otel-http": {"address": ":4318"},
-                "otel-grpc": {"address": ":4317"},
-                "api": {"address": ":3200"},
-            }
-        }
+        entry_points = {}
+        for protocol, port in self.tempo.all_ports.items():
+            sanitized_protocol = protocol.replace("_", "-")
+            entry_points[sanitized_protocol] = {"address": f":{port}"}
+
+        return {"entryPoints": entry_points}
 
     @property
     def _ingress_config(self) -> dict:
         """Build a raw ingress configuration for Traefik."""
-        # TODO replace hardcoded paths with variables
+        tcp_routers = {}
+        tcp_services = {}
+        http_routers = {}
+        http_services = {}
+        for protocol, port in self.tempo.all_ports.items():
+            sanitized_protocol = protocol.replace("_", "-")
+            if sanitized_protocol.endswith("grpc"):
+                # grpc handling
+                tcp_routers[
+                    f"juju-{self.model.name}-{self.model.app.name}-{sanitized_protocol}"
+                ] = {
+                    "entryPoints": [sanitized_protocol],
+                    "service": f"juju-{self.model.name}-{self.model.app.name}-service-{sanitized_protocol}",
+                    # TODO better matcher
+                    "rule": "ClientIP(`0.0.0.0/0`)",
+                }
+                tcp_services[
+                    f"juju-{self.model.name}-{self.model.app.name}-service-{sanitized_protocol}"
+                ] = {"loadBalancer": {"servers": [{"address": f"{self.hostname}:{port}"}]}}
+            else:
+                # it's a http protocol, so we use a http section of the dynamic configuration
+                http_routers[
+                    f"juju-{self.model.name}-{self.model.app.name}-{sanitized_protocol}"
+                ] = {
+                    "entryPoints": [sanitized_protocol],
+                    "service": f"juju-{self.model.name}-{self.model.app.name}-service-{sanitized_protocol}",
+                    # TODO better matcher
+                    "rule": "ClientIP(`0.0.0.0/0`)",
+                }
+                http_services[
+                    f"juju-{self.model.name}-{self.model.app.name}-service-{sanitized_protocol}"
+                ] = {"loadBalancer": {"servers": [{"url": f"http://{self.hostname}:{port}"}]}}
         return {
             "tcp": {
-                "routers": {
-                    f"juju-{self.model.name}-{self.model.app.name}-otel-grpc": {
-                        "entryPoints": ["otel-grpc"],
-                        "service": "juju-{}-{}-service-otel-grpc".format(
-                            self.model.name, self.model.app.name
-                        ),
-                        # TODO better matcher
-                        "rule": "ClientIP(`0.0.0.0/0`)",
-                    },
-                },
-                "services": {
-                    f"juju-{self.model.name}-{self.model.app.name}-service-otel-grpc": {
-                        "loadBalancer": {"servers": [{"address": f"{self.hostname}:4317"}]}
-                    }
-                },
+                "routers": tcp_routers,
+                "services": tcp_services,
             },
             "http": {
-                "routers": {
-                    f"juju-{self.model.name}-{self.model.app.name}-otel-http": {
-                        "entryPoints": ["otel-http"],
-                        "service": "juju-{}-{}-service-otel-http".format(
-                            self.model.name, self.model.app.name
-                        ),
-                        # TODO better matcher
-                        "rule": "ClientIP(`0.0.0.0/0`)",
-                    },
-                    f"juju-{self.model.name}-{self.model.app.name}-api": {
-                        "entryPoints": ["api"],
-                        "service": "juju-{}-{}-service-api".format(
-                            self.model.name, self.model.app.name
-                        ),
-                        # TODO better matcher
-                        "rule": "ClientIP(`0.0.0.0/0`)",
-                    },
-                },
-                "services": {
-                    f"juju-{self.model.name}-{self.model.app.name}-service-otel-http": {
-                        "loadBalancer": {"servers": [{"url": f"http://{self.hostname}:4318"}]}
-                    },
-                    f"juju-{self.model.name}-{self.model.app.name}-service-api": {
-                        "loadBalancer": {"servers": [{"url": f"http://{self.hostname}:3200"}]}
-                    },
-                },
+                "routers": http_routers,
+                "services": http_services,
             },
         }
-
-    def _update_cert_path(self):
-        """Ensure that certhandler's client cert is in sync with what is on disk."""
-        server_cert_path = Path(self.tempo.server_cert_path)
-        if cert := self.cert_handler.server_cert:
-            if not server_cert_path.exists():
-                server_cert_path.parent.mkdir(parents=True, exist_ok=True)
-                server_cert_path.write_text(cert)
-            return server_cert_path
-        else:
-            if server_cert_path.exists():
-                server_cert_path.unlink()
-            return None
 
 
 if __name__ == "__main__":  # pragma: nocover

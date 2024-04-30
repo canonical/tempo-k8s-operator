@@ -10,9 +10,20 @@ assumes:
   - juju >= 3.4.0
 
 description: |
-  Tempo is a distributed tracing backend by Grafana.
+  Tempo is a distributed tracing backend by Grafana, supporting Jaeger,
+  Zipkin, and OpenTelemetry protocols.
+
 summary: |
   Tempo is a distributed tracing backend by Grafana.
+
+links:
+  documentation: https://discourse.charmhub.io/t/tempo-k8s-docs-index/14005
+  website:
+    - https://charmhub.io/tempo-k8s
+  source:
+    - https://github.com/canonical/tempo-k8s-operator
+  issues:
+    - https://github.com/canonical/tempo-k8s-operator/issues
 
 containers:
   tempo:
