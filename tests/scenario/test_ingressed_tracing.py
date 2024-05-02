@@ -18,8 +18,7 @@ def test_external_url_present(context, base_state):
     state = base_state.replace(relations=[tracing, ingress])
 
     with charm_tracing_disabled():
-        with context.manager(getattr(tracing, "created_event"), state) as mgr:
-            out = mgr.run()
+        out = context.run(getattr(tracing, "created_event"), state)
 
     # THEN external_url is present in tracing relation databag
     tracing_out = out.get_relations(tracing.endpoint)[0]

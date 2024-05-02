@@ -12,6 +12,8 @@ from charms.tempo_k8s.v2.tracing import (
 from ops import CharmBase, Framework, RelationBrokenEvent, RelationChangedEvent
 from scenario import Context, Relation, State
 
+from tempo import Tempo
+
 
 class MyCharm(CharmBase):
     def __init__(self, framework: Framework):
@@ -82,10 +84,14 @@ def test_ingressed_requirer_api(context):
         with context.manager(tracing.changed_event, state) as mgr:
             charm = mgr.charm
             assert (
-                charm.tracing.get_endpoint("otlp_grpc") == f"{external_url.split('://')[1]}:4317"
+                charm.tracing.get_endpoint("otlp_grpc")
+                == f"{external_url.split('://')[1]}:{Tempo.receiver_ports['otlp_grpc']}"
             )
-            assert charm.tracing.get_endpoint("otlp_http") == f"{external_url}:4318"
-            assert charm.tracing.get_endpoint("zipkin") == f"{external_url}:9411"
+            for proto in ["otlp_http", "zipkin"]:
+                assert (
+                    charm.tracing.get_endpoint(proto)
+                    == f"{external_url}:{Tempo.receiver_ports[proto]}"
+                )
 
             rel = charm.model.get_relation("tracing")
             assert charm.tracing.is_ready(rel)

@@ -134,8 +134,9 @@ class TempoCharm(CharmBase):
             self._ingress.submit_to_traefik(
                 self._ingress_config, static=self._static_ingress_config
             )
-            self._update_tracing_v1_relations()
-            self._update_tracing_v2_relations()
+            if self._ingress.external_host:
+                self._update_tracing_v1_relations()
+                self._update_tracing_v2_relations()
 
     @property
     def legacy_v1_relations(self):
@@ -163,17 +164,11 @@ class TempoCharm(CharmBase):
             self._publish_v1_data(e.relation)
 
     def _on_ingress_relation_created(self, e: RelationEvent):
-        if self._ingress.is_ready():
-            self._ingress.submit_to_traefik(
-                self._ingress_config, static=self._static_ingress_config
-            )
+        self._configure_ingress(e)
 
     def _on_ingress_relation_joined(self, e: RelationEvent):
         self._ingress._relation = e.relation
-        if self._ingress.is_ready():
-            self._ingress.submit_to_traefik(
-                self._ingress_config, static=self._static_ingress_config
-            )
+        self._configure_ingress(e)
 
     def _on_leader_elected(self, e: HookEvent):
         # as traefik_route goes through app data, we need to take lead of traefik_route if our leader dies.
