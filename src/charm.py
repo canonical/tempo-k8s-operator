@@ -29,12 +29,10 @@ from ops.charm import (
     HookEvent,
     PebbleNoticeEvent,
     RelationEvent,
-    RelationJoinedEvent,
     WorkloadEvent,
 )
 from ops.main import main
 from ops.model import ActiveStatus, MaintenanceStatus, Relation, WaitingStatus
-
 from tempo import Tempo
 
 logger = logging.getLogger(__name__)
@@ -167,7 +165,6 @@ class TempoCharm(CharmBase):
         self._configure_ingress(e)
 
     def _on_ingress_relation_joined(self, e: RelationEvent):
-        self._ingress._relation = e.relation
         self._configure_ingress(e)
 
     def _on_leader_elected(self, e: HookEvent):
