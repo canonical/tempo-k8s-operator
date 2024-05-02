@@ -36,6 +36,7 @@ from ops.charm import (
 )
 from ops.main import main
 from ops.model import ActiveStatus, MaintenanceStatus, Relation, WaitingStatus
+
 from tempo import Tempo
 
 logger = logging.getLogger(__name__)
@@ -92,21 +93,23 @@ class TempoCharm(CharmBase):
         self._grafana_dashboards = GrafanaDashboardProvider(
             self, relation_name="grafana-dashboard"
         )
+        # Enable profiling over a relation with Parca
+        # self._profiling = ProfilingEndpointProvider(
+        #     self, jobs=[{"static_configs": [{"targets": ["*:4080"]}]}]
+        # )
 
-        # TODO:
-        #  ingress route provisioning a separate TCP ingress for each receiver if GRPC doesn't work directly
-
-        self._ingress = TraefikRouteRequirer(self, self.model.get_relation("ingress"), "ingress")  # type: ignore
         self._tracing = TracingEndpointProvider(
             self, host=self.hostname, external_url=self._ingress.external_host
         )
 
-        self.framework.observe(self.on["ingress"].relation_joined, self._configure_ingress)
-        self.framework.observe(self.on.leader_elected, self._configure_ingress)
-        self.framework.observe(self.on.config_changed, self._configure_ingress)
-        self.framework.observe(self._ingress.on.ready, self._on_ingress_ready)  # pyright: ignore
-        # TODO there's no revoked ingress action with traefik_route?
-        # self.framework.observe(self._ingress.on.revoked, self._on_ingress_revoked)
+        self.framework.observe(
+            self.on["ingress"].relation_created, self._on_ingress_relation_created
+        )
+        self.framework.observe(
+            self.on["ingress"].relation_joined, self._on_ingress_relation_joined
+        )
+        self.framework.observe(self.on.leader_elected, self._on_leader_elected)
+        self.framework.observe(self._ingress.on.ready, self._on_ingress_ready)
 
         self.framework.observe(self.on.tempo_pebble_ready, self._on_tempo_pebble_ready)
         self.framework.observe(
@@ -179,33 +182,17 @@ class TempoCharm(CharmBase):
 
         return True
 
-    def _configure_ingress(self, event: HookEvent) -> None:
-        """Set up ingress if a relation is joined, config changed, or a new leader election.
-
-        Also since :class:`TraefikRouteRequirer` may not have been constructed with an existing
-        relation if a :class:`RelationJoinedEvent` comes through during the charm lifecycle, if we
-        get one here, we should recreate it, but OF will give us grief about "two objects claiming
-        to be ...", so manipulate its private `_relation` variable instead.
-
-        Args:
-            event: a :class:`HookEvent` to signal a change we may need to respond to.
-        """
+    def _configure_ingress(self, _) -> None:
+        """Make sure the traefik route and tracing relation data are up to date."""
         if not self.unit.is_leader():
             return
 
-        # If it's a RelationJoinedEvent, set it in the ingress object
-        if isinstance(event, RelationJoinedEvent):
-            self._ingress._relation = event.relation
-
-        # No matter what, check readiness -- this blindly checks whether `ingress._relation` is not
-        # None, so it overlaps a little with the above, but works as expected on leader elections
-        # and config-change
         if self._ingress.is_ready():
-            self._update_tracing_v1_relations()
-            self._update_tracing_v2_relations()
             self._ingress.submit_to_traefik(
                 self._ingress_config, static=self._static_ingress_config
             )
+            self._update_tracing_v1_relations()
+            self._update_tracing_v2_relations()
 
     @property
     def legacy_v1_relations(self):
@@ -231,6 +218,23 @@ class TempoCharm(CharmBase):
     def _on_tracing_relation_changed(self, e: RelationEvent):
         if not self._tracing.is_v2(e.relation):
             self._publish_v1_data(e.relation)
+
+    def _on_ingress_relation_created(self, e: RelationEvent):
+        if self._ingress.is_ready():
+            self._ingress.submit_to_traefik(
+                self._ingress_config, static=self._static_ingress_config
+            )
+
+    def _on_ingress_relation_joined(self, e: RelationEvent):
+        self._ingress._relation = e.relation
+        if self._ingress.is_ready():
+            self._ingress.submit_to_traefik(
+                self._ingress_config, static=self._static_ingress_config
+            )
+
+    def _on_leader_elected(self, e: HookEvent):
+        # as traefik_route goes through app data, we need to take lead of traefik_route if our leader dies.
+        self._configure_ingress(e)
 
     def _update_tracing_v1_relations(self):
         for relation in self.model.relations[self._tracing._relation_name]:
@@ -465,6 +469,18 @@ class TempoCharm(CharmBase):
             },
         }
 
+    def _update_cert_path(self):
+        """Ensure that certhandler's client cert is in sync with what is on disk."""
+        server_cert_path = Path(self.tempo.server_cert_path)
+        if cert := self.cert_handler.server_cert:
+            if not server_cert_path.exists():
+                server_cert_path.parent.mkdir(parents=True, exist_ok=True)
+                server_cert_path.write_text(cert)
+            return server_cert_path
+        else:
+            if server_cert_path.exists():
+                server_cert_path.unlink()
+            return None
 
 if __name__ == "__main__":  # pragma: nocover
     main(TempoCharm)
