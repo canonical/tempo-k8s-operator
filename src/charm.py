@@ -200,7 +200,7 @@ class TempoCharm(CharmBase):
             self.ingress.submit_to_traefik(
                 self._ingress_config, static=self._static_ingress_config
             )
-            if self._ingress.external_host:
+            if self.ingress.external_host:
                 self._update_tracing_v1_relations()
                 self._update_tracing_v2_relations()
 
