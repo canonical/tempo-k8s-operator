@@ -112,7 +112,7 @@ class TempoCharm(CharmBase):
             self.on["ingress"].relation_joined, self._on_ingress_relation_joined
         )
         self.framework.observe(self.on.leader_elected, self._on_leader_elected)
-        self.framework.observe(self._ingress.on.ready, self._on_ingress_ready)
+        self.framework.observe(self.ingress.on.ready, self._on_ingress_ready)
 
         self.framework.observe(self.on.tempo_pebble_ready, self._on_tempo_pebble_ready)
         self.framework.observe(
@@ -193,8 +193,8 @@ class TempoCharm(CharmBase):
         if not self.unit.is_leader():
             return
 
-        if self._ingress.is_ready():
-            self._ingress.submit_to_traefik(
+        if self.ingress.is_ready():
+            self.ingress.submit_to_traefik(
                 self._ingress_config, static=self._static_ingress_config
             )
             self._update_tracing_v1_relations()
@@ -226,15 +226,15 @@ class TempoCharm(CharmBase):
             self._publish_v1_data(e.relation)
 
     def _on_ingress_relation_created(self, e: RelationEvent):
-        if self._ingress.is_ready():
-            self._ingress.submit_to_traefik(
+        if self.ingress.is_ready():
+            self.ingress.submit_to_traefik(
                 self._ingress_config, static=self._static_ingress_config
             )
 
     def _on_ingress_relation_joined(self, e: RelationEvent):
-        self._ingress._relation = e.relation
-        if self._ingress.is_ready():
-            self._ingress.submit_to_traefik(
+        self.ingress._relation = e.relation
+        if self.ingress.is_ready():
+            self.ingress.submit_to_traefik(
                 self._ingress_config, static=self._static_ingress_config
             )
 
