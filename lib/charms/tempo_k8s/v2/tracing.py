@@ -595,7 +595,7 @@ class TracingEndpointProvider(Object):
             try:
                 TracingProviderAppData(
                     host=self._host,
-                    external_url=f"http://{self._external_url}" if self._external_url else None,
+                    external_url=self._external_url or None,
                     receivers=[
                         Receiver(port=port, protocol=protocol) for protocol, port in receivers
                     ],
@@ -830,11 +830,8 @@ class TracingEndpointRequirer(Object):
         if app_data.external_url:
             url = f"{app_data.external_url}:{receiver.port}"
         else:
-            if app_data.internal_scheme:
-                url = f"{app_data.internal_scheme}://{app_data.host}:{receiver.port}"
-            else:
-                # if we didn't receive a scheme (old provider), we assume HTTP is used
-                url = f"http://{app_data.host}:{receiver.port}"
+            # if we didn't receive a scheme (old provider), we assume HTTP is used
+            url = f"{app_data.internal_scheme or 'http'}://{app_data.host}:{receiver.port}"
 
         if receiver.protocol.endswith("grpc"):
             # TCP protocols don't want an http/https scheme prefix

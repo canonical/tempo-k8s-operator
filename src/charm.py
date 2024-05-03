@@ -101,11 +101,10 @@ class TempoCharm(CharmBase):
         # )
 
         self._tracing = TracingEndpointProvider(
-            # TODO set internal_scheme based on whether TLS is enabled
             self,
             host=self.hostname,
-            external_url=self.ingress.external_host,
-            internal_scheme="http",
+            external_url=self._external_url,
+            internal_scheme="https" if self.cert_handler.enabled else "http",
         )
 
         self.framework.observe(
@@ -133,7 +132,8 @@ class TempoCharm(CharmBase):
     @property
     def _external_url(self) -> str:
         """Return the external hostname to be passed to ingress via the relation."""
-        if ingress_url := self.ingress.external_host:
+        if self.ingress.is_ready():
+            ingress_url = f"{self.ingress.scheme}://{self.ingress.external_host}"
             logger.debug("This unit's ingress URL: %s", ingress_url)
             return ingress_url
 
