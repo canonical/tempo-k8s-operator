@@ -62,6 +62,7 @@ def test_tracing_v2_endpoint_published(context, evt_name, base_state):
     assert tracing_out.local_app_data == {
         "receivers": '[{"protocol": "otlp_http", "port": 4318}]',
         "host": json.dumps(socket.getfqdn()),
+        "internal_scheme": '"http"',
     }
 
 

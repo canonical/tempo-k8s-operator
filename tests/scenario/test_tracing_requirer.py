@@ -12,6 +12,8 @@ from charms.tempo_k8s.v2.tracing import (
 from ops import CharmBase, Framework, RelationBrokenEvent, RelationChangedEvent
 from scenario import Context, Relation, State
 
+from tempo import Tempo
+
 
 class MyCharm(CharmBase):
     def __init__(self, framework: Framework):
@@ -61,6 +63,36 @@ def test_requirer_api(context):
     assert epchanged.host == host
 
 
+def test_requirer_api_with_internal_scheme(context):
+    host = socket.getfqdn()
+    tracing = Relation(
+        "tracing",
+        remote_app_data={
+            "receivers": '[{"protocol": "otlp_grpc", "port": 4317}, '
+            '{"protocol": "otlp_http", "port": 4318}, '
+            '{"protocol": "zipkin", "port": 9411}]',
+            "host": json.dumps(host),
+            "internal_scheme": '"https"',
+        },
+    )
+    state = State(leader=True, relations=[tracing])
+
+    with charm_tracing_disabled():
+        with context.manager(tracing.changed_event, state) as mgr:
+            charm = mgr.charm
+            assert charm.tracing.get_endpoint("otlp_grpc") == f"{host}:4317"
+            assert charm.tracing.get_endpoint("otlp_http") == f"https://{host}:4318"
+            assert charm.tracing.get_endpoint("zipkin") == f"https://{host}:9411"
+
+            rel = charm.model.get_relation("tracing")
+            assert charm.tracing.is_ready(rel)
+
+    rchanged, epchanged = context.emitted_events
+    assert isinstance(epchanged, EndpointChangedEvent)
+    assert epchanged.host == host
+    assert epchanged.receivers[0].protocol == "otlp_grpc"
+
+
 def test_ingressed_requirer_api(context):
     # WHEN external_url is present in remote app databag
     external_url = "http://1.2.3.4"
@@ -82,10 +114,14 @@ def test_ingressed_requirer_api(context):
         with context.manager(tracing.changed_event, state) as mgr:
             charm = mgr.charm
             assert (
-                charm.tracing.get_endpoint("otlp_grpc") == f"{external_url.split('://')[1]}:4317"
+                charm.tracing.get_endpoint("otlp_grpc")
+                == f"{external_url.split('://')[1]}:{Tempo.receiver_ports['otlp_grpc']}"
             )
-            assert charm.tracing.get_endpoint("otlp_http") == f"{external_url}:4318"
-            assert charm.tracing.get_endpoint("zipkin") == f"{external_url}:9411"
+            for proto in ["otlp_http", "zipkin"]:
+                assert (
+                    charm.tracing.get_endpoint(proto)
+                    == f"{external_url}:{Tempo.receiver_ports[proto]}"
+                )
 
             rel = charm.model.get_relation("tracing")
             assert charm.tracing.is_ready(rel)

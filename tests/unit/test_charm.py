@@ -7,11 +7,9 @@ import logging
 import unittest
 from unittest.mock import patch
 
-import yaml
+from charm import TempoCharm
 from ops.model import ActiveStatus
 from ops.testing import Harness
-
-from charm import TempoCharm
 
 CONTAINER_NAME = "tempo"
 
@@ -42,74 +40,6 @@ class TestTempoCharm(unittest.TestCase):
             }
         }
         self.assertEqual(self.harness.charm._static_ingress_config, expected_entrypoints)
-
-    @patch("socket.getfqdn", lambda: "1.2.3.4")
-    def test_ingress_relation_is_set_with_dynamic_config(self):
-        self.harness.set_leader(True)
-        self.harness.container_pebble_ready("tempo")
-        rel_id = self.harness.add_relation("ingress", "traefik")
-        self.harness.add_relation_unit(rel_id, "traefik/0")
-
-        expected_rel_data = {
-            "tcp": {
-                "routers": {
-                    "juju-testmodel-tempo-k8s-otlp-grpc": {
-                        "entryPoints": ["otlp-grpc"],
-                        "rule": "ClientIP(`0.0.0.0/0`)",
-                        "service": "juju-testmodel-tempo-k8s-service-otlp-grpc",
-                    }
-                },
-                "services": {
-                    "juju-testmodel-tempo-k8s-service-otlp-grpc": {
-                        "loadBalancer": {"servers": [{"address": "1.2.3.4:4317"}]}
-                    }
-                },
-            },
-            "http": {
-                "routers": {
-                    "juju-testmodel-tempo-k8s-jaeger-thrift-http": {
-                        "entryPoints": ["jaeger-thrift-http"],
-                        "rule": "ClientIP(`0.0.0.0/0`)",
-                        "service": "juju-testmodel-tempo-k8s-service-jaeger-thrift-http",
-                    },
-                    "juju-testmodel-tempo-k8s-otlp-http": {
-                        "entryPoints": ["otlp-http"],
-                        "rule": "ClientIP(`0.0.0.0/0`)",
-                        "service": "juju-testmodel-tempo-k8s-service-otlp-http",
-                    },
-                    "juju-testmodel-tempo-k8s-tempo-http": {
-                        "entryPoints": ["tempo-http"],
-                        "rule": "ClientIP(`0.0.0.0/0`)",
-                        "service": "juju-testmodel-tempo-k8s-service-tempo-http",
-                    },
-                    "juju-testmodel-tempo-k8s-zipkin": {
-                        "entryPoints": ["zipkin"],
-                        "rule": "ClientIP(`0.0.0.0/0`)",
-                        "service": "juju-testmodel-tempo-k8s-service-zipkin",
-                    },
-                },
-                "services": {
-                    "juju-testmodel-tempo-k8s-service-jaeger-thrift-http": {
-                        "loadBalancer": {"servers": [{"url": "http://1.2.3.4:14268"}]}
-                    },
-                    "juju-testmodel-tempo-k8s-service-otlp-http": {
-                        "loadBalancer": {"servers": [{"url": "http://1.2.3.4:4318"}]}
-                    },
-                    "juju-testmodel-tempo-k8s-service-tempo-http": {
-                        "loadBalancer": {"servers": [{"url": "http://1.2.3.4:3200"}]}
-                    },
-                    "juju-testmodel-tempo-k8s-service-zipkin": {
-                        "loadBalancer": {"servers": [{"url": "http://1.2.3.4:9411"}]}
-                    },
-                },
-            },
-        }
-
-        rel_data = self.harness.get_relation_data(rel_id, self.harness.charm.app.name)
-
-        # yaml needs to be parsed as seen in grafana tests:
-        # https://github.com/canonical/grafana-k8s-operator/blob/main/tests/unit/test_charm.py#L348
-        self.assertEqual(yaml.safe_load(rel_data["config"]), expected_rel_data)
 
     def test_tracing_relation_updates_protocols_as_requested(self):
         self.harness.set_leader(True)

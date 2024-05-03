@@ -31,7 +31,6 @@ from ops.charm import (
     HookEvent,
     PebbleNoticeEvent,
     RelationEvent,
-    RelationJoinedEvent,
     WorkloadEvent,
 )
 from ops.main import main
@@ -102,7 +101,11 @@ class TempoCharm(CharmBase):
         # )
 
         self._tracing = TracingEndpointProvider(
-            self, host=self.hostname, external_url=self.ingress.external_host
+            # TODO set internal_scheme based on whether TLS is enabled
+            self,
+            host=self.hostname,
+            external_url=self.ingress.external_host,
+            internal_scheme="http",
         )
 
         self.framework.observe(
@@ -197,8 +200,9 @@ class TempoCharm(CharmBase):
             self.ingress.submit_to_traefik(
                 self._ingress_config, static=self._static_ingress_config
             )
-            self._update_tracing_v1_relations()
-            self._update_tracing_v2_relations()
+            if self._ingress.external_host:
+                self._update_tracing_v1_relations()
+                self._update_tracing_v2_relations()
 
     @property
     def legacy_v1_relations(self):
@@ -226,17 +230,10 @@ class TempoCharm(CharmBase):
             self._publish_v1_data(e.relation)
 
     def _on_ingress_relation_created(self, e: RelationEvent):
-        if self.ingress.is_ready():
-            self.ingress.submit_to_traefik(
-                self._ingress_config, static=self._static_ingress_config
-            )
+        self._configure_ingress(e)
 
     def _on_ingress_relation_joined(self, e: RelationEvent):
-        self.ingress._relation = e.relation
-        if self.ingress.is_ready():
-            self.ingress.submit_to_traefik(
-                self._ingress_config, static=self._static_ingress_config
-            )
+        self._configure_ingress(e)
 
     def _on_leader_elected(self, e: HookEvent):
         # as traefik_route goes through app data, we need to take lead of traefik_route if our leader dies.

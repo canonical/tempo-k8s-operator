@@ -69,8 +69,8 @@ requires:
     interface: traefik_route
     limit: 1
     description: |
-      Ingress URL for exposing the Tempo server and receivers to the outer world.
-      Adds an ingressed endpoint used for cross-model communication.
+      Ingress integration for Tempo server and Tempo receiver endpoints,
+      so that cross-model workloads can send their traces to Tempo through the ingress.
       Uses `traefik_route` to open ports on Traefik host for tracing ingesters.
   certificates:
     interface: tls-certificates
