@@ -4,9 +4,9 @@ from unittest.mock import patch
 
 import pytest
 import yaml
+from charms.tempo_k8s.v1.charm_tracing import charm_tracing_disabled
 from scenario import Container, Relation, State
 
-from charms.tempo_k8s.v1.charm_tracing import charm_tracing_disabled
 from tempo import Tempo
 
 
