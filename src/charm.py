@@ -22,10 +22,11 @@ from charms.tempo_k8s.v2.tracing import (
     RequestEvent,
     TracingEndpointProvider,
 )
-from charms.traefik_k8s.v2.ingress import IngressPerAppRequirer
+from charms.traefik_route_k8s.v0.traefik_route import TraefikRouteRequirer
 from ops.charm import (
     CharmBase,
     CollectStatusEvent,
+    HookEvent,
     PebbleNoticeEvent,
     RelationEvent,
     WorkloadEvent,
@@ -83,16 +84,24 @@ class TempoCharm(CharmBase):
         # self._profiling = ProfilingEndpointProvider(
         #     self, jobs=[{"static_configs": [{"targets": ["*:4080"]}]}]
         # )
-        # TODO:
-        #  ingress route provisioning a separate TCP ingress for each receiver if GRPC doesn't work directly
 
-        self._ingress = IngressPerAppRequirer(
-            self, port=self.tempo.tempo_server_port, strip_prefix=True
-        )
-
+        self._ingress = TraefikRouteRequirer(self, self.model.get_relation("ingress"), "ingress")  # type: ignore
         self._tracing = TracingEndpointProvider(
-            self, host=self.tempo.host, external_url=self._ingress.url
+            # TODO set internal_scheme based on whether TLS is enabled
+            self,
+            host=self.tempo.host,
+            external_url=self._ingress.external_host,
+            internal_scheme="http",
         )
+
+        self.framework.observe(
+            self.on["ingress"].relation_created, self._on_ingress_relation_created
+        )
+        self.framework.observe(
+            self.on["ingress"].relation_joined, self._on_ingress_relation_joined
+        )
+        self.framework.observe(self.on.leader_elected, self._on_leader_elected)
+        self.framework.observe(self._ingress.on.ready, self._on_ingress_ready)
 
         self.framework.observe(self.on.tempo_pebble_ready, self._on_tempo_pebble_ready)
         self.framework.observe(
@@ -104,8 +113,6 @@ class TempoCharm(CharmBase):
         self.framework.observe(self.on.tracing_relation_joined, self._on_tracing_relation_joined)
         self.framework.observe(self.on.tracing_relation_changed, self._on_tracing_relation_changed)
         self.framework.observe(self.on.collect_unit_status, self._on_collect_unit_status)
-        self.framework.observe(self._ingress.on.ready, self._on_ingress_ready)
-        self.framework.observe(self._ingress.on.revoked, self._on_ingress_revoked)
         self.framework.observe(self.on.list_receivers_action, self._on_list_receivers_action)
 
     def _is_legacy_v1_relation(self, relation):
@@ -120,6 +127,19 @@ class TempoCharm(CharmBase):
             return False
 
         return True
+
+    def _configure_ingress(self, _) -> None:
+        """Make sure the traefik route and tracing relation data are up to date."""
+        if not self.unit.is_leader():
+            return
+
+        if self._ingress.is_ready():
+            self._ingress.submit_to_traefik(
+                self._ingress_config, static=self._static_ingress_config
+            )
+            if self._ingress.external_host:
+                self._update_tracing_v1_relations()
+                self._update_tracing_v2_relations()
 
     @property
     def legacy_v1_relations(self):
@@ -145,6 +165,16 @@ class TempoCharm(CharmBase):
     def _on_tracing_relation_changed(self, e: RelationEvent):
         if not self._tracing.is_v2(e.relation):
             self._publish_v1_data(e.relation)
+
+    def _on_ingress_relation_created(self, e: RelationEvent):
+        self._configure_ingress(e)
+
+    def _on_ingress_relation_joined(self, e: RelationEvent):
+        self._configure_ingress(e)
+
+    def _on_leader_elected(self, e: HookEvent):
+        # as traefik_route goes through app data, we need to take lead of traefik_route if our leader dies.
+        self._configure_ingress(e)
 
     def _update_tracing_v1_relations(self):
         for relation in self.model.relations[self._tracing._relation_name]:
@@ -315,8 +345,65 @@ class TempoCharm(CharmBase):
     def _on_list_receivers_action(self, event: ops.ActionEvent):
         res = {}
         for receiver in self._requested_receivers():
-            res[receiver.replace("_", "-")] = f"{self._ingress.url or self.tempo.url}/{receiver}"
+            res[
+                receiver.replace("_", "-")
+            ] = f"{self._ingress.external_host or self.tempo.url}/{receiver}"
         event.set_results(res)
+
+    @property
+    def _static_ingress_config(self) -> dict:
+        entry_points = {}
+        for protocol, port in self.tempo.all_ports.items():
+            sanitized_protocol = protocol.replace("_", "-")
+            entry_points[sanitized_protocol] = {"address": f":{port}"}
+
+        return {"entryPoints": entry_points}
+
+    @property
+    def _ingress_config(self) -> dict:
+        """Build a raw ingress configuration for Traefik."""
+        tcp_routers = {}
+        tcp_services = {}
+        http_routers = {}
+        http_services = {}
+        for protocol, port in self.tempo.all_ports.items():
+            sanitized_protocol = protocol.replace("_", "-")
+            if sanitized_protocol.endswith("grpc"):
+                # grpc handling
+                tcp_routers[
+                    f"juju-{self.model.name}-{self.model.app.name}-{sanitized_protocol}"
+                ] = {
+                    "entryPoints": [sanitized_protocol],
+                    "service": f"juju-{self.model.name}-{self.model.app.name}-service-{sanitized_protocol}",
+                    # TODO better matcher
+                    "rule": "ClientIP(`0.0.0.0/0`)",
+                }
+                tcp_services[
+                    f"juju-{self.model.name}-{self.model.app.name}-service-{sanitized_protocol}"
+                ] = {"loadBalancer": {"servers": [{"address": f"{self.hostname}:{port}"}]}}
+            else:
+                # it's a http protocol, so we use a http section of the dynamic configuration
+                http_routers[
+                    f"juju-{self.model.name}-{self.model.app.name}-{sanitized_protocol}"
+                ] = {
+                    "entryPoints": [sanitized_protocol],
+                    "service": f"juju-{self.model.name}-{self.model.app.name}-service-{sanitized_protocol}",
+                    # TODO better matcher
+                    "rule": "ClientIP(`0.0.0.0/0`)",
+                }
+                http_services[
+                    f"juju-{self.model.name}-{self.model.app.name}-service-{sanitized_protocol}"
+                ] = {"loadBalancer": {"servers": [{"url": f"http://{self.hostname}:{port}"}]}}
+        return {
+            "tcp": {
+                "routers": tcp_routers,
+                "services": tcp_services,
+            },
+            "http": {
+                "routers": http_routers,
+                "services": http_services,
+            },
+        }
 
 
 if __name__ == "__main__":  # pragma: nocover

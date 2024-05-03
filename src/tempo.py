@@ -5,7 +5,6 @@
 """Tempo workload configuration and client."""
 import logging
 import socket
-import time
 from subprocess import CalledProcessError, getoutput
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -128,7 +127,6 @@ class Tempo:
     )
     def restart(self) -> bool:
         """Try to restart the tempo service."""
-
         # restarting tempo can cause errors such as:
         #  Could not bind to :3200 - Address in use
         # probably because of some lag with releasing the port. We restart tempo 'too quickly'
