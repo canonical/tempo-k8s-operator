@@ -1,3 +1,5 @@
+from unittest.mock import PropertyMock, patch
+
 import pytest
 
 from tempo import Tempo
@@ -44,4 +46,5 @@ from tempo import Tempo
     ),
 )
 def test_tempo_receivers_config(protocols, expected_config):
-    assert Tempo(None)._build_receivers_config(protocols) == expected_config
+    with patch.object(Tempo, "tls_ready", False):
+        assert Tempo(None)._build_receivers_config(protocols) == expected_config

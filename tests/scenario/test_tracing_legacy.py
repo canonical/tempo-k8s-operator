@@ -2,11 +2,16 @@ import json
 import socket
 
 import pytest
-from charm import LEGACY_RECEIVER_PROTOCOLS, TempoCharm
 from charms.tempo_k8s.v1.charm_tracing import charm_tracing_disabled
-from charms.tempo_k8s.v1.tracing import TracingProviderAppData as TracingProviderAppDataV1
-from charms.tempo_k8s.v2.tracing import TracingProviderAppData as TracingProviderAppDataV2
+from charms.tempo_k8s.v1.tracing import (
+    TracingProviderAppData as TracingProviderAppDataV1,
+)
+from charms.tempo_k8s.v2.tracing import (
+    TracingProviderAppData as TracingProviderAppDataV2,
+)
 from scenario import Container, Relation, State
+
+from charm import LEGACY_RECEIVER_PROTOCOLS, TempoCharm
 from tempo import Tempo
 
 NO_RECEIVERS = 13
@@ -63,6 +68,7 @@ def test_tracing_v2_endpoint_published(context, evt_name, base_state):
         "receivers": '[{"protocol": "otlp_http", "port": 4318}]',
         "host": json.dumps(socket.getfqdn()),
         "internal_scheme": '"http"',
+        "external_url": f'"http://{socket.getfqdn()}"',
     }
 
 

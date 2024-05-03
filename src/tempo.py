@@ -62,7 +62,7 @@ class Tempo:
     def __init__(
         self,
         container: ops.Container,
-        external_host: Optional[str]=None,
+        external_host: Optional[str] = None,
         enable_receivers: Optional[Sequence[ReceiverProtocol]] = None,
     ):
         # ports source: https://github.com/grafana/tempo/blob/main/example/docker-compose/local/docker-compose.yaml
@@ -197,6 +197,8 @@ class Tempo:
     @property
     def tls_ready(self) -> bool:
         """Whether cert, key, and ca paths are found on disk and Tempo is ready to use tls."""
+        if not self.container.can_connect():
+            return False
         return all(
             self.container.exists(tls_path)
             for tls_path in (self.tls_cert_path, self.tls_key_path, self.tls_ca_path)

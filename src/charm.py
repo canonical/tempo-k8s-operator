@@ -10,19 +10,8 @@ import socket
 from pathlib import Path
 from typing import Optional, Tuple
 
-import ops
-from ops.charm import (
-    CharmBase,
-    CollectStatusEvent,
-    HookEvent,
-    PebbleNoticeEvent,
-    RelationEvent,
-    WorkloadEvent,
-)
-from ops.main import main
-from ops.model import ActiveStatus, MaintenanceStatus, Relation, WaitingStatus
-
 import charms.tempo_k8s.v1.tracing as tracing_v1
+import ops
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
 from charms.grafana_k8s.v0.grafana_source import GrafanaSourceProvider
 from charms.loki_k8s.v0.loki_push_api import LogProxyConsumer
@@ -88,13 +77,15 @@ class TempoCharm(CharmBase):
 
         # configure this tempo as a datasource in grafana
         self.grafana_source_provider = GrafanaSourceProvider(
-            self, source_type="tempo", source_url=self._external_http_server_url,
+            self,
+            source_type="tempo",
+            source_url=self._external_http_server_url,
             refresh_event=[
                 # refresh the source url when TLS config might be changing
                 self.on[self.cert_handler.certificates_relation_name].relation_changed,
                 # or when ingress changes
-                self.ingress.on.ready
-            ]
+                self.ingress.on.ready,
+            ],
         )
         # # Patch the juju-created Kubernetes service to contain the right ports
         external_ports = tempo.get_external_ports(self.app.name)
@@ -112,17 +103,12 @@ class TempoCharm(CharmBase):
         self._grafana_dashboards = GrafanaDashboardProvider(
             self, relation_name="grafana-dashboard"
         )
-        # Enable profiling over a relation with Parca
-        # self._profiling = ProfilingEndpointProvider(
-        #     self, jobs=[{"static_configs": [{"targets": ["*:4080"]}]}]
-        # )
 
-        self.ingress = TraefikRouteRequirer(self, self.model.get_relation("ingress"), "ingress")  # type: ignore
         self.tracing = TracingEndpointProvider(
             self,
             host=self.hostname,
             external_url=self._external_url,
-            internal_scheme="https" if self.cert_handler.enabled else "http",
+            internal_scheme="https" if self.tls_available else "http",
         )
 
         self.framework.observe(
@@ -149,7 +135,7 @@ class TempoCharm(CharmBase):
 
     @property
     def _external_http_server_url(self) -> str:
-        """External url of the http(s) server"""
+        """External url of the http(s) server."""
         return f"{self._external_url}:{self.tempo.tempo_http_server_port}"
 
     @property
@@ -171,11 +157,12 @@ class TempoCharm(CharmBase):
 
     @property
     def tls_available(self) -> bool:
+        """Return True iff tls is enabled and the necessary certs are found."""
         return (
-                self.cert_handler.enabled
-                and (self.cert_handler.server_cert is not None)
-                and (self.cert_handler.private_key is not None)
-                and (self.cert_handler.ca_cert is not None)
+            self.cert_handler.enabled
+            and (self.cert_handler.server_cert is not None)
+            and (self.cert_handler.private_key is not None)
+            and (self.cert_handler.ca_cert is not None)
         )
 
     def _on_cert_handler_changed(self, _):
@@ -202,17 +189,30 @@ class TempoCharm(CharmBase):
         self._update_server_cert()
 
     def _is_legacy_v1_relation(self, relation):
-        if self._tracing.is_v2(relation):
+        if self.tracing.is_v2(relation):
             return False
 
         juju_keys = {"egress-subnets", "ingress-address", "private-address"}
         # v1 relations are expected to have no data at all (excluding juju keys)
         if relation.data[relation.app] or any(
-                set(relation.data[u]).difference(juju_keys) for u in relation.units
+            set(relation.data[u]).difference(juju_keys) for u in relation.units
         ):
             return False
 
         return True
+
+    def _configure_ingress(self, _) -> None:
+        """Make sure the traefik route and tracing relation data are up to date."""
+        if not self.unit.is_leader():
+            return
+
+        if self.ingress.is_ready():
+            self.ingress.submit_to_traefik(
+                self._ingress_config, static=self._static_ingress_config
+            )
+            if self.ingress.external_host:
+                self._update_tracing_v1_relations()
+                self._update_tracing_v2_relations()
 
     @property
     def legacy_v1_relations(self):
@@ -225,18 +225,18 @@ class TempoCharm(CharmBase):
         self._update_tracing_v2_relations()
 
     def _on_tracing_relation_created(self, e: RelationEvent):
-        if not self._tracing.is_v2(e.relation):
+        if not self.tracing.is_v2(e.relation):
             self._publish_v1_data(e.relation)
             # if this is the first legacy relation we get, we need to update ALL other relations
             # as we might need to add all legacy protocols to the mix
             self._update_tracing_v2_relations()
 
     def _on_tracing_relation_joined(self, e: RelationEvent):
-        if not self._tracing.is_v2(e.relation):
+        if not self.tracing.is_v2(e.relation):
             self._publish_v1_data(e.relation)
 
     def _on_tracing_relation_changed(self, e: RelationEvent):
-        if not self._tracing.is_v2(e.relation):
+        if not self.tracing.is_v2(e.relation):
             self._publish_v1_data(e.relation)
 
     def _on_ingress_relation_created(self, e: RelationEvent):
@@ -250,8 +250,8 @@ class TempoCharm(CharmBase):
         self._configure_ingress(e)
 
     def _update_tracing_v1_relations(self):
-        for relation in self.model.relations[self._tracing._relation_name]:
-            if not self._tracing.is_v2(relation):
+        for relation in self.model.relations[self.tracing._relation_name]:
+            if not self.tracing.is_v2(relation):
                 self._publish_v1_data(relation)
 
     def _publish_v1_data(self, relation: Relation):
@@ -283,7 +283,7 @@ class TempoCharm(CharmBase):
 
         requested_receivers = self._requested_receivers()
         # publish requested protocols to all v2 relations
-        self._tracing.publish_receivers(
+        self.tracing.publish_receivers(
             [(p, self.tempo.receiver_ports[p]) for p in requested_receivers]
         )
 
@@ -433,9 +433,9 @@ class TempoCharm(CharmBase):
     def _on_list_receivers_action(self, event: ops.ActionEvent):
         res = {}
         for receiver in self._requested_receivers():
-            res[
-                receiver.replace("_", "-")
-            ] = f"{self.ingress.external_host or self.tempo.url}/{receiver}"
+            res[receiver.replace("_", "-")] = (
+                f"{self.ingress.external_host or self.tempo.url}/{receiver}"
+            )
         event.set_results(res)
 
     @property

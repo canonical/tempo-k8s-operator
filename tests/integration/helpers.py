@@ -15,7 +15,7 @@ def purge(data: dict):
 
 
 def get_unit_info(unit_name: str, model: str = None) -> dict:
-    """Returns unit-info data structure.
+    """Return unit-info data structure.
 
      for example:
 
@@ -115,7 +115,7 @@ def get_content(
 
 
 def get_databags(local_unit, local_endpoint, remote_unit, remote_endpoint, model):
-    """Gets the databags of local unit and its leadership status.
+    """Get the databags of local unit and its leadership status.
 
     Given a remote unit and the remote endpoint name.
     """
