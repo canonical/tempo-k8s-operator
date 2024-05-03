@@ -70,13 +70,14 @@ requires:
     limit: 1
     description: |
       Ingress URL for exposing the Tempo server and receivers to the outer world.
+      Adds an ingressed endpoint used for cross-model communication.
+      Uses `traefik_route` to open ports on Traefik host for tracing ingesters.
   certificates:
     interface: tls-certificates
     limit: 1
     description: |
       Certificate and key files for securing Tempo internal and external 
       communications with TLS.
-
 
 storage:
   data:
