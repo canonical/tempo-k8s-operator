@@ -498,7 +498,7 @@ class TracingEndpointProvider(Object):
         host: str,
         external_url: Optional[str] = None,
         relation_name: str = DEFAULT_RELATION_NAME,
-        internal_scheme: Optional[str] = "http",
+        internal_scheme: Optional[Literal["http", "https"]] = "http",
     ):
         """Initialize.
 
