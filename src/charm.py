@@ -33,6 +33,7 @@ from ops.charm import (
 )
 from ops.main import main
 from ops.model import ActiveStatus, MaintenanceStatus, Relation, WaitingStatus
+
 from tempo import Tempo
 
 logger = logging.getLogger(__name__)
@@ -86,7 +87,11 @@ class TempoCharm(CharmBase):
 
         self._ingress = TraefikRouteRequirer(self, self.model.get_relation("ingress"), "ingress")  # type: ignore
         self._tracing = TracingEndpointProvider(
-            self, host=self.tempo.host, external_url=self._ingress.external_host
+            # TODO set internal_scheme based on whether TLS is enabled
+            self,
+            host=self.tempo.host,
+            external_url=self._ingress.external_host,
+            internal_scheme="http",
         )
 
         self.framework.observe(

@@ -308,6 +308,9 @@ class TracingProviderAppData(DatabagModel):  # noqa: D101
     external_url: Optional[str] = None
     """Server url. If an ingress is present, it will be the ingress address."""
 
+    internal_scheme: Optional[str] = None
+    """Scheme for internal communication. If it is present, it will be protocol accepted by the provider."""
+
 
 class TracingRequirerAppData(DatabagModel):  # noqa: D101
     """Application databag model for the tracing requirer."""
@@ -495,6 +498,7 @@ class TracingEndpointProvider(Object):
         host: str,
         external_url: Optional[str] = None,
         relation_name: str = DEFAULT_RELATION_NAME,
+        internal_scheme: Optional[str] = "http",
     ):
         """Initialize.
 
@@ -525,6 +529,7 @@ class TracingEndpointProvider(Object):
         self._host = host
         self._external_url = external_url
         self._relation_name = relation_name
+        self._internal_scheme = internal_scheme
         self.framework.observe(
             self._charm.on[relation_name].relation_joined, self._on_relation_event
         )
@@ -594,6 +599,7 @@ class TracingEndpointProvider(Object):
                     receivers=[
                         Receiver(port=port, protocol=protocol) for protocol, port in receivers
                     ],
+                    internal_scheme=self._internal_scheme,
                 ).dump(relation.data[self._charm.app])
 
             except ModelError as e:
@@ -824,9 +830,11 @@ class TracingEndpointRequirer(Object):
         if app_data.external_url:
             url = f"{app_data.external_url}:{receiver.port}"
         else:
-            # FIXME: if we don't get an external url but only a
-            #  hostname, we don't know what scheme we need to be using. ASSUME HTTP
-            url = f"http://{app_data.host}:{receiver.port}"
+            if app_data.internal_scheme:
+                url = f"{app_data.internal_scheme}://{app_data.host}:{receiver.port}"
+            else:
+                # if we didn't receive a scheme (old provider), we assume HTTP is used
+                url = f"http://{app_data.host}:{receiver.port}"
 
         if receiver.protocol.endswith("grpc"):
             # TCP protocols don't want an http/https scheme prefix

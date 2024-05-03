@@ -28,6 +28,7 @@ def test_external_url_present(context, base_state):
         "receivers": '[{"protocol": "otlp_http", "port": 4318}]',
         "host": json.dumps(socket.getfqdn()),
         "external_url": '"http://1.2.3.4"',
+        "internal_scheme": '"http"',
     }
 
 

@@ -63,6 +63,36 @@ def test_requirer_api(context):
     assert epchanged.host == host
 
 
+def test_requirer_api_with_internal_scheme(context):
+    host = socket.getfqdn()
+    tracing = Relation(
+        "tracing",
+        remote_app_data={
+            "receivers": '[{"protocol": "otlp_grpc", "port": 4317}, '
+            '{"protocol": "otlp_http", "port": 4318}, '
+            '{"protocol": "zipkin", "port": 9411}]',
+            "host": json.dumps(host),
+            "internal_scheme": '"https"',
+        },
+    )
+    state = State(leader=True, relations=[tracing])
+
+    with charm_tracing_disabled():
+        with context.manager(tracing.changed_event, state) as mgr:
+            charm = mgr.charm
+            assert charm.tracing.get_endpoint("otlp_grpc") == f"{host}:4317"
+            assert charm.tracing.get_endpoint("otlp_http") == f"https://{host}:4318"
+            assert charm.tracing.get_endpoint("zipkin") == f"https://{host}:9411"
+
+            rel = charm.model.get_relation("tracing")
+            assert charm.tracing.is_ready(rel)
+
+    rchanged, epchanged = context.emitted_events
+    assert isinstance(epchanged, EndpointChangedEvent)
+    assert epchanged.host == host
+    assert epchanged.receivers[0].protocol == "otlp_grpc"
+
+
 def test_ingressed_requirer_api(context):
     # WHEN external_url is present in remote app databag
     external_url = "http://1.2.3.4"
