@@ -1,0 +1,8 @@
+alert: TempoIngesterFlushLatency
+expr:  histogram_quantile(0.99, sum by(le) (rate(tempo_ingester_flush_duration_seconds_bucket[5m]))) > 1
+"for": "5m"
+labels:
+  severity: critical
+annotations:
+  summary: Tempo ingester flush latency (instance {{ $labels.instance }})
+  description: "The {{ $labels.job }} ingester flush is experiencing {{ printf \"%.2f\" $value }}s 99th percentile latency.\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"

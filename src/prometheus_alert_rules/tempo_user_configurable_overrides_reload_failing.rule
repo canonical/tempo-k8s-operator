@@ -1,0 +1,7 @@
+alert: TempoUserConfigurableOverridesReloadFailing
+expr: sum (increase(tempo_overrides_user_configurable_overrides_reload_failed_total[1h])) > 5 and sum (increase(tempo_overrides_user_configurable_overrides_reload_failed_total{}[5m])) > 0
+labels:
+  severity: critical
+annotations:
+  summary: Tempo user config override reload failing (instance {{ $labels.instance }})
+  description: "The {{ $labels.job }} is experiencing more than 5 user-configurable override reload failures in the past hour.\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"

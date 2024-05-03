@@ -1,0 +1,8 @@
+alert: TempoDistributorUnhealthy
+expr: max(tempo_ring_members{state="Unhealthy", name="distributor"}) > 0
+for: 15m
+labels:
+  severity: critical
+annotations:
+  summary: Tempo unhealthy distributor(s) (instance {{ $labels.instance }})
+  description: "The {{ $labels.job }} is having {{ printf \"%f\" $value }} unhealthy distributor(s)\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"

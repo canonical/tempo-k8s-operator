@@ -1,0 +1,8 @@
+alert: TempoNoTenantIndexBuilders
+expr: sum by (tenant) (tempodb_blocklist_tenant_index_builder) == 0 and  max(tempodb_blocklist_length) > 0
+for: 5m
+labels:
+  severity: critical
+annotations:
+  summary: Tempo tenant index builder failing (instance {{ $labels.instance }})
+  description: "The {{ $labels.job }} is having no tenant index builders for tenant {{ $labels.tenant }}. Tenant index will quickly become stale.\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"

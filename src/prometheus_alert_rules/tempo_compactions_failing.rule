@@ -1,0 +1,8 @@
+alert: TempoCompactionsFailing
+expr: sum(increase(tempodb_compaction_errors_total{}[1h])) > 2 and sum(increase(tempodb_compaction_errors_total{}[5m])) > 0
+for: 5m
+labels:
+  severity: critical
+annotations:
+  summary: Tempo compactions failing (instance {{ $labels.instance }})
+  description: "The {{ $labels.job }} is experiencing more than 2 compactions failures in the past hour.\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"

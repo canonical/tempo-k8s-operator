@@ -1,0 +1,8 @@
+alert: TempoFrontendClients
+expr:  tempo_query_frontend_connected_clients == 0
+"for": "5m"
+labels:
+  severity: critical
+annotations:
+  summary: Tempo frontend connected clients (instance {{ $labels.instance }})
+  description: "The {{ $labels.job }} has no frontend connected clients.\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"

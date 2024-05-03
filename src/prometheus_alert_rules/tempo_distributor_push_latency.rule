@@ -1,0 +1,8 @@
+alert: TempoDistributorPushLatency
+expr:  histogram_quantile(0.99, sum by(le) (rate(tempo_distributor_push_duration_seconds_bucket[5m]))) > 1
+"for": "5m"
+labels:
+  severity: critical
+annotations:
+  summary: Tempo distributor push latency (instance {{ $labels.instance }})
+  description: "The {{ $labels.job }} distributor push is experiencing {{ printf \"%.2f\" $value }}s 99th percentile latency.\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"

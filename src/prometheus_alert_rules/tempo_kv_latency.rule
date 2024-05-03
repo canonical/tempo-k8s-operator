@@ -1,0 +1,8 @@
+alert: TempoKVLatency
+expr:  histogram_quantile(0.99, sum by(le, route) (rate(tempo_kv_request_duration_seconds_bucket[5m]))) > 1
+"for": "5m"
+labels:
+  severity: critical
+annotations:
+  summary: Tempo kv store request latency (instance {{ $labels.instance }})
+  description: "The {{ $labels.job }} {{ $labels.route }} KV store requests is experiencing {{ printf \"%.2f\" $value }}s 99th percentile latency.\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"

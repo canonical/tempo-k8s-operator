@@ -1,0 +1,8 @@
+alert: TempoTCPConnectionsLimit
+expr:  tempo_tcp_connections_limit > 0 and ((tempo_tcp_connections{protocol="http"} / tempo_tcp_connections_limit{protocol="http"}) * 100 >= 80)
+"for": "5m"
+labels:
+  severity: warning
+annotations:
+  summary: Tempo reaching max number of tcp http connections (instance {{ $labels.instance }})
+  description: "The {{ $labels.job }} is reaching {{ printf \"%.2f\" $value }}% of max tcp http connections.\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"

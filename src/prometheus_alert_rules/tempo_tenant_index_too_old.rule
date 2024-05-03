@@ -1,0 +1,8 @@
+alert: TempoTenantIndexTooOld
+expr: max by(tenant) (tempodb_blocklist_tenant_index_age_seconds) > 600
+for: 5m
+labels:
+  severity: critical
+annotations:
+  summary: Tempo tenant old index (instance {{ $labels.instance }})
+  description: "The {{ $labels.job }} is experiencing a tenant {{ $labels.tenant }} with a too old index age of 600 seconds.\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"

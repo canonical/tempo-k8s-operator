@@ -1,0 +1,8 @@
+alert: TempoIngestersUnhealthy
+expr:  max(tempo_ring_members{state="Unhealthy", name="ingester"}) > 0
+"for": "15m"
+labels:
+  severity: critical
+annotations:
+  summary: Tempo unhealthy ingester(s) (instance {{ $labels.instance }})
+  description: "The {{ $labels.job }} is having {{ printf \"%f\" $value }} unhealthy ingester(s)\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"

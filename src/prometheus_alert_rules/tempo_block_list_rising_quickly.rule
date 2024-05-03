@@ -1,0 +1,8 @@
+alert: TempoBlockListRisingQuickly
+expr: avg(tempodb_blocklist_length) / avg(tempodb_blocklist_length offset 7d) > 1.4
+for: 15m
+labels:
+  severity: critical
+annotations:
+  summary: Tempo blocklist rising quickly (instance {{ $labels.instance }})
+  description: "The {{ $labels.job }} is experiencing a 40% rise in tempo blocklist length over the last 7 days.  Consider scaling compactors.\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"

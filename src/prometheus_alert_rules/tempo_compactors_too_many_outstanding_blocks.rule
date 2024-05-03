@@ -1,0 +1,8 @@
+alert: TempoCompactorsTooManyOutstandingBlocks
+expr: sum by (tenant) (tempodb_compaction_outstanding_blocks) / ignoring(tenant) group_left count(tempo_build_info) > 100
+"for": "6h"
+labels:
+  severity: warning
+annotations:
+  summary: Tempo too many outstanding compaction blocks (instance {{ $labels.instance }})
+  description: "The {{ $labels.job }} is having too many outstanding compaction blocks for tenant {{ $labels.tenant }}, increase compactor's CPU or add more compactors.\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
