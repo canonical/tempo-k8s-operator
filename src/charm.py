@@ -10,8 +10,19 @@ import socket
 from pathlib import Path
 from typing import Optional, Tuple
 
-import charms.tempo_k8s.v1.tracing as tracing_v1
 import ops
+from ops.charm import (
+    CharmBase,
+    CollectStatusEvent,
+    HookEvent,
+    PebbleNoticeEvent,
+    RelationEvent,
+    WorkloadEvent,
+)
+from ops.main import main
+from ops.model import ActiveStatus, MaintenanceStatus, Relation, WaitingStatus
+
+import charms.tempo_k8s.v1.tracing as tracing_v1
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
 from charms.grafana_k8s.v0.grafana_source import GrafanaSourceProvider
 from charms.loki_k8s.v0.loki_push_api import LogProxyConsumer
@@ -25,17 +36,6 @@ from charms.tempo_k8s.v2.tracing import (
     TracingEndpointProvider,
 )
 from charms.traefik_route_k8s.v0.traefik_route import TraefikRouteRequirer
-from ops.charm import (
-    CharmBase,
-    CollectStatusEvent,
-    HookEvent,
-    PebbleNoticeEvent,
-    RelationEvent,
-    WorkloadEvent,
-)
-from ops.main import main
-from ops.model import ActiveStatus, MaintenanceStatus, Relation, WaitingStatus
-
 from tempo import Tempo
 
 logger = logging.getLogger(__name__)
@@ -77,7 +77,13 @@ class TempoCharm(CharmBase):
 
         # configure this tempo as a datasource in grafana
         self.grafana_source_provider = GrafanaSourceProvider(
-            self, source_type="tempo", source_url=self._external_url
+            self, source_type="tempo", source_url=self._external_http_server_url,
+            refresh_event=[
+                # refresh the source url when TLS config might be changing
+                self.on[self.cert_handler.certificates_relation_name].relation_changed,
+                # or when ingress changes
+                self.ingress.on.ready
+            ]
         )
         # # Patch the juju-created Kubernetes service to contain the right ports
         external_ports = tempo.get_external_ports(self.app.name)
@@ -130,8 +136,13 @@ class TempoCharm(CharmBase):
         self.framework.observe(self.cert_handler.on.cert_changed, self._on_cert_handler_changed)
 
     @property
+    def _external_http_server_url(self) -> str:
+        """External url of the http(s) server"""
+        return f"{self._external_url}:{self.tempo.tempo_http_server_port}"
+
+    @property
     def _external_url(self) -> str:
-        """Return the external hostname to be passed to ingress via the relation."""
+        """Return the external url."""
         if self.ingress.is_ready():
             ingress_url = f"{self.ingress.scheme}://{self.ingress.external_host}"
             logger.debug("This unit's ingress URL: %s", ingress_url)
@@ -144,15 +155,15 @@ class TempoCharm(CharmBase):
         # on the cluster's DNS service, while the ip address is _sometimes_
         # routable from the outside, e.g., when deploying on MicroK8s on Linux.
         scheme = "https" if self.tls_available else "http"
-        return f"{scheme}://{self.hostname}:{self.tempo.tempo_http_server_port}"
+        return f"{scheme}://{self.hostname}"
 
     @property
     def tls_available(self) -> bool:
         return (
-            self.cert_handler.enabled
-            and (self.cert_handler.server_cert is not None)
-            and (self.cert_handler.private_key is not None)
-            and (self.cert_handler.ca_cert is not None)
+                self.cert_handler.enabled
+                and (self.cert_handler.server_cert is not None)
+                and (self.cert_handler.private_key is not None)
+                and (self.cert_handler.ca_cert is not None)
         )
 
     def _on_cert_handler_changed(self, _):
@@ -185,7 +196,7 @@ class TempoCharm(CharmBase):
         juju_keys = {"egress-subnets", "ingress-address", "private-address"}
         # v1 relations are expected to have no data at all (excluding juju keys)
         if relation.data[relation.app] or any(
-            set(relation.data[u]).difference(juju_keys) for u in relation.units
+                set(relation.data[u]).difference(juju_keys) for u in relation.units
         ):
             return False
 
@@ -482,6 +493,7 @@ class TempoCharm(CharmBase):
                 "services": http_services,
             },
         }
+
 
 if __name__ == "__main__":  # pragma: nocover
     main(TempoCharm)
