@@ -36,6 +36,17 @@ from charms.tempo_k8s.v2.tracing import (
     TracingEndpointProvider,
 )
 from charms.traefik_route_k8s.v0.traefik_route import TraefikRouteRequirer
+from ops.charm import (
+    CharmBase,
+    CollectStatusEvent,
+    HookEvent,
+    PebbleNoticeEvent,
+    RelationEvent,
+    WorkloadEvent,
+)
+from ops.main import main
+from ops.model import ActiveStatus, MaintenanceStatus, Relation, WaitingStatus
+
 from tempo import Tempo
 
 logger = logging.getLogger(__name__)
@@ -106,7 +117,8 @@ class TempoCharm(CharmBase):
         #     self, jobs=[{"static_configs": [{"targets": ["*:4080"]}]}]
         # )
 
-        self._tracing = TracingEndpointProvider(
+        self.ingress = TraefikRouteRequirer(self, self.model.get_relation("ingress"), "ingress")  # type: ignore
+        self.tracing = TracingEndpointProvider(
             self,
             host=self.hostname,
             external_url=self._external_url,
@@ -127,7 +139,7 @@ class TempoCharm(CharmBase):
             self.on.tempo_pebble_custom_notice, self._on_tempo_pebble_custom_notice
         )
         self.framework.observe(self.on.update_status, self._on_update_status)
-        self.framework.observe(self._tracing.on.request, self._on_tracing_request)
+        self.framework.observe(self.tracing.on.request, self._on_tracing_request)
         self.framework.observe(self.on.tracing_relation_created, self._on_tracing_relation_created)
         self.framework.observe(self.on.tracing_relation_joined, self._on_tracing_relation_joined)
         self.framework.observe(self.on.tracing_relation_changed, self._on_tracing_relation_changed)
@@ -201,19 +213,6 @@ class TempoCharm(CharmBase):
             return False
 
         return True
-
-    def _configure_ingress(self, _) -> None:
-        """Make sure the traefik route and tracing relation data are up to date."""
-        if not self.unit.is_leader():
-            return
-
-        if self.ingress.is_ready():
-            self.ingress.submit_to_traefik(
-                self._ingress_config, static=self._static_ingress_config
-            )
-            if self.ingress.external_host:
-                self._update_tracing_v1_relations()
-                self._update_tracing_v2_relations()
 
     @property
     def legacy_v1_relations(self):
@@ -305,7 +304,7 @@ class TempoCharm(CharmBase):
     def _requested_receivers(self) -> Tuple[ReceiverProtocol, ...]:
         """List what receivers we should activate, based on the active tracing relations."""
         # we start with the sum of the requested endpoints from the v2 requirers
-        requested_protocols = set(self._tracing.requested_protocols())
+        requested_protocols = set(self.tracing.requested_protocols())
 
         # if we have any v0/v1 requirer, we'll need to activate all supported legacy endpoints
         # and publish them too (only to v1 requirers).

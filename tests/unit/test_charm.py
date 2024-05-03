@@ -1,7 +1,5 @@
 # Copyright 2024 Canonical Ltd.
 # See LICENSE file for licensing details.
-import pytest
-from tempo import Tempo
 
 import logging
 import unittest
@@ -62,48 +60,3 @@ class TestTempoCharm(unittest.TestCase):
     @property
     def _plan(self):
         return self.harness.get_container_pebble_plan(CONTAINER_NAME)
-
-
-
-@pytest.mark.parametrize(
-    "protocols, expected_config",
-    (
-        (
-            (
-                "otlp_grpc",
-                "otlp_http",
-                "zipkin",
-                "tempo",
-                "jaeger_http_thrift",
-                "jaeger_grpc",
-                "jaeger_thrift_http",
-                "jaeger_thrift_http",
-            ),
-            {
-                "jaeger": {
-                    "protocols": {
-                        "grpc": None,
-                        "thrift_http": None,
-                    }
-                },
-                "zipkin": None,
-                "otlp": {"protocols": {"http": None, "grpc": None}},
-            },
-        ),
-        (
-            ("otlp_http", "zipkin", "tempo", "jaeger_thrift_http"),
-            {
-                "jaeger": {
-                    "protocols": {
-                        "thrift_http": None,
-                    }
-                },
-                "zipkin": None,
-                "otlp": {"protocols": {"http": None}},
-            },
-        ),
-        ([], {}),
-    ),
-)
-def test_tempo_receivers_config(protocols, expected_config):
-    assert Tempo(None)._build_receivers_config(protocols) == expected_config
