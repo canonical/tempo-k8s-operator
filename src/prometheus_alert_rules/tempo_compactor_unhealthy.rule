@@ -1,8 +1,0 @@
-alert: TempoCompactorUnhealthy
-expr: max(tempo_ring_members{state="Unhealthy", name="compactor"}) > 0
-for: 15m
-labels:
-  severity: critical
-annotations:
-  summary: Tempo unhealthy compactor(s) (instance {{ $labels.instance }})
-  description: "The {{ $labels.job }} is having {{ printf \"%f\" $value }} unhealthy compactor(s)\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"

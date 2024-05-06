@@ -1,8 +1,0 @@
-alert: TempoFailedIngestingRequests
-expr:  increase(tempo_ingester_traces_created_total[5m]) == 0 and rate(tempo_request_duration_seconds_count{route='/tempopb.Pusher/PushBytesV2'}[5m]) > 0
-"for": "5m"
-labels:
-  severity: critical
-annotations:
-  summary: Tempo pushing traces to ingester failing (instance {{ $labels.instance }})
-  description: "The {{ $labels.job }} is experiencing failure in distributors pushing traces to the ingesters.\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"

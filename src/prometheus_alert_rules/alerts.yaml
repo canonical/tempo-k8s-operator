@@ -1,0 +1,187 @@
+groups:
+- name: tempo_alerts
+  rules:
+  - alert: "TempoBlockListRisingQuickly"
+    expr: |
+      avg by (job, instance)(tempodb_blocklist_length) / avg by (job, instance)(tempodb_blocklist_length offset 7d) > 1.4
+    for: "15m"
+    labels:
+      severity: "critical"
+    annotations:
+      summary: "Tempo block list rising quickly (instance {{ $labels.instance }})"
+      description: "The {{ $labels.job }} is experiencing a 40% rise in tempo blocklist length over the last 7 days.  Consider scaling compactors."
+  - alert: TempoCompactionsFailing
+    expr: sum by (job, instance)(increase(tempodb_compaction_errors_total{}[1h])) > 2 and sum by (job, instance)(increase(tempodb_compaction_errors_total{}[5m])) > 0
+    for: 5m
+    labels:
+      severity: critical
+    annotations:
+      summary: Tempo compactions failing (instance {{ $labels.instance }})
+      description: "The {{ $labels.job }} is experiencing more than 2 compactions failures in the past hour."
+  - alert: TempoCompactorUnhealthy
+    expr: max by (job, instance)(tempo_ring_members{state="Unhealthy", name="compactor"}) > 0
+    for: 15m
+    labels:
+      severity: critical
+    annotations:
+      summary: Tempo unhealthy compactor(s) (instance {{ $labels.instance }})
+      description: "The {{ $labels.job }} is having {{ printf \"%f\" $value }} unhealthy compactor(s)."
+  - alert: TempoCompactorsTooManyOutstandingBlocks
+    expr: sum by (tenant) (tempodb_compaction_outstanding_blocks) / ignoring(tenant) group_left count(tempo_build_info) > 100
+    for: "6h"
+    labels:
+      severity: warning
+    annotations:
+      summary: Tempo too many outstanding compaction blocks (instance {{ $labels.instance }})
+      description: "The {{ $labels.job }} is having too many outstanding compaction blocks for tenant {{ $labels.tenant }}, increase compactor's CPU or add more compactors."
+  - alert: TempoDiscardedSpans
+    expr:  100 * sum by (instance,job)(rate(tempo_discarded_spans_total[5m])) / sum by (instance,job)(rate(tempo_distributor_spans_received_total[5m]))  > 5
+    for: "5m"
+    labels:
+      severity: warning
+    annotations:
+      summary: Tempo spans insertion failing (instance {{ $labels.instance }})
+      description: "The {{ $labels.job }} is experiencing {{ printf \"%.2f\" $value }}% discard of spans."
+  - alert: TempoDistributorPushLatency
+    expr:  histogram_quantile(0.99, sum by(le, job, instance) (rate(tempo_distributor_push_duration_seconds_bucket[5m]))) > 3
+    for: "5m"
+    labels:
+      severity: warning
+    annotations:
+      summary: Tempo distributor push latency (instance {{ $labels.instance }})
+      description: "The {{ $labels.job }} distributor push is experiencing {{ printf \"%.2f\" $value }}s 99th percentile latency."
+  - alert: TempoDistributorUnhealthy
+    expr: max by (job, instance)(tempo_ring_members{state="Unhealthy", name="distributor"}) > 0
+    for: 15m
+    labels:
+      severity: critical
+    annotations:
+      summary: Tempo unhealthy distributor(s) (instance {{ $labels.instance }})
+      description: "The {{ $labels.job }} is having {{ printf \"%f\" $value }} unhealthy distributor(s)."
+  - alert: TempoFailedIngestingRequests
+    expr:  sum by (job,instance)(increase (tempo_ingester_traces_created_total[5m])) / sum by (instance,job)(rate(tempo_request_duration_seconds_count{route='/tempopb.Pusher/PushBytesV2'}[5m])) == 0
+    for: "5m"
+    labels:
+      severity: critical
+    annotations:
+      summary: Tempo pushing traces to ingester failing (instance {{ $labels.instance }})
+      description: "The {{ $labels.job }} is experiencing failure in distributors pushing traces to the ingesters."
+  - alert: TempoFrontendClients
+    expr:  tempo_query_frontend_connected_clients == 0
+    for: "5m"
+    labels:
+      severity: critical
+    annotations:
+      summary: Tempo frontend connected clients (instance {{ $labels.instance }})
+      description: "The {{ $labels.job }} has no frontend connected clients."
+  - alert: TempoFrontendQueueLatency
+    expr:  histogram_quantile(0.99, sum by(le,instance,job) (rate(tempo_query_frontend_queue_duration_seconds_bucket[15m]))) > 2
+    for: "15m"
+    labels:
+      severity: warning
+    annotations:
+      summary: Tempo frontend queue latency (instance {{ $labels.instance }})
+      description: "The {{ $labels.job }} frontend queue is experiencing {{ printf \"%.2f\" $value }}s 99th percentile latency."
+  - alert: TempoIngesterFlushLatency
+    expr:  histogram_quantile(0.99, sum by(le,instance,job) (rate(tempo_ingester_flush_duration_seconds_bucket[5m]))) > 5
+    for: "5m"
+    labels:
+      severity: critical
+    annotations:
+      summary: Tempo ingester flush latency (instance {{ $labels.instance }})
+      description: "The {{ $labels.job }} ingester flush is experiencing {{ printf \"%.2f\" $value }}s 99th percentile latency."
+  - alert: TempoIngesterFlushesFailing
+    expr: sum by (instance,job)(increase(tempo_ingester_flush_failed_retries_total[1h])) > 2 and sum by(instance,job)(increase(tempo_ingester_flush_failed_retries_total[5m])) > 0
+    for: 5m
+    labels:
+      severity: critical
+    annotations:
+      summary: Tempo ingester flush retries failing (instance {{ $labels.instance }})
+      description: "The {{ $labels.job }} is experiencing more than 2 flush retries failures in the past hour."
+  - alert: TempoIngesterFlushesUnhealthy
+    expr: sum by (instance,job)(increase(tempo_ingester_failed_flushes_total[1h])) > 2 and sum by (instance,job)(increase(tempo_ingester_failed_flushes_total[5m])) > 0
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: Tempo ingester flush failing (instance {{ $labels.instance }})
+      description: "The {{ $labels.job }} is experiencing more than 2 ingester flush failures in the past hour."
+  - alert: TempoIngestersUnhealthy
+    expr:  max by (instance,job)(tempo_ring_members{state="Unhealthy", name="ingester"}) > 0
+    for: "15m"
+    labels:
+      severity: critical
+    annotations:
+      summary: Tempo unhealthy ingester(s) (instance {{ $labels.instance }})
+      description: "The {{ $labels.job }} is having {{ printf \"%f\" $value }} unhealthy ingester(s)."
+  - alert: TempoKVRequestErrors
+    expr:  100 * sum(rate(tempo_kv_request_duration_seconds_count{status_code=~"5.."}[5m])) by (route,instance,job) / sum(rate(tempo_kv_request_duration_seconds_count[5m])) by (route,instance,job)  > 10
+    for: "15m"
+    labels:
+      severity: critical
+    annotations:
+      summary: Tempo kv store request errors (instance {{ $labels.instance }})
+      description: "The {{ $labels.job }} {{ $labels.route }} KV store requests is experiencing {{ printf \"%.2f\" $value }}% error rate."
+  - alert: TempoTargetMissing
+    expr: up == 0
+    for: 0m
+    labels:
+      severity: critical
+    annotations:
+      summary: Prometheus target missing (instance {{ $labels.instance }})
+      description: "A Prometheus target has disappeared. An exporter might be crashed."
+  - alert: TempoNoTenantIndexBuilders
+    expr: sum by (tenant,job,instance) (tempodb_blocklist_tenant_index_builder) == 0 and  max by (tenant,job,instance)(tempodb_blocklist_length) > 0
+    for: 5m
+    labels:
+      severity: critical
+    annotations:
+      summary: Tempo tenant index builder failing (instance {{ $labels.instance }})
+      description: "The {{ $labels.job }} is having no tenant index builders for tenant {{ $labels.tenant }}. Tenant index will quickly become stale."
+  - alert: TempoRequestErrors
+    expr: 100 * sum(rate(tempo_request_duration_seconds_count{status_code=~"5.."}[5m])) by (route,job,instance) / sum(rate(tempo_request_duration_seconds_count[5m])) by (route,job,instance)  > 10
+    for: "15m"
+    labels:
+      severity: critical
+    annotations:
+      summary: Tempo request errors (instance {{ $labels.instance }})
+      description: "The {{ $labels.job }} is experiencing {{ printf \"%.2f\" $value }}% request error rate."
+  - alert: TempoRequestLatency
+    expr: histogram_quantile(0.99, sum by(le, route,job,instance)(rate(tempo_request_duration_seconds_bucket[5m]))) > 5
+    for: 5m
+    labels:
+      severity: critical
+    annotations:
+      summary: Tempo request latency (instance {{ $labels.instance }})
+      description: "The {{ $labels.job }} {{ $labels.route }} is experiencing {{ printf \"%.2f\" $value }}s 99th percentile latency."
+  - alert: TempoRetentionsFailing
+    expr:  sum by (job,instance)(increase(tempodb_retention_errors_total[1h])) > 2 and sum by (job,instance)(increase(tempodb_retention_errors_total[5m])) > 0
+    for: "5m"
+    labels:
+      severity: critical
+    annotations:
+      summary: Tempo retentions failing (instance {{ $labels.instance }})
+      description: "The {{ $labels.job }} is experiencing more than 2 retention failures in the past hour."
+  - alert: TempoTCPConnectionsLimit
+    expr:  100 * tempo_tcp_connections / tempo_tcp_connections_limit >= 80 and tempo_tcp_connections_limit > 0
+    for: "5m"
+    labels:
+      severity: warning
+    annotations:
+      summary: Tempo reaching max number of tcp connections (instance {{ $labels.instance }})
+      description: "The {{ $labels.job }} is reaching {{ printf \"%.2f\" $value }}% of max tcp {{ $labels.protocol }} connections."
+  - alert: TempoTenantIndexTooOld
+    expr: max by(tenant,instance,job) (tempodb_blocklist_tenant_index_age_seconds) > 600
+    for: 5m
+    labels:
+      severity: critical
+    annotations:
+      summary: Tempo tenant old index (instance {{ $labels.instance }})
+      description: "The {{ $labels.job }} is experiencing a tenant {{ $labels.tenant }} with a too old index age of 600 seconds."
+  - alert: TempoUserConfigurableOverridesReloadFailing
+    expr: sum by (instance,job)(increase(tempo_overrides_user_configurable_overrides_reload_failed_total[1h])) > 5 and sum by (instance,job)(increase(tempo_overrides_user_configurable_overrides_reload_failed_total{}[5m])) > 0
+    labels:
+      severity: critical
+    annotations:
+      summary: Tempo user config override reload failing (instance {{ $labels.instance }})
+      description: "The {{ $labels.job }} is experiencing more than 5 user-configurable override reload failures in the past hour."

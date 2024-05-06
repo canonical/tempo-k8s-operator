@@ -1,8 +1,0 @@
-alert: TempoDiscardedSpans
-expr:  100 * sum(rate(tempo_discarded_spans_total[5m])) / sum(rate(tempo_distributor_spans_received_total[5m]))  > 5
-"for": "5m"
-labels:
-  severity: warning
-annotations:
-  summary: Tempo spans insertion failing (instance {{ $labels.instance }})
-  description: "The {{ $labels.job }} is experiencing {{ printf \"%.2f\" $value }}% discard of spans.\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"

@@ -1,8 +1,0 @@
-alert: TempoRequestErrors
-expr: 100 * sum(rate(tempo_request_duration_seconds_count{status_code=~"5.."}[5m])) by (route) / sum(rate(tempo_request_duration_seconds_count[5m])) by (route)  > 10
-"for": "15m"
-labels:
-  severity: critical
-annotations:
-  summary: Tempo request errors (instance {{ $labels.instance }})
-  description: "The {{ $labels.job }} is experiencing {{ printf \"%.2f\" $value }}% request error rate.\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
