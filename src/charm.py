@@ -152,6 +152,10 @@ class TempoCharm(CharmBase):
         # are routable virtually exclusively inside the cluster (as they rely)
         # on the cluster's DNS service, while the ip address is _sometimes_
         # routable from the outside, e.g., when deploying on MicroK8s on Linux.
+        return self._internal_url
+
+    @property
+    def _internal_url(self) -> str:
         scheme = "https" if self.tls_available else "http"
         return f"{scheme}://{self.hostname}"
 
@@ -182,6 +186,8 @@ class TempoCharm(CharmBase):
         if was_ready != self.tempo.tls_ready:
             # tls readiness change means config change.
             self.tempo.update_config(self._requested_receivers())
+            # sync scheme change with traefik and related consumers
+            self._configure_ingress(_)
             self.tempo.restart()
 
         # sync the server cert with the charm container.
@@ -481,7 +487,7 @@ class TempoCharm(CharmBase):
                 }
                 http_services[
                     f"juju-{self.model.name}-{self.model.app.name}-service-{sanitized_protocol}"
-                ] = {"loadBalancer": {"servers": [{"url": f"http://{self.hostname}:{port}"}]}}
+                ] = {"loadBalancer": {"servers": [{"url": f"{self._internal_url}:{port}"}]}}
         return {
             "tcp": {
                 "routers": tcp_routers,
