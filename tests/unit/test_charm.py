@@ -32,6 +32,7 @@ class TestTempoCharm(unittest.TestCase):
         expected_entrypoints = {
             "entryPoints": {
                 "tempo-http": {"address": ":3200"},
+                "tempo-grpc": {"address": ":9096"},
                 "zipkin": {"address": ":9411"},
                 "otlp-grpc": {"address": ":4317"},
                 "otlp-http": {"address": ":4318"},
