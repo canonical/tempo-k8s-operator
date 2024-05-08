@@ -418,8 +418,7 @@ class TempoCharm(CharmBase):
         # the charm container and the tempo workload container have apparently the same
         # IP, so we can talk to tempo at localhost.
         if self.tempo.is_ready():
-            s = "s" if self.tls_available else ""
-            return f"http{s}://localhost:{self.tempo.receiver_ports['otlp_http']}"
+            return f"{self._internal_url}:{self.tempo.receiver_ports['otlp_http']}"
 
         return None
 
@@ -456,8 +455,6 @@ class TempoCharm(CharmBase):
     @property
     def _ingress_config(self) -> dict:
         """Build a raw ingress configuration for Traefik."""
-        tcp_routers = {}
-        tcp_services = {}
         http_routers = {}
         http_services = {}
         for protocol, port in self.tempo.all_ports.items():
