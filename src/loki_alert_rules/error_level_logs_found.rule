@@ -1,0 +1,7 @@
+alert: HighPercentageError
+expr: 100 * sum by (job) (rate({%%juju_topology%%} |= "level=error"[5m])) / sum by (job) (rate({%%juju_topology%%}[5m])) > 5
+for: 10m
+labels:
+  severity: critical
+annotations:
+  summary: "The {{ $labels.job }} is experiencing {{ printf \"%.2f\" $value }}% error-level logs rate."
