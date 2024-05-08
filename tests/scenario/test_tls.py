@@ -38,10 +38,7 @@ def test_tracing_endpoints_with_tls(
 
     state = base_state.replace(relations=relations)
 
-    with (
-        charm_tracing_disabled(),
-        patch.object(TempoCharm, "tls_available", local_has_tls),
-    ):
+    with charm_tracing_disabled(), patch.object(TempoCharm, "tls_available", local_has_tls):
         out = context.run(tracing.changed_event, state)
 
     tracing_provider_app_data = TracingProviderAppData.load(
