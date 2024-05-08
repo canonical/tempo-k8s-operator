@@ -462,37 +462,27 @@ class TempoCharm(CharmBase):
         http_services = {}
         for protocol, port in self.tempo.all_ports.items():
             sanitized_protocol = protocol.replace("_", "-")
-            if sanitized_protocol.endswith("grpc"):
-                # grpc handling
-                tcp_routers[
-                    f"juju-{self.model.name}-{self.model.app.name}-{sanitized_protocol}"
-                ] = {
-                    "entryPoints": [sanitized_protocol],
-                    "service": f"juju-{self.model.name}-{self.model.app.name}-service-{sanitized_protocol}",
-                    # TODO better matcher
-                    "rule": "ClientIP(`0.0.0.0/0`)",
-                }
-                tcp_services[
+            http_routers[
+                f"juju-{self.model.name}-{self.model.app.name}-{sanitized_protocol}"
+            ] = {
+                "entryPoints": [sanitized_protocol],
+                "service": f"juju-{self.model.name}-{self.model.app.name}-service-{sanitized_protocol}",
+                # TODO better matcher
+                "rule": "ClientIP(`0.0.0.0/0`)",
+            }
+            if sanitized_protocol.endswith("grpc") and not self.tls_available:
+                # to send traces to unsecured GRPC endpoints, we need h2c
+                # see https://doc.traefik.io/traefik/v2.0/user-guides/grpc/#with-http-h2c
+                http_services[
                     f"juju-{self.model.name}-{self.model.app.name}-service-{sanitized_protocol}"
-                ] = {"loadBalancer": {"servers": [{"address": f"{self.hostname}:{port}"}]}}
+                ] = {"loadBalancer": {"servers": [{"url": f"h2c://{self.hostname}:{port}"}]}}
             else:
-                # it's a http protocol, so we use a http section of the dynamic configuration
-                http_routers[
-                    f"juju-{self.model.name}-{self.model.app.name}-{sanitized_protocol}"
-                ] = {
-                    "entryPoints": [sanitized_protocol],
-                    "service": f"juju-{self.model.name}-{self.model.app.name}-service-{sanitized_protocol}",
-                    # TODO better matcher
-                    "rule": "ClientIP(`0.0.0.0/0`)",
-                }
+                # anything else, including secured GRPC, can use _internal_url
+                # ref https://doc.traefik.io/traefik/v2.0/user-guides/grpc/#with-https
                 http_services[
                     f"juju-{self.model.name}-{self.model.app.name}-service-{sanitized_protocol}"
                 ] = {"loadBalancer": {"servers": [{"url": f"{self._internal_url}:{port}"}]}}
         return {
-            "tcp": {
-                "routers": tcp_routers,
-                "services": tcp_services,
-            },
             "http": {
                 "routers": http_routers,
                 "services": http_services,

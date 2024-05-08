@@ -178,7 +178,7 @@ class Tempo:
         except ops.pebble.PathError:
             return None
 
-    def configure_tls(self, *, cert: str, key: str, ca: str):
+    def configure_tls(self, *, cert: Optional[str], key: Optional[str], ca: Optional[str]):
         """Push cert, key and CA to the tempo container."""
         # we save the cacert in the charm container too (for notices)
         Path(self.server_cert_path).write_text(ca)
