@@ -2,16 +2,11 @@ import json
 import socket
 
 import pytest
-from charms.tempo_k8s.v1.charm_tracing import charm_tracing_disabled
-from charms.tempo_k8s.v1.tracing import (
-    TracingProviderAppData as TracingProviderAppDataV1,
-)
-from charms.tempo_k8s.v2.tracing import (
-    TracingProviderAppData as TracingProviderAppDataV2,
-)
-from scenario import Container, Relation, State
-
 from charm import LEGACY_RECEIVER_PROTOCOLS, TempoCharm
+from charms.tempo_k8s.v1.charm_tracing import charm_tracing_disabled
+from charms.tempo_k8s.v1.tracing import TracingProviderAppData as TracingProviderAppDataV1
+from charms.tempo_k8s.v2.tracing import TracingProviderAppData as TracingProviderAppDataV2
+from scenario import Container, Relation, State
 from tempo import Tempo
 
 NO_RECEIVERS = 13

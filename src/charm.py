@@ -35,7 +35,6 @@ from ops.charm import (
 )
 from ops.main import main
 from ops.model import ActiveStatus, MaintenanceStatus, Relation, WaitingStatus
-
 from tempo import Tempo
 
 logger = logging.getLogger(__name__)
@@ -175,9 +174,9 @@ class TempoCharm(CharmBase):
         if self.tls_available:
             logger.debug("enabling TLS")
             self.tempo.configure_tls(
-                cert=self.cert_handler.server_cert,
-                key=self.cert_handler.private_key,
-                ca=self.cert_handler.ca_cert,
+                cert=self.cert_handler.server_cert,  # type: ignore
+                key=self.cert_handler.private_key,  # type: ignore
+                ca=self.cert_handler.ca_cert,  # type: ignore
             )
         else:
             logger.debug("disabling TLS")
@@ -409,7 +408,8 @@ class TempoCharm(CharmBase):
         if self.tls_available:
             if not server_cert.exists():
                 server_cert.parent.mkdir(parents=True, exist_ok=True)
-                server_cert.write_text(self.cert_handler.server_cert)
+                if self.cert_handler.server_cert:
+                    server_cert.write_text(self.cert_handler.server_cert)
         else:  # tls unavailable: delete local cert
             server_cert.unlink(missing_ok=True)
 
@@ -438,9 +438,9 @@ class TempoCharm(CharmBase):
     def _on_list_receivers_action(self, event: ops.ActionEvent):
         res = {}
         for receiver in self._requested_receivers():
-            res[receiver.replace("_", "-")] = (
-                f"{self.ingress.external_host or self.tempo.url}/{receiver}"
-            )
+            res[
+                receiver.replace("_", "-")
+            ] = f"{self.ingress.external_host or self.tempo.url}/{receiver}"
         event.set_results(res)
 
     @property
@@ -459,9 +459,7 @@ class TempoCharm(CharmBase):
         http_services = {}
         for protocol, port in self.tempo.all_ports.items():
             sanitized_protocol = protocol.replace("_", "-")
-            http_routers[
-                f"juju-{self.model.name}-{self.model.app.name}-{sanitized_protocol}"
-            ] = {
+            http_routers[f"juju-{self.model.name}-{self.model.app.name}-{sanitized_protocol}"] = {
                 "entryPoints": [sanitized_protocol],
                 "service": f"juju-{self.model.name}-{self.model.app.name}-service-{sanitized_protocol}",
                 # TODO better matcher
