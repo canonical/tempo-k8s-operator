@@ -36,7 +36,7 @@ def server_cert(ops_test: OpsTest):
     data = get_relation_data(
         requirer_endpoint=f"{APP_NAME}/0:certificates",
         provider_endpoint=f"{SSC_APP_NAME}/0:certificates",
-        model=ops_test.model.name
+        model=ops_test.model.name,
     )
     cert = json.loads(data.provider.application_data["certificates"])[0]["certificate"]
 
@@ -50,7 +50,7 @@ def get_traces(tempo_host: str, nonce, service_name="tracegen"):
     req = requests.get(
         "https://" + tempo_host + ":3200/api/search",
         params={"service.name": service_name, "nonce": nonce},
-        verify=False
+        verify=False,
     )
     assert req.status_code == 200
     return json.loads(req.text)["traces"]
@@ -136,11 +136,13 @@ def emit_trace(url, nonce=None, cert=None, protocol=None):
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE)
     logger.info(f"emit_trace returned {proc.returncode}")
 
+
 async def test_verify_ingressed_traces_grpc_tls(ops_test: OpsTest, nonce, server_cert):
     tempo_host = await get_tempo_host(ops_test)
     emit_trace(f"{tempo_host}:4317", nonce=nonce, cert=server_cert, protocol="grpc")
     # THEN we can verify it's been ingested
     assert get_traces(tempo_host, nonce=nonce)
+
 
 @pytest.mark.teardown
 @pytest.mark.abort_on_fail
