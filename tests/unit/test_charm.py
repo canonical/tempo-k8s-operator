@@ -5,9 +5,10 @@ import logging
 import unittest
 from unittest.mock import patch
 
-from charm import TempoCharm
 from ops.model import ActiveStatus
 from ops.testing import Harness
+
+from charm import TempoCharm
 
 CONTAINER_NAME = "tempo"
 

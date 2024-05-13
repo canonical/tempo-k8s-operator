@@ -35,6 +35,7 @@ from ops.charm import (
 )
 from ops.main import main
 from ops.model import ActiveStatus, MaintenanceStatus, Relation, WaitingStatus
+
 from tempo import Tempo
 
 logger = logging.getLogger(__name__)
@@ -441,9 +442,9 @@ class TempoCharm(CharmBase):
     def _on_list_receivers_action(self, event: ops.ActionEvent):
         res = {}
         for receiver in self._requested_receivers():
-            res[
-                receiver.replace("_", "-")
-            ] = f"{self.ingress.external_host or self.tempo.url}/{receiver}"
+            res[receiver.replace("_", "-")] = (
+                f"{self.ingress.external_host or self.tempo.url}/{receiver}"
+            )
         event.set_results(res)
 
     @property

@@ -11,6 +11,7 @@ from charms.tempo_k8s.v2.tracing import (
 )
 from ops import CharmBase, Framework, RelationBrokenEvent, RelationChangedEvent
 from scenario import Context, Relation, State
+
 from tempo import Tempo
 
 

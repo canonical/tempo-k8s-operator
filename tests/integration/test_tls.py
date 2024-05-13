@@ -10,9 +10,9 @@ import pytest
 import requests
 import yaml
 from pytest_operator.plugin import OpsTest
-from tempo import Tempo
 from tenacity import retry, stop_after_attempt, wait_exponential
 
+from tempo import Tempo
 from tests.integration.helpers import get_relation_data
 
 METADATA = yaml.safe_load(Path("./charmcraft.yaml").read_text())
