@@ -5,10 +5,9 @@ import logging
 import unittest
 from unittest.mock import patch
 
+from charm import TempoCharm
 from ops.model import ActiveStatus
 from ops.testing import Harness
-
-from charm import TempoCharm
 
 CONTAINER_NAME = "tempo"
 
@@ -32,6 +31,7 @@ class TestTempoCharm(unittest.TestCase):
         expected_entrypoints = {
             "entryPoints": {
                 "tempo-http": {"address": ":3200"},
+                "tempo-grpc": {"address": ":9096"},
                 "zipkin": {"address": ":9411"},
                 "otlp-grpc": {"address": ":4317"},
                 "otlp-http": {"address": ":4318"},

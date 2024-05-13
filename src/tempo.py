@@ -213,13 +213,13 @@ class Tempo:
         }
         if self.tls_ready:
             for cfg in ("http_tls_config", "grpc_tls_config"):
-                server_config[cfg] = {
+                server_config[cfg] = {  # type: ignore
                     "cert_file": str(self.tls_cert_path),
                     "key_file": str(self.tls_key_path),
                     "client_ca_file": str(self.tls_ca_path),
                     "client_auth_type": "VerifyClientCertIfGiven",
                 }
-            server_config["tls_min_version"] = self._tls_min_version
+            server_config["tls_min_version"] = self._tls_min_version  # type: ignore
 
         return server_config
 

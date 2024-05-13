@@ -2,11 +2,10 @@ import socket
 from unittest.mock import patch
 
 import pytest
+from charm import TempoCharm
 from charms.tempo_k8s.v1.charm_tracing import charm_tracing_disabled
 from charms.tempo_k8s.v2.tracing import TracingProviderAppData, TracingRequirerAppData
 from scenario import Container, Relation, State
-
-from charm import TempoCharm
 
 
 @pytest.fixture
@@ -39,10 +38,7 @@ def test_tracing_endpoints_with_tls(
 
     state = base_state.replace(relations=relations)
 
-    with (
-        charm_tracing_disabled(),
-        patch.object(TempoCharm, "tls_available", local_has_tls),
-    ):
+    with charm_tracing_disabled(), patch.object(TempoCharm, "tls_available", local_has_tls):
         out = context.run(tracing.changed_event, state)
 
     tracing_provider_app_data = TracingProviderAppData.load(

@@ -35,7 +35,6 @@ from ops.charm import (
 )
 from ops.main import main
 from ops.model import ActiveStatus, MaintenanceStatus, Relation, WaitingStatus
-
 from tempo import Tempo
 
 logger = logging.getLogger(__name__)
@@ -152,6 +151,10 @@ class TempoCharm(CharmBase):
         # are routable virtually exclusively inside the cluster (as they rely)
         # on the cluster's DNS service, while the ip address is _sometimes_
         # routable from the outside, e.g., when deploying on MicroK8s on Linux.
+        return self._internal_url
+
+    @property
+    def _internal_url(self) -> str:
         scheme = "https" if self.tls_available else "http"
         return f"{scheme}://{self.hostname}"
 
@@ -171,9 +174,9 @@ class TempoCharm(CharmBase):
         if self.tls_available:
             logger.debug("enabling TLS")
             self.tempo.configure_tls(
-                cert=self.cert_handler.server_cert,
-                key=self.cert_handler.private_key,
-                ca=self.cert_handler.ca_cert,
+                cert=self.cert_handler.server_cert,  # type: ignore
+                key=self.cert_handler.private_key,  # type: ignore
+                ca=self.cert_handler.ca_cert,  # type: ignore
             )
         else:
             logger.debug("disabling TLS")
@@ -182,6 +185,8 @@ class TempoCharm(CharmBase):
         if was_ready != self.tempo.tls_ready:
             # tls readiness change means config change.
             self.tempo.update_config(self._requested_receivers())
+            # sync scheme change with traefik and related consumers
+            self._configure_ingress(_)
             self.tempo.restart()
 
         # sync the server cert with the charm container.
@@ -406,7 +411,8 @@ class TempoCharm(CharmBase):
         if self.tls_available:
             if not server_cert.exists():
                 server_cert.parent.mkdir(parents=True, exist_ok=True)
-                server_cert.write_text(self.cert_handler.server_cert)
+                if self.cert_handler.server_cert:
+                    server_cert.write_text(self.cert_handler.server_cert)
         else:  # tls unavailable: delete local cert
             server_cert.unlink(missing_ok=True)
 
@@ -415,8 +421,7 @@ class TempoCharm(CharmBase):
         # the charm container and the tempo workload container have apparently the same
         # IP, so we can talk to tempo at localhost.
         if self.tempo.is_ready():
-            s = "s" if self.tls_available else ""
-            return f"http{s}://localhost:{self.tempo.receiver_ports['otlp_http']}"
+            return f"{self._internal_url}:{self.tempo.receiver_ports['otlp_http']}"
 
         return None
 
@@ -436,9 +441,9 @@ class TempoCharm(CharmBase):
     def _on_list_receivers_action(self, event: ops.ActionEvent):
         res = {}
         for receiver in self._requested_receivers():
-            res[receiver.replace("_", "-")] = (
-                f"{self.ingress.external_host or self.tempo.url}/{receiver}"
-            )
+            res[
+                receiver.replace("_", "-")
+            ] = f"{self.ingress.external_host or self.tempo.url}/{receiver}"
         event.set_results(res)
 
     @property
@@ -453,43 +458,29 @@ class TempoCharm(CharmBase):
     @property
     def _ingress_config(self) -> dict:
         """Build a raw ingress configuration for Traefik."""
-        tcp_routers = {}
-        tcp_services = {}
         http_routers = {}
         http_services = {}
         for protocol, port in self.tempo.all_ports.items():
             sanitized_protocol = protocol.replace("_", "-")
-            if sanitized_protocol.endswith("grpc"):
-                # grpc handling
-                tcp_routers[
-                    f"juju-{self.model.name}-{self.model.app.name}-{sanitized_protocol}"
-                ] = {
-                    "entryPoints": [sanitized_protocol],
-                    "service": f"juju-{self.model.name}-{self.model.app.name}-service-{sanitized_protocol}",
-                    # TODO better matcher
-                    "rule": "ClientIP(`0.0.0.0/0`)",
-                }
-                tcp_services[
-                    f"juju-{self.model.name}-{self.model.app.name}-service-{sanitized_protocol}"
-                ] = {"loadBalancer": {"servers": [{"address": f"{self.hostname}:{port}"}]}}
-            else:
-                # it's a http protocol, so we use a http section of the dynamic configuration
-                http_routers[
-                    f"juju-{self.model.name}-{self.model.app.name}-{sanitized_protocol}"
-                ] = {
-                    "entryPoints": [sanitized_protocol],
-                    "service": f"juju-{self.model.name}-{self.model.app.name}-service-{sanitized_protocol}",
-                    # TODO better matcher
-                    "rule": "ClientIP(`0.0.0.0/0`)",
-                }
+            http_routers[f"juju-{self.model.name}-{self.model.app.name}-{sanitized_protocol}"] = {
+                "entryPoints": [sanitized_protocol],
+                "service": f"juju-{self.model.name}-{self.model.app.name}-service-{sanitized_protocol}",
+                # TODO better matcher
+                "rule": "ClientIP(`0.0.0.0/0`)",
+            }
+            if sanitized_protocol.endswith("grpc") and not self.tls_available:
+                # to send traces to unsecured GRPC endpoints, we need h2c
+                # see https://doc.traefik.io/traefik/v2.0/user-guides/grpc/#with-http-h2c
                 http_services[
                     f"juju-{self.model.name}-{self.model.app.name}-service-{sanitized_protocol}"
-                ] = {"loadBalancer": {"servers": [{"url": f"http://{self.hostname}:{port}"}]}}
+                ] = {"loadBalancer": {"servers": [{"url": f"h2c://{self.hostname}:{port}"}]}}
+            else:
+                # anything else, including secured GRPC, can use _internal_url
+                # ref https://doc.traefik.io/traefik/v2.0/user-guides/grpc/#with-https
+                http_services[
+                    f"juju-{self.model.name}-{self.model.app.name}-service-{sanitized_protocol}"
+                ] = {"loadBalancer": {"servers": [{"url": f"{self._internal_url}:{port}"}]}}
         return {
-            "tcp": {
-                "routers": tcp_routers,
-                "services": tcp_services,
-            },
             "http": {
                 "routers": http_routers,
                 "services": http_services,
