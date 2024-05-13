@@ -269,9 +269,11 @@ class TempoCharm(CharmBase):
             tracing_v1.Ingester(protocol=p, port=self.tempo.receiver_ports[p])
             for p in LEGACY_RECEIVER_PROTOCOLS
         ]
-        tracing_v1.TracingProviderAppData(host=self.hostname, ingesters=receivers).dump(
-            relation.data[self.app]
-        )
+        # this should be behind a leader guard
+        if self.unit.is_leader():
+            tracing_v1.TracingProviderAppData(host=self.hostname, ingesters=receivers).dump(
+                relation.data[self.app]
+            )
 
     def _update_tracing_v2_relations(self):
         tracing_relations = self.model.relations["tracing"]
@@ -283,9 +285,10 @@ class TempoCharm(CharmBase):
 
         requested_receivers = self._requested_receivers()
         # publish requested protocols to all v2 relations
-        self.tracing.publish_receivers(
-            [(p, self.tempo.receiver_ports[p]) for p in requested_receivers]
-        )
+        if self.unit.is_leader():
+            self.tracing.publish_receivers(
+                [(p, self.tempo.receiver_ports[p]) for p in requested_receivers]
+            )
 
         self._restart_if_receivers_changed(requested_receivers)
 
