@@ -6,6 +6,7 @@ import random
 import subprocess
 import tempfile
 from pathlib import Path
+from tempo import Tempo
 
 import pytest
 import requests
@@ -20,6 +21,7 @@ SSC = "self-signed-certificates"
 SSC_APP_NAME = "ssc"
 TRAEFIK = "traefik-k8s"
 TRAEFIK_APP_NAME = "trfk"
+TRACEGEN_SCRIPT_PATH = Path() / "scripts" / "tracegen.py"
 
 logger = logging.getLogger(__name__)
 
@@ -117,23 +119,31 @@ async def test_verify_ingressed_trace_http_tls(ops_test: OpsTest, nonce, server_
     assert get_traces(tempo_host, nonce=nonce)
 
 
-def emit_trace(url, nonce=None, cert=None, protocol=None):
-    cmd = "python3 ./scripts/tracegen.py".split(" ")
-    if nonce:
-        os.environ["TRACEGEN_NONCE"] = nonce
-    elif "TRACEGEN_NONCE" in os.environ:
-        del os.environ["TRACEGEN_NONCE"]
-    if cert:
-        os.environ["TRACEGEN_CERT"] = str(cert)
-    elif "TRACEGEN_CERT" in os.environ:
-        del os.environ["TRACEGEN_CERT"]
-    if protocol:
-        os.environ["TRACEGEN_PROTOCOL"] = protocol
-    elif "TRACEGEN_PROTOCOL" in os.environ:
-        del os.environ["TRACEGEN_PROTOCOL"]
-    os.environ["TRACEGEN_ENDPOINT"] = url
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE)
-    logger.info(f"emit_trace returned {proc.returncode}")
+@pytest.mark.setup
+@pytest.mark.abort_on_fail
+async def test_push_tracegen_script_and_deps(ops_test: OpsTest):
+    await ops_test.juju("scp", TRACEGEN_SCRIPT_PATH, f"{APP_NAME}/0:tracegen.py")
+    await ops_test.juju(
+        "ssh",
+        f"{APP_NAME}/0",
+        "python3 -m pip install opentelemetry-exporter-otlp-proto-grpc opentelemetry-exporter-otlp-proto-http",
+    )
+
+
+async def emit_trace(endpoint, ops_test: OpsTest, nonce, proto: str = "http", verbose=0):
+    """Use juju ssh to run tracegen from the tempo charm; to avoid any DNS issues."""
+    hostname = await get_tempo_internal_host(ops_test)
+    cmd = (
+        f"juju ssh -m {ops_test.model_name} {APP_NAME}/0 "
+        f"TRACEGEN_ENDPOINT={endpoint} "
+        f"TRACEGEN_VERBOSE={verbose} "
+        f"TRACEGEN_PROTOCOL={proto} "
+        f"TRACEGEN_CERT={Tempo.server_cert_path} "
+        f"TRACEGEN_NONCE={nonce} "
+        "python3 /tracegen.py"
+    )
+
+    return getoutput(cmd)
 
 
 async def test_verify_ingressed_traces_grpc_tls(ops_test: OpsTest, nonce, server_cert):

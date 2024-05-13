@@ -10,9 +10,9 @@ import pytest
 import requests
 import yaml
 from pytest_operator.plugin import OpsTest
-from tempo import Tempo
 from tenacity import retry, stop_after_attempt, wait_exponential
 
+from tempo import Tempo
 from tests.integration.helpers import get_relation_data
 
 METADATA = yaml.safe_load(Path("./charmcraft.yaml").read_text())
@@ -57,10 +57,11 @@ async def get_tempo_internal_host(ops_test: OpsTest):
 
 
 @pytest.fixture(scope="function")
-def server_cert():
+def server_cert(ops_test: OpsTest):
     data = get_relation_data(
         requirer_endpoint=f"{APP_NAME}/0:certificates",
         provider_endpoint=f"{SSC_APP_NAME}/0:certificates",
+        model=ops_test.model.name,
     )
     cert = json.loads(data.provider.application_data["certificates"])[0]["certificate"]
 
