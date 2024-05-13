@@ -321,8 +321,8 @@ class Tempo:
                     "tempo-ready": {
                         "override": "replace",
                         "summary": "Notify charm when tempo is ready",
-                        "command": f"""watch -n 5 '[ $(wget -q -O- --no-check-certificate http{s}://localhost:{self.tempo_http_server_port}/ready) = "ready" ] && 
-                                   ( /charm/bin/pebble notify {self.tempo_ready_notice_key} ) || 
+                        "command": f"""watch -n 5 '[ $(wget -q -O- --no-check-certificate http{s}://localhost:{self.tempo_http_server_port}/ready) = "ready" ] &&
+                                   ( /charm/bin/pebble notify {self.tempo_ready_notice_key} ) ||
                                    ( echo "tempo not ready" )'""",
                         "startup": "disabled",
                     }

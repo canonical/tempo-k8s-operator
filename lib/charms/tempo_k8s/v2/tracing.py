@@ -12,7 +12,7 @@ Charms seeking to push traces to Tempo, must do so using the `TracingEndpointReq
 object from this charm library. For the simplest use cases, using the `TracingEndpointRequirer`
 object only requires instantiating it, typically in the constructor of your charm. The
 `TracingEndpointRequirer` constructor requires the name of the relation over which a tracing endpoint
- is exposed by the Tempo charm, and a list of protocols it intends to send traces with. 
+ is exposed by the Tempo charm, and a list of protocols it intends to send traces with.
  This relation must use the `tracing` interface.
  The `TracingEndpointRequirer` object may be instantiated as follows
 
@@ -21,7 +21,7 @@ object only requires instantiating it, typically in the constructor of your char
     def __init__(self, *args):
         super().__init__(*args)
         # ...
-        self.tracing = TracingEndpointRequirer(self, 
+        self.tracing = TracingEndpointRequirer(self,
             protocols=['otlp_grpc', 'otlp_http', 'jaeger_http_thrift']
         )
         # ...
@@ -29,20 +29,20 @@ object only requires instantiating it, typically in the constructor of your char
 Note that the first argument (`self`) to `TracingEndpointRequirer` is always a reference to the
 parent charm.
 
-Alternatively to providing the list of requested protocols at init time, the charm can do it at 
-any point in time by calling the 
-`TracingEndpointRequirer.request_protocols(*protocol:str, relation:Optional[Relation])` method. 
+Alternatively to providing the list of requested protocols at init time, the charm can do it at
+any point in time by calling the
+`TracingEndpointRequirer.request_protocols(*protocol:str, relation:Optional[Relation])` method.
 Using this method also allows you to use per-relation protocols.
 
-Units of provider charms obtain the tempo endpoint to which they will push their traces by calling 
+Units of provider charms obtain the tempo endpoint to which they will push their traces by calling
 `TracingEndpointRequirer.get_endpoint(protocol: str)`, where `protocol` is, for example:
 - `otlp_grpc`
 - `otlp_http`
 - `zipkin`
 - `tempo`
 
-If the `protocol` is not in the list of protocols that the charm requested at endpoint set-up time, 
-the library will raise an error. 
+If the `protocol` is not in the list of protocols that the charm requested at endpoint set-up time,
+the library will raise an error.
 
 ## Requirer Library Usage
 
@@ -509,6 +509,7 @@ class TracingEndpointProvider(Object):
                 if an ingress is present.
             relation_name: an optional string name of the relation between `charm`
                 and the Tempo charmed service. The default is "tracing".
+            internal_scheme: scheme to use with internal urls.
 
         Raises:
             RelationNotFoundError: If there is no relation in the charm's metadata.yaml

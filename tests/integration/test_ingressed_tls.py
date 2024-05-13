@@ -10,7 +10,6 @@ from pathlib import Path
 import pytest
 import requests
 import yaml
-from juju.application import Application
 from pytest_operator.plugin import OpsTest
 
 from tests.integration.helpers import get_relation_data
@@ -119,7 +118,7 @@ async def test_verify_ingressed_trace_http_tls(ops_test: OpsTest, nonce, server_
 
 
 def emit_trace(url, nonce=None, cert=None, protocol=None):
-    cmd = f"python3 ./scripts/tracegen.py".split(" ")
+    cmd = "python3 ./scripts/tracegen.py".split(" ")
     if nonce:
         os.environ["TRACEGEN_NONCE"] = nonce
     elif "TRACEGEN_NONCE" in os.environ:
