@@ -5,12 +5,12 @@ import random
 import subprocess
 import tempfile
 from pathlib import Path
-from tempo import Tempo
 
 import pytest
 import requests
 import yaml
 from pytest_operator.plugin import OpsTest
+from tempo import Tempo
 
 from tests.integration.helpers import get_relation_data
 
@@ -106,7 +106,9 @@ async def test_verify_ingressed_trace_http_no_tls_fails(ops_test: OpsTest, nonce
     tempo_host = await get_tempo_host(ops_test)
     # IF tempo is related to SSC
     # WHEN we emit an http trace, **unsecured**
-    await emit_trace(f"http://{tempo_host}:4318", nonce=nonce, ops_test=ops_test)  # this should fail
+    await emit_trace(
+        f"http://{tempo_host}:4318", nonce=nonce, ops_test=ops_test
+    )  # this should fail
     # THEN we can verify it's not been ingested
     assert not get_traces(tempo_host, nonce=nonce)
 
@@ -136,7 +138,7 @@ async def emit_trace(endpoint, ops_test: OpsTest, nonce, proto: str = "http", ve
         f"TRACEGEN_ENDPOINT={endpoint} "
         f"TRACEGEN_VERBOSE={verbose} "
         f"TRACEGEN_PROTOCOL={proto} "
-        f"TRACEGEN_CERT={Tempo.server_cert_path} " # TODO we don't distinguish non-TLS and TLS yet
+        f"TRACEGEN_CERT={Tempo.server_cert_path} "  # TODO we don't distinguish non-TLS and TLS yet
         f"TRACEGEN_NONCE={nonce} "
         "python3 /tracegen.py"
     )

@@ -10,9 +10,9 @@ import pytest
 import requests
 import yaml
 from pytest_operator.plugin import OpsTest
+from tempo import Tempo
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from tempo import Tempo
 from tests.integration.helpers import get_relation_data
 
 METADATA = yaml.safe_load(Path("./charmcraft.yaml").read_text())
@@ -124,7 +124,7 @@ async def emit_trace(ops_test: OpsTest, nonce, proto: str = "http", verbose=0):
         f"TRACEGEN_ENDPOINT={hostname}:4318/v1/traces "
         f"TRACEGEN_VERBOSE={verbose} "
         f"TRACEGEN_PROTOCOL={proto} "
-        f"TRACEGEN_CERT={Tempo.server_cert_path} " # TODO we don't distinguish non-TLS and TLS yet
+        f"TRACEGEN_CERT={Tempo.server_cert_path} "  # TODO we don't distinguish non-TLS and TLS yet
         f"TRACEGEN_NONCE={nonce} "
         "python3 /tracegen.py"
     )
