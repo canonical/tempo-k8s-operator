@@ -1,7 +1,6 @@
 import asyncio
 import json
 import logging
-import os
 import random
 import subprocess
 import tempfile
@@ -107,14 +106,14 @@ async def test_verify_ingressed_trace_http_no_tls_fails(ops_test: OpsTest, nonce
     tempo_host = await get_tempo_host(ops_test)
     # IF tempo is related to SSC
     # WHEN we emit an http trace, **unsecured**
-    emit_trace(f"http://{tempo_host}:4318", nonce=nonce)  # this should fail
+    await emit_trace(f"http://{tempo_host}:4318", nonce=nonce, ops_test=ops_test)  # this should fail
     # THEN we can verify it's not been ingested
     assert not get_traces(tempo_host, nonce=nonce)
 
 
 async def test_verify_ingressed_trace_http_tls(ops_test: OpsTest, nonce, server_cert):
     tempo_host = await get_tempo_host(ops_test)
-    emit_trace(f"https://{tempo_host}:4318", nonce=nonce, cert=server_cert)
+    await emit_trace(f"https://{tempo_host}:4318", nonce=nonce, ops_test=ops_test)
     # THEN we can verify it's been ingested
     assert get_traces(tempo_host, nonce=nonce)
 
@@ -132,23 +131,22 @@ async def test_push_tracegen_script_and_deps(ops_test: OpsTest):
 
 async def emit_trace(endpoint, ops_test: OpsTest, nonce, proto: str = "http", verbose=0):
     """Use juju ssh to run tracegen from the tempo charm; to avoid any DNS issues."""
-    hostname = await get_tempo_internal_host(ops_test)
     cmd = (
         f"juju ssh -m {ops_test.model_name} {APP_NAME}/0 "
         f"TRACEGEN_ENDPOINT={endpoint} "
         f"TRACEGEN_VERBOSE={verbose} "
         f"TRACEGEN_PROTOCOL={proto} "
-        f"TRACEGEN_CERT={Tempo.server_cert_path} "
+        f"TRACEGEN_CERT={Tempo.server_cert_path} " # TODO we don't distinguish non-TLS and TLS yet
         f"TRACEGEN_NONCE={nonce} "
         "python3 /tracegen.py"
     )
 
-    return getoutput(cmd)
+    return subprocess.getoutput(cmd)
 
 
 async def test_verify_ingressed_traces_grpc_tls(ops_test: OpsTest, nonce, server_cert):
     tempo_host = await get_tempo_host(ops_test)
-    emit_trace(f"{tempo_host}:4317", nonce=nonce, cert=server_cert, protocol="grpc")
+    await emit_trace(f"{tempo_host}:4317", nonce=nonce, proto="grpc", ops_test=ops_test)
     # THEN we can verify it's been ingested
     assert get_traces(tempo_host, nonce=nonce)
 
