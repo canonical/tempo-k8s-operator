@@ -65,7 +65,6 @@ async def get_traces_patiently(tempo_host, nonce):
 async def get_tempo_host(ops_test: OpsTest):
     status = await ops_test.model.get_status()
     app = status["applications"][TRAEFIK_APP_NAME]
-    logger.info(app.public_address)
     return app.public_address
 
 
@@ -82,8 +81,6 @@ async def emit_trace(
         f"TRACEGEN_NONCE={nonce} "
         "python3 tracegen.py"
     )
-
-    logger.info(cmd)
 
     return subprocess.getoutput(cmd)
 
