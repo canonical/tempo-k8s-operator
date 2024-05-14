@@ -71,6 +71,22 @@ def server_cert(ops_test: OpsTest):
         yield p
 
 
+async def emit_trace(ops_test: OpsTest, nonce, proto: str = "http", verbose=0, use_cert=False):
+    """Use juju ssh to run tracegen from the tempo charm; to avoid any DNS issues."""
+    hostname = await get_tempo_internal_host(ops_test)
+    cmd = (
+        f"juju ssh -m {ops_test.model_name} {APP_NAME}/0 "
+        f"TRACEGEN_ENDPOINT={hostname}:4318/v1/traces "
+        f"TRACEGEN_VERBOSE={verbose} "
+        f"TRACEGEN_PROTOCOL={proto} "
+        f"TRACEGEN_CERT={Tempo.server_cert_path if use_cert else ''} "
+        f"TRACEGEN_NONCE={nonce} "
+        "python3 /tracegen.py"
+    )
+
+    return getoutput(cmd)
+
+
 @pytest.mark.setup
 @pytest.mark.abort_on_fail
 async def test_build_and_deploy(ops_test: OpsTest):
@@ -116,22 +132,6 @@ async def test_push_tracegen_script_and_deps(ops_test: OpsTest):
     )
 
 
-async def emit_trace(ops_test: OpsTest, nonce, proto: str = "http", verbose=0):
-    """Use juju ssh to run tracegen from the tempo charm; to avoid any DNS issues."""
-    hostname = await get_tempo_internal_host(ops_test)
-    cmd = (
-        f"juju ssh -m {ops_test.model_name} {APP_NAME}/0 "
-        f"TRACEGEN_ENDPOINT={hostname}:4318/v1/traces "
-        f"TRACEGEN_VERBOSE={verbose} "
-        f"TRACEGEN_PROTOCOL={proto} "
-        f"TRACEGEN_CERT={Tempo.server_cert_path} "  # TODO we don't distinguish non-TLS and TLS yet
-        f"TRACEGEN_NONCE={nonce} "
-        "python3 /tracegen.py"
-    )
-
-    return getoutput(cmd)
-
-
 async def test_verify_trace_http_no_tls_fails(ops_test: OpsTest, server_cert, nonce):
     # IF tempo is related to SSC
     # WHEN we emit an http trace, **unsecured**
@@ -144,7 +144,7 @@ async def test_verify_trace_http_no_tls_fails(ops_test: OpsTest, server_cert, no
 
 async def test_verify_trace_http_tls(ops_test: OpsTest, nonce, server_cert):
     # WHEN we emit a trace secured with TLS
-    await emit_trace(ops_test, nonce=nonce)
+    await emit_trace(ops_test, nonce=nonce, use_cert=True)
     # THEN we can verify it's eventually ingested
     await get_traces_patiently(ops_test, nonce)
 
@@ -152,7 +152,7 @@ async def test_verify_trace_http_tls(ops_test: OpsTest, nonce, server_cert):
 @pytest.mark.xfail  # expected to fail because in this context the grpc receiver is not enabled
 async def test_verify_traces_grpc_tls(ops_test: OpsTest, nonce, server_cert):
     # WHEN we emit a trace secured with TLS
-    await emit_trace(ops_test, nonce=nonce, verbose=1, proto="grpc")
+    await emit_trace(ops_test, nonce=nonce, verbose=1, proto="grpc", use_cert=True)
     # THEN we can verify it's been ingested
     await get_traces_patiently(ops_test, nonce)
 
