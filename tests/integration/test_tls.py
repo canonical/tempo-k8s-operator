@@ -81,7 +81,7 @@ async def emit_trace(ops_test: OpsTest, nonce, proto: str = "http", verbose=0, u
         f"TRACEGEN_PROTOCOL={proto} "
         f"TRACEGEN_CERT={Tempo.server_cert_path if use_cert else ''} "
         f"TRACEGEN_NONCE={nonce} "
-        "python3 /tracegen.py"
+        "python3 tracegen.py"
     )
 
     return getoutput(cmd)

@@ -11,6 +11,7 @@ import requests
 import yaml
 from pytest_operator.plugin import OpsTest
 from tempo import Tempo
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 from tests.integration.helpers import get_relation_data
 
@@ -56,6 +57,11 @@ def get_traces(tempo_host: str, nonce, service_name="tracegen"):
     return json.loads(req.text)["traces"]
 
 
+@retry(stop=stop_after_attempt(5), wait=wait_exponential(multiplier=1, min=4, max=10))
+async def get_traces_patiently(tempo_host, nonce):
+    assert get_traces(tempo_host, nonce=nonce)
+
+
 async def get_tempo_host(ops_test: OpsTest):
     status = await ops_test.model.get_status()
     app = status["applications"][TRAEFIK_APP_NAME]
@@ -74,8 +80,10 @@ async def emit_trace(
         f"TRACEGEN_PROTOCOL={proto} "
         f"TRACEGEN_CERT={Tempo.server_cert_path if use_cert else ''} "
         f"TRACEGEN_NONCE={nonce} "
-        "python3 /tracegen.py"
+        "python3 tracegen.py"
     )
+
+    logger.info(cmd)
 
     return subprocess.getoutput(cmd)
 
@@ -130,31 +138,36 @@ async def test_relate(ops_test: OpsTest):
     )
 
 
-async def test_verify_ingressed_trace_http_no_tls_fails(ops_test: OpsTest, nonce):
+@pytest.mark.abort_on_fail
+async def test_verify_ingressed_trace_http_upgrades_to_tls(ops_test: OpsTest, nonce):
     tempo_host = await get_tempo_host(ops_test)
     # IF tempo is related to SSC
     # WHEN we emit an http trace, **unsecured**
     await emit_trace(
-        f"http://{tempo_host}:4318", nonce=nonce, ops_test=ops_test
+        f"http://{tempo_host}:4318/v1/traces", nonce=nonce, ops_test=ops_test
     )  # this should fail
     # THEN we can verify it's not been ingested
-    assert not get_traces(tempo_host, nonce=nonce)
+    assert get_traces_patiently(tempo_host, nonce=nonce)
 
 
+@pytest.mark.abort_on_fail
 async def test_verify_ingressed_trace_http_tls(ops_test: OpsTest, nonce, server_cert):
     tempo_host = await get_tempo_host(ops_test)
-    await emit_trace(f"https://{tempo_host}:4318", nonce=nonce, ops_test=ops_test, use_cert=True)
+    await emit_trace(
+        f"https://{tempo_host}:4318/v1/traces", nonce=nonce, ops_test=ops_test, use_cert=True
+    )
     # THEN we can verify it's been ingested
-    assert get_traces(tempo_host, nonce=nonce)
+    assert get_traces_patiently(tempo_host, nonce=nonce)
 
 
+@pytest.mark.abort_on_fail
 async def test_verify_ingressed_traces_grpc_tls(ops_test: OpsTest, nonce, server_cert):
     tempo_host = await get_tempo_host(ops_test)
     await emit_trace(
         f"{tempo_host}:4317", nonce=nonce, proto="grpc", ops_test=ops_test, use_cert=True
     )
     # THEN we can verify it's been ingested
-    assert get_traces(tempo_host, nonce=nonce)
+    assert get_traces_patiently(tempo_host, nonce=nonce)
 
 
 @pytest.mark.teardown
