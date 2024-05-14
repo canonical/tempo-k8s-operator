@@ -63,7 +63,9 @@ async def get_tempo_host(ops_test: OpsTest):
     return app.public_address
 
 
-async def emit_trace(endpoint, ops_test: OpsTest, nonce, proto: str = "http", verbose=0, use_cert=False):
+async def emit_trace(
+    endpoint, ops_test: OpsTest, nonce, proto: str = "http", verbose=0, use_cert=False
+):
     """Use juju ssh to run tracegen from the tempo charm; to avoid any DNS issues."""
     cmd = (
         f"juju ssh -m {ops_test.model_name} {APP_NAME}/0 "
@@ -148,7 +150,9 @@ async def test_verify_ingressed_trace_http_tls(ops_test: OpsTest, nonce, server_
 
 async def test_verify_ingressed_traces_grpc_tls(ops_test: OpsTest, nonce, server_cert):
     tempo_host = await get_tempo_host(ops_test)
-    await emit_trace(f"{tempo_host}:4317", nonce=nonce, proto="grpc", ops_test=ops_test, use_cert=True)
+    await emit_trace(
+        f"{tempo_host}:4317", nonce=nonce, proto="grpc", ops_test=ops_test, use_cert=True
+    )
     # THEN we can verify it's been ingested
     assert get_traces(tempo_host, nonce=nonce)
 
