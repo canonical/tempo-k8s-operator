@@ -131,6 +131,7 @@ class TempoCharm(CharmBase):
         self.framework.observe(self.on.collect_unit_status, self._on_collect_unit_status)
         self.framework.observe(self.on.list_receivers_action, self._on_list_receivers_action)
         self.framework.observe(self.cert_handler.on.cert_changed, self._on_cert_handler_changed)
+        self.framework.observe(self.on.config_changed, self._on_config_changed)
 
     @property
     def _external_http_server_url(self) -> str:
@@ -160,7 +161,7 @@ class TempoCharm(CharmBase):
 
     @property
     def tls_available(self) -> bool:
-        """Return True iff tls is enabled and the necessary certs are found."""
+        """Return True if tls is enabled and the necessary certs are found."""
         return (
             self.cert_handler.enabled
             and (self.cert_handler.server_cert is not None)
@@ -192,6 +193,10 @@ class TempoCharm(CharmBase):
         # sync the server cert with the charm container.
         # technically, because of charm tracing, this will be called first thing on each event
         self._update_server_cert()
+
+        # update relations to reflect the new certificate
+        self._update_tracing_v1_relations()
+        self._update_tracing_v2_relations()
 
     def _is_legacy_v1_relation(self, relation):
         if self.tracing.is_v2(relation):
@@ -253,6 +258,16 @@ class TempoCharm(CharmBase):
     def _on_leader_elected(self, e: HookEvent):
         # as traefik_route goes through app data, we need to take lead of traefik_route if our leader dies.
         self._configure_ingress(e)
+
+    def _on_config_changed(self, _):
+        # check if certificate files hasn't disappeared and recreate them if needed
+        if self.tls_available and not self.tempo.tls_ready:
+            logger.debug("enabling TLS")
+            self.tempo.configure_tls(
+                cert=self.cert_handler.server_cert,  # type: ignore
+                key=self.cert_handler.private_key,  # type: ignore
+                ca=self.cert_handler.ca_cert,  # type: ignore
+            )
 
     def _update_tracing_v1_relations(self):
         for relation in self.model.relations[self.tracing._relation_name]:
