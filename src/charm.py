@@ -260,7 +260,7 @@ class TempoCharm(CharmBase):
         self._configure_ingress(e)
 
     def _on_config_changed(self, _):
-        # check if certificate files hasn't disappeared and recreate them if needed
+        # check if certificate files haven't disappeared and recreate them if needed
         if self.tls_available and not self.tempo.tls_ready:
             logger.debug("enabling TLS")
             self.tempo.configure_tls(
