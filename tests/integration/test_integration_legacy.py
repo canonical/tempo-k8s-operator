@@ -17,6 +17,7 @@ TESTER_APP_NAME = TESTER_METADATA["name"]
 logger = logging.getLogger(__name__)
 
 
+@pytest.mark.setup
 @pytest.mark.abort_on_fail
 async def test_build_and_deploy(ops_test: OpsTest):
     # Given a fresh build of the charm
@@ -56,6 +57,7 @@ async def test_build_and_deploy(ops_test: OpsTest):
     assert ops_test.model.applications[APP_NAME].units[0].workload_status == "active"
 
 
+@pytest.mark.setup
 @pytest.mark.abort_on_fail
 async def test_relate(ops_test: OpsTest):
     # given a deployed charm
@@ -69,7 +71,6 @@ async def test_relate(ops_test: OpsTest):
     )
 
 
-@pytest.mark.abort_on_fail
 async def test_verify_traces(ops_test: OpsTest):
     # given a relation between charms
     # when traces endpoint is queried
@@ -100,6 +101,7 @@ async def test_verify_traces(ops_test: OpsTest):
     assert found, f"There's no trace of charm exec traces in tempo. {json.dumps(traces, indent=2)}"
 
 
+@pytest.mark.teardown
 @pytest.mark.abort_on_fail
 async def test_remove_relation(ops_test: OpsTest):
     # given related charms

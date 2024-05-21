@@ -6,6 +6,7 @@ import pytest
 import yaml
 from charms.tempo_k8s.v1.charm_tracing import charm_tracing_disabled
 from scenario import Container, Relation, State
+from tempo import Tempo
 
 
 @pytest.fixture
@@ -38,23 +39,10 @@ def test_ingress_relation_set_with_dynamic_config(context, base_state):
     ingress = Relation("ingress", remote_app_data={"external_host": "1.2.3.4", "scheme": "http"})
     state = base_state.replace(relations=[ingress])
 
-    out = context.run(getattr(ingress, "joined_event"), state)
+    with patch.object(Tempo, "is_ready", lambda _: False):
+        out = context.run(ingress.joined_event, state)
 
     expected_rel_data = {
-        "tcp": {
-            "routers": {
-                f"juju-{state.model.name}-tempo-k8s-otlp-grpc": {
-                    "entryPoints": ["otlp-grpc"],
-                    "rule": "ClientIP(`0.0.0.0/0`)",
-                    "service": f"juju-{state.model.name}-tempo-k8s-service-otlp-grpc",
-                }
-            },
-            "services": {
-                f"juju-{state.model.name}-tempo-k8s-service-otlp-grpc": {
-                    "loadBalancer": {"servers": [{"address": "1.2.3.4:4317"}]}
-                }
-            },
-        },
         "http": {
             "routers": {
                 f"juju-{state.model.name}-tempo-k8s-jaeger-thrift-http": {
@@ -77,6 +65,16 @@ def test_ingress_relation_set_with_dynamic_config(context, base_state):
                     "rule": "ClientIP(`0.0.0.0/0`)",
                     "service": f"juju-{state.model.name}-tempo-k8s-service-zipkin",
                 },
+                f"juju-{state.model.name}-tempo-k8s-otlp-grpc": {
+                    "entryPoints": ["otlp-grpc"],
+                    "rule": "ClientIP(`0.0.0.0/0`)",
+                    "service": f"juju-{state.model.name}-tempo-k8s-service-otlp-grpc",
+                },
+                f"juju-{state.model.name}-tempo-k8s-tempo-grpc": {
+                    "entryPoints": ["tempo-grpc"],
+                    "rule": "ClientIP(`0.0.0.0/0`)",
+                    "service": f"juju-{state.model.name}-tempo-k8s-service-tempo-grpc",
+                },
             },
             "services": {
                 f"juju-{state.model.name}-tempo-k8s-service-jaeger-thrift-http": {
@@ -90,6 +88,12 @@ def test_ingress_relation_set_with_dynamic_config(context, base_state):
                 },
                 f"juju-{state.model.name}-tempo-k8s-service-zipkin": {
                     "loadBalancer": {"servers": [{"url": "http://1.2.3.4:9411"}]}
+                },
+                f"juju-{state.model.name}-tempo-k8s-service-otlp-grpc": {
+                    "loadBalancer": {"servers": [{"url": "h2c://1.2.3.4:4317"}]},
+                },
+                f"juju-{state.model.name}-tempo-k8s-service-tempo-grpc": {
+                    "loadBalancer": {"servers": [{"url": "h2c://1.2.3.4:9096"}]}
                 },
             },
         },

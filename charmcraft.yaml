@@ -41,27 +41,42 @@ resources:
     upstream-source: grafana/tempo:2.4.0
 
 provides:
-  profiling-endpoint:
-    interface: parca_scrape
   grafana-dashboard:
     interface: grafana_dashboard
+    description: |
+      Forwards the built-in grafana dashboard(s) for monitoring Tempo.
   grafana-source:
     interface: grafana_datasource
+    description: |
+      Configures Grafana to be able to use this Tempo instance as a datasource.
   metrics-endpoint:
     interface: prometheus_scrape
+    description: |
+      Exposes the Prometheus metrics endpoint providing telemetry about the
+      Tempo instance.
   tracing:
     interface: tracing
+    description: |
+      Integration to offer other charms the possibility to send traces to Tempo.
+
 
 requires:
   logging:
     interface: loki_push_api
+    description: |
+      Integration with Loki to push Tempo logs to the observability stack.
   ingress:
     interface: traefik_route
-    limit: 1
     description: |
       Ingress integration for Tempo server and Tempo receiver endpoints,
       so that cross-model workloads can send their traces to Tempo through the ingress.
       Uses `traefik_route` to open ports on Traefik host for tracing ingesters.
+  certificates:
+    interface: tls-certificates
+    limit: 1
+    description: |
+      Certificate and key files for securing Tempo internal and external 
+      communications with TLS.
 
 storage:
   data:
@@ -86,5 +101,7 @@ parts:
   charm:
     charm-binary-python-packages:
       - "pydantic>=2"
+      - "cryptography"
+      - "jsonschema"
       - "opentelemetry-exporter-otlp-proto-http==1.21.0"
 

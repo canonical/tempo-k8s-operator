@@ -33,6 +33,8 @@ def tempo_oci_image(ops_test: OpsTest, tempo_metadata):
 def copy_charm_libs_into_tester_charm(ops_test):
     """Ensure the tester charm has the libraries it uses."""
     libraries = [
+        "observability_libs/v1/cert_handler.py",
+        "tls_certificates_interface/v3/tls_certificates.py",
         "tempo_k8s/v1/charm_tracing.py",
         "tempo_k8s/v1/tracing.py",
         "tempo_k8s/v2/tracing.py",

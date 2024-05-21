@@ -5,6 +5,7 @@
 """Tempo workload configuration and client."""
 import logging
 import socket
+from pathlib import Path
 from subprocess import CalledProcessError, getoutput
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -21,13 +22,26 @@ class Tempo:
     """Class representing the Tempo client workload configuration."""
 
     config_path = "/etc/tempo/tempo.yaml"
+
+    # cert path on charm container
+    server_cert_path = "/usr/local/share/ca-certificates/ca.crt"
+
+    # cert paths on tempo container
+    tls_cert_path = "/etc/tempo/tls/server.crt"
+    tls_key_path = "/etc/tempo/tls/server.key"
+    tls_ca_path = "/usr/local/share/ca-certificates/ca.crt"
+
+    _tls_min_version = ""
+    # cfr https://grafana.com/docs/enterprise-traces/latest/configure/reference/#supported-contents-and-default-values
+    # "VersionTLS12"
+
     wal_path = "/etc/tempo/tempo_wal"
     log_path = "/var/log/tempo.log"
     tempo_ready_notice_key = "canonical.com/tempo/workload-ready"
 
     server_ports = {
         "tempo_http": 3200,
-        # "tempo_grpc": 9096, # default grpc listen port is 9095, but that conflicts with promtail.
+        "tempo_grpc": 9096,  # default grpc listen port is 9095, but that conflicts with promtail.
     }
 
     receiver_ports: Dict[ReceiverProtocol, int] = {
@@ -48,18 +62,25 @@ class Tempo:
     def __init__(
         self,
         container: ops.Container,
-        local_host: str = "0.0.0.0",
+        external_host: Optional[str] = None,
         enable_receivers: Optional[Sequence[ReceiverProtocol]] = None,
     ):
         # ports source: https://github.com/grafana/tempo/blob/main/example/docker-compose/local/docker-compose.yaml
-        self._local_hostname = local_host
+
+        # fqdn, if an ingress is not available, else the ingress address.
+        self._external_hostname = external_host or socket.getfqdn()
         self.container = container
         self.enabled_receivers = enable_receivers or []
 
     @property
-    def tempo_server_port(self) -> int:
+    def tempo_http_server_port(self) -> int:
         """Return the receiver port for the built-in tempo_http protocol."""
         return self.server_ports["tempo_http"]
+
+    @property
+    def tempo_grpc_server_port(self) -> int:
+        """Return the receiver port for the built-in tempo_http protocol."""
+        return self.server_ports["tempo_grpc"]
 
     def get_external_ports(self, service_name_prefix: str) -> List[Tuple[str, int, int]]:
         """List of service names and port mappings for the kubernetes service patch.
@@ -78,14 +99,10 @@ class Tempo:
         ]
 
     @property
-    def host(self) -> str:
-        """Hostname at which tempo is running."""
-        return socket.getfqdn()
-
-    @property
     def url(self) -> str:
         """Base url at which the tempo server is locally reachable over http."""
-        return f"http://{self.host}"
+        scheme = "https" if self.tls_ready else "http"
+        return f"{scheme}://{self._external_hostname}"
 
     def plan(self):
         """Update pebble plan and start the tempo-ready service."""
@@ -161,17 +178,59 @@ class Tempo:
         except ops.pebble.PathError:
             return None
 
+    def configure_tls(self, *, cert: str, key: str, ca: str):
+        """Push cert, key and CA to the tempo container."""
+        # we save the cacert in the charm container too (for notices)
+        Path(self.server_cert_path).write_text(ca)
+
+        self.container.push(self.tls_cert_path, cert, make_dirs=True)
+        self.container.push(self.tls_key_path, key, make_dirs=True)
+        self.container.push(self.tls_ca_path, ca, make_dirs=True)
+        self.container.exec(["update-ca-certificates"])
+
+    def clear_tls_config(self):
+        """Remove cert, key and CA files from the tempo container."""
+        self.container.remove_path(self.tls_cert_path, recursive=True)
+        self.container.remove_path(self.tls_key_path, recursive=True)
+        self.container.remove_path(self.tls_ca_path, recursive=True)
+
+    @property
+    def tls_ready(self) -> bool:
+        """Whether cert, key, and ca paths are found on disk and Tempo is ready to use tls."""
+        if not self.container.can_connect():
+            return False
+        return all(
+            self.container.exists(tls_path)
+            for tls_path in (self.tls_cert_path, self.tls_key_path, self.tls_ca_path)
+        )
+
+    def _build_server_config(self):
+        server_config = {
+            "http_listen_port": self.tempo_http_server_port,
+            # we need to specify a grpc server port even if we're not using the grpc server,
+            # otherwise it will default to 9595 and make promtail bork
+            "grpc_listen_port": self.tempo_grpc_server_port,
+        }
+        if self.tls_ready:
+            for cfg in ("http_tls_config", "grpc_tls_config"):
+                server_config[cfg] = {  # type: ignore
+                    "cert_file": str(self.tls_cert_path),
+                    "key_file": str(self.tls_key_path),
+                    "client_ca_file": str(self.tls_ca_path),
+                    "client_auth_type": "VerifyClientCertIfGiven",
+                }
+            server_config["tls_min_version"] = self._tls_min_version  # type: ignore
+
+        return server_config
+
     def generate_config(self, receivers: Sequence[ReceiverProtocol]) -> dict:
         """Generate the Tempo configuration.
 
         Only activate the provided receivers.
         """
-        return {
+        config = {
             "auth_enabled": False,
-            "server": {
-                "http_listen_port": self.tempo_server_port,
-                # "grpc_listen_port": self.receiver_ports["tempo_grpc"],
-            },
+            "server": self._build_server_config(),
             # more configuration information can be found at
             # https://github.com/open-telemetry/opentelemetry-collector/tree/overlord/receiver
             "distributor": {"receivers": self._build_receivers_config(receivers)},
@@ -215,6 +274,28 @@ class Tempo:
             },
         }
 
+        if self.tls_ready:
+            # cfr:
+            # https://grafana.com/docs/tempo/latest/configuration/network/tls/#client-configuration
+            tls_config = {
+                "tls_enabled": True,
+                "tls_cert_path": self.tls_cert_path,
+                "tls_key_path": self.tls_key_path,
+                "tls_ca_path": self.tls_ca_path,
+                # try with fqdn?
+                "tls_server_name": self._external_hostname,
+            }
+            config["ingester_client"] = {"grpc_client_config": tls_config}
+            config["metrics_generator_client"] = {"grpc_client_config": tls_config}
+
+            # docs say it's `querier.query-frontend` but tempo complains about that
+            config["querier"] = {"frontend_worker": {"grpc_client_config": tls_config}}
+
+            # this is not an error.
+            config["memberlist"] = tls_config
+
+        return config
+
     @property
     def pebble_layer(self) -> Layer:
         """Generate the pebble layer for the Tempo container."""
@@ -234,14 +315,15 @@ class Tempo:
     @property
     def tempo_ready_layer(self) -> Layer:
         """Generate the pebble layer to fire the tempo-ready custom notice."""
+        s = "s" if self.tls_ready else ""
         return Layer(
             {
                 "services": {
                     "tempo-ready": {
                         "override": "replace",
                         "summary": "Notify charm when tempo is ready",
-                        "command": f"""watch -n 5 '[ $(wget -q -O- localhost:{self.tempo_server_port}/ready) = "ready" ] && 
-                                   ( /charm/bin/pebble notify {self.tempo_ready_notice_key} ) || 
+                        "command": f"""watch -n 5 '[ $(wget -q -O- --no-check-certificate http{s}://localhost:{self.tempo_http_server_port}/ready) = "ready" ] &&
+                                   ( /charm/bin/pebble notify {self.tempo_ready_notice_key} ) ||
                                    ( echo "tempo not ready" )'""",
                         "startup": "disabled",
                     }
@@ -251,10 +333,16 @@ class Tempo:
 
     def is_ready(self):
         """Whether the tempo built-in readiness check reports 'ready'."""
+        if self.tls_ready:
+            tls, s = f" --cacert {self.server_cert_path}", "s"
+        else:
+            tls = s = ""
+
+        # cert is for fqdn/ingress, not for IP
+        cmd = f"curl{tls} http{s}://{self._external_hostname}:{self.tempo_http_server_port}/ready"
+
         try:
-            out = getoutput(
-                f"curl http://{self._local_hostname}:{self.tempo_server_port}/ready"
-            ).split("\n")[-1]
+            out = getoutput(cmd).split("\n")[-1]
         except (CalledProcessError, IndexError):
             return False
         return out == "ready"
@@ -268,31 +356,42 @@ class Tempo:
         if not receivers_set:
             logger.warning("No receivers set. Tempo will be up but not functional.")
 
+        if self.tls_ready:
+            receiver_config = {
+                "tls": {
+                    "ca_file": str(self.tls_ca_path),
+                    "cert_file": str(self.tls_cert_path),
+                    "key_file": str(self.tls_key_path),
+                    "min_version": self._tls_min_version,
+                }
+            }
+        else:
+            receiver_config = None
+
         config = {}
 
-        # TODO: how do we pass the ports into this config?
         if "zipkin" in receivers_set:
-            config["zipkin"] = None
+            config["zipkin"] = receiver_config
         if "opencensus" in receivers_set:
-            config["opencensus"] = None
+            config["opencensus"] = receiver_config
 
         otlp_config = {}
         if "otlp_http" in receivers_set:
-            otlp_config["http"] = None
+            otlp_config["http"] = receiver_config
         if "otlp_grpc" in receivers_set:
-            otlp_config["grpc"] = None
+            otlp_config["grpc"] = receiver_config
         if otlp_config:
             config["otlp"] = {"protocols": otlp_config}
 
         jaeger_config = {}
         if "jaeger_thrift_http" in receivers_set:
-            jaeger_config["thrift_http"] = None
+            jaeger_config["thrift_http"] = receiver_config
         if "jaeger_grpc" in receivers_set:
-            jaeger_config["grpc"] = None
+            jaeger_config["grpc"] = receiver_config
         if "jaeger_thrift_binary" in receivers_set:
-            jaeger_config["thrift_binary"] = None
+            jaeger_config["thrift_binary"] = receiver_config
         if "jaeger_thrift_compact" in receivers_set:
-            jaeger_config["thrift_compact"] = None
+            jaeger_config["thrift_compact"] = receiver_config
         if jaeger_config:
             config["jaeger"] = {"protocols": jaeger_config}
 

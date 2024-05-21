@@ -7,6 +7,7 @@
 import logging
 import re
 import socket
+from pathlib import Path
 from typing import Optional, Tuple
 
 import charms.tempo_k8s.v1.tracing as tracing_v1
@@ -15,6 +16,7 @@ from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
 from charms.grafana_k8s.v0.grafana_source import GrafanaSourceProvider
 from charms.loki_k8s.v0.loki_push_api import LogProxyConsumer
 from charms.observability_libs.v0.kubernetes_service_patch import KubernetesServicePatch
+from charms.observability_libs.v1.cert_handler import CertHandler
 from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
 from charms.tempo_k8s.v1.charm_tracing import trace_charm
 from charms.tempo_k8s.v2.tracing import (
@@ -33,7 +35,6 @@ from ops.charm import (
 )
 from ops.main import main
 from ops.model import ActiveStatus, MaintenanceStatus, Relation, WaitingStatus
-
 from tempo import Tempo
 
 logger = logging.getLogger(__name__)
@@ -48,6 +49,7 @@ LEGACY_RECEIVER_PROTOCOLS = (
 
 @trace_charm(
     tracing_endpoint="tempo_otlp_http_endpoint",
+    server_cert="server_cert",
     extra_types=(Tempo, TracingEndpointProvider, tracing_v1.TracingEndpointProvider),
 )
 class TempoCharm(CharmBase):
@@ -57,12 +59,32 @@ class TempoCharm(CharmBase):
         super().__init__(*args)
         self.tempo = tempo = Tempo(
             self.unit.get_container("tempo"),
+            external_host=self.hostname,
             # we need otlp_http receiver for charm_tracing
             enable_receivers=["otlp_http"],
         )
+
+        # TODO:
+        #  ingress route provisioning a separate TCP ingress for each receiver if GRPC doesn't work directly
+        self.ingress = TraefikRouteRequirer(self, self.model.get_relation("ingress"), "ingress")  # type: ignore
+
+        self.cert_handler = CertHandler(
+            self,
+            key="tempo-server-cert",
+            sans=[self.hostname],
+        )
+
         # configure this tempo as a datasource in grafana
         self.grafana_source_provider = GrafanaSourceProvider(
-            self, source_type="tempo", source_port=str(tempo.tempo_server_port)
+            self,
+            source_type="tempo",
+            source_url=self._external_http_server_url,
+            refresh_event=[
+                # refresh the source url when TLS config might be changing
+                self.on[self.cert_handler.certificates_relation_name].relation_changed,
+                # or when ingress changes
+                self.ingress.on.ready,
+            ],
         )
         # # Patch the juju-created Kubernetes service to contain the right ports
         external_ports = tempo.get_external_ports(self.app.name)
@@ -71,7 +93,7 @@ class TempoCharm(CharmBase):
         self._scraping = MetricsEndpointProvider(
             self,
             relation_name="metrics-endpoint",
-            jobs=[{"static_configs": [{"targets": [f"*:{tempo.tempo_server_port}"]}]}],
+            jobs=[{"static_configs": [{"targets": [f"*:{tempo.tempo_http_server_port}"]}]}],
         )
         # Enable log forwarding for Loki and other charms that implement loki_push_api
         self._logging = LogProxyConsumer(
@@ -80,18 +102,12 @@ class TempoCharm(CharmBase):
         self._grafana_dashboards = GrafanaDashboardProvider(
             self, relation_name="grafana-dashboard"
         )
-        # Enable profiling over a relation with Parca
-        # self._profiling = ProfilingEndpointProvider(
-        #     self, jobs=[{"static_configs": [{"targets": ["*:4080"]}]}]
-        # )
 
-        self._ingress = TraefikRouteRequirer(self, self.model.get_relation("ingress"), "ingress")  # type: ignore
-        self._tracing = TracingEndpointProvider(
-            # TODO set internal_scheme based on whether TLS is enabled
+        self.tracing = TracingEndpointProvider(
             self,
-            host=self.tempo.host,
-            external_url=self._ingress.external_host,
-            internal_scheme="http",
+            host=self.hostname,
+            external_url=self._external_url,
+            internal_scheme="https" if self.tls_available else "http",
         )
 
         self.framework.observe(
@@ -101,22 +117,89 @@ class TempoCharm(CharmBase):
             self.on["ingress"].relation_joined, self._on_ingress_relation_joined
         )
         self.framework.observe(self.on.leader_elected, self._on_leader_elected)
-        self.framework.observe(self._ingress.on.ready, self._on_ingress_ready)
+        self.framework.observe(self.ingress.on.ready, self._on_ingress_ready)
 
         self.framework.observe(self.on.tempo_pebble_ready, self._on_tempo_pebble_ready)
         self.framework.observe(
             self.on.tempo_pebble_custom_notice, self._on_tempo_pebble_custom_notice
         )
         self.framework.observe(self.on.update_status, self._on_update_status)
-        self.framework.observe(self._tracing.on.request, self._on_tracing_request)
+        self.framework.observe(self.tracing.on.request, self._on_tracing_request)
         self.framework.observe(self.on.tracing_relation_created, self._on_tracing_relation_created)
         self.framework.observe(self.on.tracing_relation_joined, self._on_tracing_relation_joined)
         self.framework.observe(self.on.tracing_relation_changed, self._on_tracing_relation_changed)
         self.framework.observe(self.on.collect_unit_status, self._on_collect_unit_status)
         self.framework.observe(self.on.list_receivers_action, self._on_list_receivers_action)
+        self.framework.observe(self.cert_handler.on.cert_changed, self._on_cert_handler_changed)
+        self.framework.observe(self.on.config_changed, self._on_config_changed)
+
+    @property
+    def _external_http_server_url(self) -> str:
+        """External url of the http(s) server."""
+        return f"{self._external_url}:{self.tempo.tempo_http_server_port}"
+
+    @property
+    def _external_url(self) -> str:
+        """Return the external url."""
+        if self.ingress.is_ready():
+            ingress_url = f"{self.ingress.scheme}://{self.ingress.external_host}"
+            logger.debug("This unit's ingress URL: %s", ingress_url)
+            return ingress_url
+
+        # If we do not have an ingress, then use the pod hostname.
+        # The reason to prefer this over the pod name (which is the actual
+        # hostname visible from the pod) or a K8s service, is that those
+        # are routable virtually exclusively inside the cluster (as they rely)
+        # on the cluster's DNS service, while the ip address is _sometimes_
+        # routable from the outside, e.g., when deploying on MicroK8s on Linux.
+        return self._internal_url
+
+    @property
+    def _internal_url(self) -> str:
+        scheme = "https" if self.tls_available else "http"
+        return f"{scheme}://{self.hostname}"
+
+    @property
+    def tls_available(self) -> bool:
+        """Return True if tls is enabled and the necessary certs are found."""
+        return (
+            self.cert_handler.enabled
+            and (self.cert_handler.server_cert is not None)
+            and (self.cert_handler.private_key is not None)
+            and (self.cert_handler.ca_cert is not None)
+        )
+
+    def _on_cert_handler_changed(self, _):
+        was_ready = self.tempo.tls_ready
+
+        if self.tls_available:
+            logger.debug("enabling TLS")
+            self.tempo.configure_tls(
+                cert=self.cert_handler.server_cert,  # type: ignore
+                key=self.cert_handler.private_key,  # type: ignore
+                ca=self.cert_handler.ca_cert,  # type: ignore
+            )
+        else:
+            logger.debug("disabling TLS")
+            self.tempo.clear_tls_config()
+
+        if was_ready != self.tempo.tls_ready:
+            # tls readiness change means config change.
+            self.tempo.update_config(self._requested_receivers())
+            # sync scheme change with traefik and related consumers
+            self._configure_ingress(_)
+            self.tempo.restart()
+
+        # sync the server cert with the charm container.
+        # technically, because of charm tracing, this will be called first thing on each event
+        self._update_server_cert()
+
+        # update relations to reflect the new certificate
+        self._update_tracing_v1_relations()
+        self._update_tracing_v2_relations()
 
     def _is_legacy_v1_relation(self, relation):
-        if self._tracing.is_v2(relation):
+        if self.tracing.is_v2(relation):
             return False
 
         juju_keys = {"egress-subnets", "ingress-address", "private-address"}
@@ -133,11 +216,11 @@ class TempoCharm(CharmBase):
         if not self.unit.is_leader():
             return
 
-        if self._ingress.is_ready():
-            self._ingress.submit_to_traefik(
+        if self.ingress.is_ready():
+            self.ingress.submit_to_traefik(
                 self._ingress_config, static=self._static_ingress_config
             )
-            if self._ingress.external_host:
+            if self.ingress.external_host:
                 self._update_tracing_v1_relations()
                 self._update_tracing_v2_relations()
 
@@ -152,18 +235,18 @@ class TempoCharm(CharmBase):
         self._update_tracing_v2_relations()
 
     def _on_tracing_relation_created(self, e: RelationEvent):
-        if not self._tracing.is_v2(e.relation):
+        if not self.tracing.is_v2(e.relation):
             self._publish_v1_data(e.relation)
             # if this is the first legacy relation we get, we need to update ALL other relations
             # as we might need to add all legacy protocols to the mix
             self._update_tracing_v2_relations()
 
     def _on_tracing_relation_joined(self, e: RelationEvent):
-        if not self._tracing.is_v2(e.relation):
+        if not self.tracing.is_v2(e.relation):
             self._publish_v1_data(e.relation)
 
     def _on_tracing_relation_changed(self, e: RelationEvent):
-        if not self._tracing.is_v2(e.relation):
+        if not self.tracing.is_v2(e.relation):
             self._publish_v1_data(e.relation)
 
     def _on_ingress_relation_created(self, e: RelationEvent):
@@ -176,9 +259,19 @@ class TempoCharm(CharmBase):
         # as traefik_route goes through app data, we need to take lead of traefik_route if our leader dies.
         self._configure_ingress(e)
 
+    def _on_config_changed(self, _):
+        # check if certificate files haven't disappeared and recreate them if needed
+        if self.tls_available and not self.tempo.tls_ready:
+            logger.debug("enabling TLS")
+            self.tempo.configure_tls(
+                cert=self.cert_handler.server_cert,  # type: ignore
+                key=self.cert_handler.private_key,  # type: ignore
+                ca=self.cert_handler.ca_cert,  # type: ignore
+            )
+
     def _update_tracing_v1_relations(self):
-        for relation in self.model.relations[self._tracing._relation_name]:
-            if not self._tracing.is_v2(relation):
+        for relation in self.model.relations[self.tracing._relation_name]:
+            if not self.tracing.is_v2(relation):
                 self._publish_v1_data(relation)
 
     def _publish_v1_data(self, relation: Relation):
@@ -196,9 +289,11 @@ class TempoCharm(CharmBase):
             tracing_v1.Ingester(protocol=p, port=self.tempo.receiver_ports[p])
             for p in LEGACY_RECEIVER_PROTOCOLS
         ]
-        tracing_v1.TracingProviderAppData(host=self.tempo.host, ingesters=receivers).dump(
-            relation.data[self.app]
-        )
+        # this should be behind a leader guard
+        if self.unit.is_leader():
+            tracing_v1.TracingProviderAppData(host=self.hostname, ingesters=receivers).dump(
+                relation.data[self.app]
+            )
 
     def _update_tracing_v2_relations(self):
         tracing_relations = self.model.relations["tracing"]
@@ -210,9 +305,10 @@ class TempoCharm(CharmBase):
 
         requested_receivers = self._requested_receivers()
         # publish requested protocols to all v2 relations
-        self._tracing.publish_receivers(
-            [(p, self.tempo.receiver_ports[p]) for p in requested_receivers]
-        )
+        if self.unit.is_leader():
+            self.tracing.publish_receivers(
+                [(p, self.tempo.receiver_ports[p]) for p in requested_receivers]
+            )
 
         self._restart_if_receivers_changed(requested_receivers)
 
@@ -231,7 +327,7 @@ class TempoCharm(CharmBase):
     def _requested_receivers(self) -> Tuple[ReceiverProtocol, ...]:
         """List what receivers we should activate, based on the active tracing relations."""
         # we start with the sum of the requested endpoints from the v2 requirers
-        requested_protocols = set(self._tracing.requested_protocols())
+        requested_protocols = set(self.tracing.requested_protocols())
 
         # if we have any v0/v1 requirer, we'll need to activate all supported legacy endpoints
         # and publish them too (only to v1 requirers).
@@ -319,13 +415,28 @@ class TempoCharm(CharmBase):
             return
         return version
 
+    def server_cert(self):
+        """For charm tracing."""
+        self._update_server_cert()
+        return self.tempo.server_cert_path
+
+    def _update_server_cert(self):
+        """Server certificate for charm tracing tls, if tls is enabled."""
+        server_cert = Path(self.tempo.server_cert_path)
+        if self.tls_available:
+            if not server_cert.exists():
+                server_cert.parent.mkdir(parents=True, exist_ok=True)
+                if self.cert_handler.server_cert:
+                    server_cert.write_text(self.cert_handler.server_cert)
+        else:  # tls unavailable: delete local cert
+            server_cert.unlink(missing_ok=True)
+
     def tempo_otlp_http_endpoint(self) -> Optional[str]:
         """Endpoint at which the charm tracing information will be forwarded."""
         # the charm container and the tempo workload container have apparently the same
         # IP, so we can talk to tempo at localhost.
-        # TODO switch to HTTPS once SSL support is added
         if self.tempo.is_ready():
-            return f"http://localhost:{self.tempo.receiver_ports['otlp_http']}"
+            return f"{self._internal_url}:{self.tempo.receiver_ports['otlp_http']}"
 
         return None
 
@@ -345,9 +456,9 @@ class TempoCharm(CharmBase):
     def _on_list_receivers_action(self, event: ops.ActionEvent):
         res = {}
         for receiver in self._requested_receivers():
-            res[
-                receiver.replace("_", "-")
-            ] = f"{self._ingress.external_host or self.tempo.url}/{receiver}"
+            res[receiver.replace("_", "-")] = (
+                f"{self.ingress.external_host or self.tempo.url}/{receiver}"
+            )
         event.set_results(res)
 
     @property
@@ -362,43 +473,29 @@ class TempoCharm(CharmBase):
     @property
     def _ingress_config(self) -> dict:
         """Build a raw ingress configuration for Traefik."""
-        tcp_routers = {}
-        tcp_services = {}
         http_routers = {}
         http_services = {}
         for protocol, port in self.tempo.all_ports.items():
             sanitized_protocol = protocol.replace("_", "-")
-            if sanitized_protocol.endswith("grpc"):
-                # grpc handling
-                tcp_routers[
-                    f"juju-{self.model.name}-{self.model.app.name}-{sanitized_protocol}"
-                ] = {
-                    "entryPoints": [sanitized_protocol],
-                    "service": f"juju-{self.model.name}-{self.model.app.name}-service-{sanitized_protocol}",
-                    # TODO better matcher
-                    "rule": "ClientIP(`0.0.0.0/0`)",
-                }
-                tcp_services[
-                    f"juju-{self.model.name}-{self.model.app.name}-service-{sanitized_protocol}"
-                ] = {"loadBalancer": {"servers": [{"address": f"{self.hostname}:{port}"}]}}
-            else:
-                # it's a http protocol, so we use a http section of the dynamic configuration
-                http_routers[
-                    f"juju-{self.model.name}-{self.model.app.name}-{sanitized_protocol}"
-                ] = {
-                    "entryPoints": [sanitized_protocol],
-                    "service": f"juju-{self.model.name}-{self.model.app.name}-service-{sanitized_protocol}",
-                    # TODO better matcher
-                    "rule": "ClientIP(`0.0.0.0/0`)",
-                }
+            http_routers[f"juju-{self.model.name}-{self.model.app.name}-{sanitized_protocol}"] = {
+                "entryPoints": [sanitized_protocol],
+                "service": f"juju-{self.model.name}-{self.model.app.name}-service-{sanitized_protocol}",
+                # TODO better matcher
+                "rule": "ClientIP(`0.0.0.0/0`)",
+            }
+            if sanitized_protocol.endswith("grpc") and not self.tls_available:
+                # to send traces to unsecured GRPC endpoints, we need h2c
+                # see https://doc.traefik.io/traefik/v2.0/user-guides/grpc/#with-http-h2c
                 http_services[
                     f"juju-{self.model.name}-{self.model.app.name}-service-{sanitized_protocol}"
-                ] = {"loadBalancer": {"servers": [{"url": f"http://{self.hostname}:{port}"}]}}
+                ] = {"loadBalancer": {"servers": [{"url": f"h2c://{self.hostname}:{port}"}]}}
+            else:
+                # anything else, including secured GRPC, can use _internal_url
+                # ref https://doc.traefik.io/traefik/v2.0/user-guides/grpc/#with-https
+                http_services[
+                    f"juju-{self.model.name}-{self.model.app.name}-service-{sanitized_protocol}"
+                ] = {"loadBalancer": {"servers": [{"url": f"{self._internal_url}:{port}"}]}}
         return {
-            "tcp": {
-                "routers": tcp_routers,
-                "services": tcp_services,
-            },
             "http": {
                 "routers": http_routers,
                 "services": http_services,
