@@ -223,7 +223,7 @@ class TempoCharm(CharmBase):
         tracing_relations = self.model.relations["tracing"]
         if not tracing_relations:
             # todo: set waiting status and configure tempo to run without receivers if possible,
-            #  else pe_update_tracing_relationsrhaps postpone starting the workload at all.
+            #  else perhaps postpone starting the workload at all.
             logger.warning("no tracing relations: Tempo has no receivers configured.")
             return
 
