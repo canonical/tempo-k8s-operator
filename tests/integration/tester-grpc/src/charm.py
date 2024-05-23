@@ -7,9 +7,7 @@ import time
 from pathlib import Path
 from typing import List, Optional
 
-from charms.tempo_k8s.v2.tracing import (
-    TracingEndpointRequirer,
-)
+from charms.tempo_k8s.v2.tracing import TracingEndpointRequirer
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.resources import Resource
