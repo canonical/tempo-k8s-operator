@@ -219,18 +219,20 @@ class TempoCharm(CharmBase):
                 ca=self.cert_handler.ca_cert,  # type: ignore
             )
 
-    def _update_tracing_relations(self, use_ingress = True):
+    def _update_tracing_relations(self):
         tracing_relations = self.model.relations["tracing"]
         if not tracing_relations:
             # todo: set waiting status and configure tempo to run without receivers if possible,
-            #  else perhaps postpone starting the workload at all.
+            #  else pe_update_tracing_relationsrhaps postpone starting the workload at all.
             logger.warning("no tracing relations: Tempo has no receivers configured.")
             return
 
         requested_receivers = self._requested_receivers()
         # publish requested protocols to all relations
         if self.unit.is_leader():
-            self.tracing.publish_receivers([(p, self.tempo.get_receiver_url(p)) for p in requested_receivers ])
+            self.tracing.publish_receivers(
+                [(p, self.tempo.get_receiver_url(p)) for p in requested_receivers]
+            )
 
         self._restart_if_receivers_changed(requested_receivers)
 

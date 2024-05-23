@@ -106,29 +106,31 @@ class Tempo:
         scheme = "https" if self.tls_ready else "http"
         return f"{scheme}://{self._external_hostname}"
 
-    
     def get_receiver_url(self, protocol: ReceiverProtocol):
         """Return the receiver endpoint URL based on the protocol."""
         protocol_type = ReceiverProtocolType.get(protocol)
         use_ingress = self.charm.ingress.is_ready()
         receiver_port = self.receiver_ports[protocol]
-        
+
         if protocol_type == "http":
             if use_ingress:
                 return f"{self.charm.ingress.scheme}://{self.charm.ingress.external_host}:{receiver_port}"
             return f"{self.url}:{receiver_port}"
-        
+
         if use_ingress:
             return f"{self.charm.ingress.external_host}:{receiver_port}"
         return f"{self._external_hostname}:{receiver_port}"
 
-    def get_ingressed_receiver_url(self, protocol: ReceiverProtocol, ):
+    def get_ingressed_receiver_url(
+        self,
+        protocol: ReceiverProtocol,
+    ):
         """Return the receiver endpoint URL based on the protocol."""
         protocol_type = ReceiverProtocolType.get(protocol)
         if protocol_type == "http":
             return f"{self.url}:{self.receiver_ports[protocol]}"
         return f"{self._external_hostname}:{self.receiver_ports[protocol]}"
-    
+
     def plan(self):
         """Update pebble plan and start the tempo-ready service."""
         self.container.add_layer("tempo", self.pebble_layer, combine=True)

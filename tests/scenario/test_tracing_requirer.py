@@ -1,4 +1,3 @@
-import json
 import socket
 
 import pytest
@@ -91,7 +90,6 @@ def test_requirer_api_with_internal_scheme(context):
 def test_ingressed_requirer_api(context):
     # WHEN external_url is present in remote app databag
     external_url = "http://1.2.3.4"
-    host = socket.getfqdn()
     tracing = Relation(
         "tracing",
         remote_app_data={

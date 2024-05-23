@@ -570,8 +570,7 @@ class TracingEndpointProvider(Object):
             self.on.request.emit(e.relation)
 
     def is_requirer_ready(self, relation: Relation):
-        """Attempt to determine if requirer has already populated app data.
-        """
+        """Attempt to determine if requirer has already populated app data."""
         try:
             self._get_requested_protocols(relation)
         except NotReadyError:
