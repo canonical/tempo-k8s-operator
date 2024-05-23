@@ -134,7 +134,7 @@ ReceiverProtocol = Literal[
     "otlp_http",
 ]
 
-RawReceiver = Tuple[ReceiverProtocol, int]
+RawReceiver = Tuple[ReceiverProtocol, str]
 BUILTIN_JUJU_KEYS = {"ingress-address", "private-address", "egress-subnets"}
 
 
@@ -618,7 +618,7 @@ class TracingEndpointProvider(Object):
                         Receiver(
                             url=url,
                             protocol=ProtocolType(
-                                name=protocol, type=ReceiverProtocolType.get(protocol)
+                                name=protocol, type=ReceiverProtocolType.get(protocol) or ""
                             ),
                         )
                         for protocol, url in receivers

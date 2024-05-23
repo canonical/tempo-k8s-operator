@@ -44,7 +44,7 @@ class Tempo:
         "tempo_grpc": 9096,  # default grpc listen port is 9095, but that conflicts with promtail.
     }
 
-    receiver_ports: Dict[ReceiverProtocol, int] = {
+    receiver_ports: Dict[str, int] = {
         "zipkin": 9411,
         "otlp_grpc": 4317,
         "otlp_http": 4318,
@@ -109,16 +109,17 @@ class Tempo:
     def get_receiver_url(self, protocol: ReceiverProtocol):
         """Return the receiver endpoint URL based on the protocol."""
         protocol_type = ReceiverProtocolType.get(protocol)
-        use_ingress = self.charm.ingress.is_ready()
+        ingress = self.charm.ingress  # type: ignore
+        use_ingress = ingress.is_ready()
         receiver_port = self.receiver_ports[protocol]
 
         if protocol_type == "http":
             if use_ingress:
-                return f"{self.charm.ingress.scheme}://{self.charm.ingress.external_host}:{receiver_port}"
+                return f"{ingress.scheme}://{ingress.external_host}:{receiver_port}"
             return f"{self.url}:{receiver_port}"
 
         if use_ingress:
-            return f"{self.charm.ingress.external_host}:{receiver_port}"
+            return f"{ingress.external_host}:{receiver_port}"
         return f"{self._external_hostname}:{receiver_port}"
 
     def plan(self):
