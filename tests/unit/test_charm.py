@@ -4,7 +4,7 @@
 import logging
 import unittest
 from unittest.mock import patch
-
+import socket
 from charm import TempoCharm
 from ops.model import ActiveStatus
 from ops.testing import Harness
@@ -52,7 +52,7 @@ class TestTempoCharm(unittest.TestCase):
 
         rel_data = self.harness.get_relation_data(tracing_rel_id, self.harness.charm.app.name)
         logging.warning(rel_data)
-        self.assertEqual(rel_data["receivers"], '[{"protocol": "otlp_http", "port": 4318}]')
+        self.assertEqual(rel_data["receivers"], f'[{{"protocol": {{"name": "otlp_http", "type": "http"}}, "url": "http://{socket.getfqdn()}:4318"}}]')
 
     @property
     def _container(self):

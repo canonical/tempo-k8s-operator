@@ -12,7 +12,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import ops
 import tenacity
 import yaml
-from charms.tempo_k8s.v2.tracing import ReceiverProtocol
+from charms.tempo_k8s.v2.tracing import ReceiverProtocol, ReceiverProtocolType
 from ops.pebble import Layer
 
 logger = logging.getLogger(__name__)
@@ -62,6 +62,7 @@ class Tempo:
     def __init__(
         self,
         container: ops.Container,
+        charm: Optional[object] = None,
         external_host: Optional[str] = None,
         enable_receivers: Optional[Sequence[ReceiverProtocol]] = None,
     ):
@@ -71,6 +72,7 @@ class Tempo:
         self._external_hostname = external_host or socket.getfqdn()
         self.container = container
         self.enabled_receivers = enable_receivers or []
+        self.charm = charm
 
     @property
     def tempo_http_server_port(self) -> int:
@@ -104,6 +106,29 @@ class Tempo:
         scheme = "https" if self.tls_ready else "http"
         return f"{scheme}://{self._external_hostname}"
 
+    
+    def get_receiver_url(self, protocol: ReceiverProtocol):
+        """Return the receiver endpoint URL based on the protocol."""
+        protocol_type = ReceiverProtocolType.get(protocol)
+        use_ingress = self.charm.ingress.is_ready()
+        receiver_port = self.receiver_ports[protocol]
+        
+        if protocol_type == "http":
+            if use_ingress:
+                return f"{self.charm.ingress.scheme}://{self.charm.ingress.external_host}:{receiver_port}"
+            return f"{self.url}:{receiver_port}"
+        
+        if use_ingress:
+            return f"{self.charm.ingress.external_host}:{receiver_port}"
+        return f"{self._external_hostname}:{receiver_port}"
+
+    def get_ingressed_receiver_url(self, protocol: ReceiverProtocol, ):
+        """Return the receiver endpoint URL based on the protocol."""
+        protocol_type = ReceiverProtocolType.get(protocol)
+        if protocol_type == "http":
+            return f"{self.url}:{self.receiver_ports[protocol]}"
+        return f"{self._external_hostname}:{self.receiver_ports[protocol]}"
+    
     def plan(self):
         """Update pebble plan and start the tempo-ready service."""
         self.container.add_layer("tempo", self.pebble_layer, combine=True)

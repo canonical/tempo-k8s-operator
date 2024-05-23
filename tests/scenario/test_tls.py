@@ -2,7 +2,7 @@ import socket
 from unittest.mock import patch
 
 import pytest
-from charm import TempoCharm
+from charm import Tempo
 from charms.tempo_k8s.v1.charm_tracing import charm_tracing_disabled
 from charms.tempo_k8s.v2.tracing import TracingProviderAppData, TracingRequirerAppData
 from scenario import Container, Relation, State
@@ -24,17 +24,14 @@ def update_relations_tls_and_verify(
     tracing,
 ):
     state = base_state.replace(relations=relations)
-    with charm_tracing_disabled(), patch.object(TempoCharm, "tls_available", local_has_tls):
+    with charm_tracing_disabled(), patch.object(Tempo, "tls_ready", local_has_tls):
         out = context.run(tracing.changed_event, state)
     tracing_provider_app_data = TracingProviderAppData.load(
         out.get_relations(tracing.endpoint)[0].local_app_data
     )
-    assert tracing_provider_app_data.host == socket.getfqdn()
-    assert (
-        tracing_provider_app_data.external_url
-        == f"{remote_scheme if has_ingress else local_scheme}://{socket.getfqdn() if not has_ingress else 'foo.com.org'}"
-    )
-    assert tracing_provider_app_data.internal_scheme == local_scheme
+    actual_url = tracing_provider_app_data.receivers[0].url
+    expected_url = f"{remote_scheme if has_ingress else local_scheme}://{socket.getfqdn() if not has_ingress else 'foo.com.org'}:4318"
+    assert actual_url == expected_url
     return out
 
 
