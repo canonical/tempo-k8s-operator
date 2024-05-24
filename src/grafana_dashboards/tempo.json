@@ -28,7 +28,7 @@
         "hide": true,
         "iconColor": "rgba(255, 96, 96, 1)",
         "name": "diffs",
-        "showIn": 0, // codespell:ignore
+        "showIn": 0,
         "target": {}
       }
     ]
