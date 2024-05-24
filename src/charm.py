@@ -51,7 +51,6 @@ class TempoCharm(CharmBase):
         super().__init__(*args)
         self.tempo = tempo = Tempo(
             self.unit.get_container("tempo"),
-            charm=self,
             external_host=self.hostname,
             # we need otlp_http receiver for charm_tracing
             enable_receivers=["otlp_http"],
@@ -231,7 +230,7 @@ class TempoCharm(CharmBase):
         # publish requested protocols to all relations
         if self.unit.is_leader():
             self.tracing.publish_receivers(
-                [(p, self.tempo.get_receiver_url(p)) for p in requested_receivers]
+                [(p, self.tempo.get_receiver_url(p, self.ingress)) for p in requested_receivers]
             )
 
         self._restart_if_receivers_changed(requested_receivers)

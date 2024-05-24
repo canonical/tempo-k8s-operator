@@ -13,6 +13,7 @@ import ops
 import tenacity
 import yaml
 from charms.tempo_k8s.v2.tracing import ReceiverProtocol, ReceiverProtocolType
+from charms.traefik_route_k8s.v0.traefik_route import TraefikRouteRequirer
 from ops.pebble import Layer
 
 logger = logging.getLogger(__name__)
@@ -62,7 +63,6 @@ class Tempo:
     def __init__(
         self,
         container: ops.Container,
-        charm: Optional[object] = None,
         external_host: Optional[str] = None,
         enable_receivers: Optional[Sequence[ReceiverProtocol]] = None,
     ):
@@ -72,7 +72,6 @@ class Tempo:
         self._external_hostname = external_host or socket.getfqdn()
         self.container = container
         self.enabled_receivers = enable_receivers or []
-        self.charm = charm
 
     @property
     def tempo_http_server_port(self) -> int:
@@ -106,21 +105,23 @@ class Tempo:
         scheme = "https" if self.tls_ready else "http"
         return f"{scheme}://{self._external_hostname}"
 
-    def get_receiver_url(self, protocol: ReceiverProtocol):
-        """Return the receiver endpoint URL based on the protocol."""
+    def get_receiver_url(self, protocol: ReceiverProtocol, ingress: TraefikRouteRequirer):
+        """Return the receiver endpoint URL based on the protocol.
+
+        if ingress is used, return endpoint provided by the ingress instead.
+        """
         protocol_type = ReceiverProtocolType.get(protocol)
-        ingress = self.charm.ingress  # type: ignore
-        use_ingress = ingress.is_ready()
+        is_ingress = ingress.is_ready()
         receiver_port = self.receiver_ports[protocol]
 
-        if protocol_type == "http":
-            if use_ingress:
-                return f"{ingress.scheme}://{ingress.external_host}:{receiver_port}"
-            return f"{self.url}:{receiver_port}"
-
-        if use_ingress:
-            return f"{ingress.external_host}:{receiver_port}"
-        return f"{self._external_hostname}:{receiver_port}"
+        url = self.url
+        if is_ingress:
+            url = f"{ingress.scheme}://{ingress.external_host}"
+        if protocol_type == "grpc":
+            url = self._external_hostname
+            if is_ingress:
+                url = ingress.external_host
+        return f"{url}:{receiver_port}"
 
     def plan(self):
         """Update pebble plan and start the tempo-ready service."""

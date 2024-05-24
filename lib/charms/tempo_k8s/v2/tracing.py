@@ -310,7 +310,7 @@ class ProtocolType(BaseModel):
         ...,
         description="Receiver protocol name. What protocols are supported (and what they are called) "
         "may differ per provider.",
-        examples=["otlp_grpc", "otlp_http", "tempo_http", "jaeger_thrift_compact"],
+        examples=["otlp_grpc", "otlp_http", "tempo_http"],
     )
     type: str = Field(
         ..., description="The transport protocol used by this receiver.", examples=["http", "grpc"]
