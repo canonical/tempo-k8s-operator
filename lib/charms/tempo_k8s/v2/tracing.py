@@ -134,6 +134,7 @@ BUILTIN_JUJU_KEYS = {"ingress-address", "private-address", "egress-subnets"}
 
 class TransportProtocolType(str, enum.Enum):
     """Receiver Type."""
+
     http = "http"
     grpc = "grpc"
 
@@ -309,11 +310,12 @@ else:
 # todo use models from charm-relation-interfaces
 if int(pydantic.version.VERSION.split(".")[0]) < 2:
 
-    class ProtocolType(BaseModel):
+    class ProtocolType(BaseModel):  # type: ignore
         """Protocol Type."""
 
         class Config:
             """Pydantic config."""
+
             use_enum_values = True
             """Allow serializing enum values."""
 
@@ -658,7 +660,9 @@ class TracingEndpointProvider(Object):
                         Receiver(
                             url=url,
                             protocol=ProtocolType(
-                                name=protocol, type=ReceiverProtocolType.get(protocol) or ""
+                                name=protocol,
+                                type=ReceiverProtocolType.get(protocol)
+                                or TransportProtocolType(""),
                             ),
                         )
                         for protocol, url in receivers
