@@ -677,7 +677,7 @@ class TracingEndpointProvider(Object):
                             url=url,
                             protocol=ProtocolType(
                                 name=protocol,
-                                type=receiver_protocol_to_transport_protocol.get(protocol), # type: ignore
+                                type=receiver_protocol_to_transport_protocol.get(protocol),  # type: ignore
                             ),
                         )
                         for protocol, url in receivers
