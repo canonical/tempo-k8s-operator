@@ -116,7 +116,7 @@ class TempoCharm(CharmBase):
         self.framework.observe(self.on.list_receivers_action, self._on_list_receivers_action)
         self.framework.observe(self.cert_handler.on.cert_changed, self._on_cert_handler_changed)
         self.framework.observe(self.on.config_changed, self._on_config_changed)
-        self.framework.observe(self.on.tracing_relation_broken, self._on_tracing_relation_broken)
+        self.framework.observe(self.tracing.on.broken, self._on_tracing_broken)
 
     @property
     def _external_http_server_url(self) -> str:
@@ -154,7 +154,7 @@ class TempoCharm(CharmBase):
             and (self.cert_handler.ca_cert is not None)
         )
 
-    def _on_tracing_relation_broken(self, _):
+    def _on_tracing_broken(self, _):
         """Update tracing relations' databags once one relation is removed."""
         self._update_tracing_relations()
 

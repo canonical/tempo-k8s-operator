@@ -42,7 +42,6 @@ def test_receivers_removed_on_relation_broken(context):
 
     state_out = mgr.output
     r_out = [r for r in state_out.relations if r.relation_id == tracing_http.relation_id][0]
-    print(r_out)
     # "otlp_grpc" is gone from the databag
     assert [r.protocol for r in TracingProviderAppData.load(r_out.local_app_data).receivers] == [
         ProtocolType(name="otlp_http", type="http")

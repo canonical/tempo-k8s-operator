@@ -12,7 +12,10 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import ops
 import tenacity
 import yaml
-from charms.tempo_k8s.v2.tracing import ReceiverProtocol, ReceiverProtocolType
+from charms.tempo_k8s.v2.tracing import (
+    ReceiverProtocol,
+    receiver_protocol_to_transport_protocol,
+)
 from charms.traefik_route_k8s.v0.traefik_route import TraefikRouteRequirer
 from ops.pebble import Layer
 
@@ -110,17 +113,19 @@ class Tempo:
 
         if ingress is used, return endpoint provided by the ingress instead.
         """
-        protocol_type = ReceiverProtocolType.get(protocol)
-        is_ingress = ingress.is_ready()
+        protocol_type = receiver_protocol_to_transport_protocol.get(protocol)
+        has_ingress = ingress.is_ready()
         receiver_port = self.receiver_ports[protocol]
 
-        url = self.url
-        if is_ingress:
-            url = f"{ingress.scheme}://{ingress.external_host}"
-        if protocol_type == "grpc":
-            url = self._external_hostname
-            if is_ingress:
-                url = ingress.external_host
+        if has_ingress:
+            url = (
+                ingress.external_host
+                if protocol_type == "grpc"
+                else f"{ingress.scheme}://{ingress.external_host}"
+            )
+        else:
+            url = self._external_hostname if protocol_type == "grpc" else self.url
+
         return f"{url}:{receiver_port}"
 
     def plan(self):

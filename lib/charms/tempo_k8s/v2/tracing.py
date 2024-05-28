@@ -139,7 +139,7 @@ class TransportProtocolType(str, enum.Enum):
     grpc = "grpc"
 
 
-ReceiverProtocolType = {
+receiver_protocol_to_transport_protocol = {
     "zipkin": TransportProtocolType.http,
     "kafka": TransportProtocolType.http,
     "opencensus": TransportProtocolType.http,
@@ -148,6 +148,8 @@ ReceiverProtocolType = {
     "otlp_grpc": TransportProtocolType.grpc,
     "otlp_http": TransportProtocolType.http,
 }
+"""A mapping between telemetry protocols and their corresponding transport protocol.
+"""
 
 
 class TracingError(Exception):
@@ -363,7 +365,9 @@ class Receiver(BaseModel):
     protocol: ProtocolType = Field(..., description="Receiver protocol name and type.")
     url: str = Field(
         ...,
-        description="URL at which the receiver is reachable. If there's an ingress, it would be the external URL. Otherwise, it would be the service's fqdn or internal IP",
+        description="""URL at which the receiver is reachable. If there's an ingress, it would be the external URL.
+        Otherwise, it would be the service's fqdn or internal IP.
+        If the protocol type is grpc, the url will not contain a scheme.""",
         examples=[
             "http://traefik_address:2331",
             "https://traefik_address:2331",
@@ -379,7 +383,7 @@ class TracingProviderAppData(DatabagModel):  # noqa: D101
 
     receivers: List[Receiver] = Field(
         ...,
-        description="A list of enabled receivers in the form of the protocol they use and their resolvable server url.",
+        description="List of all receivers enabled on the tracing provider.",
     )
 
 
@@ -552,10 +556,15 @@ class RequestEvent(RelationEvent):
         return TracingRequirerAppData.load(relation.data[app]).receivers
 
 
+class BrokenEvent(RelationBrokenEvent):
+    """Event emitted when a relation on tracing is broken."""
+
+
 class TracingEndpointProviderEvents(CharmEvents):
     """TracingEndpointProvider events."""
 
     request = EventSource(RequestEvent)
+    broken = EventSource(BrokenEvent)
 
 
 class TracingEndpointProvider(Object):
@@ -605,6 +614,13 @@ class TracingEndpointProvider(Object):
         self.framework.observe(
             self._charm.on[relation_name].relation_changed, self._on_relation_event
         )
+        self.framework.observe(
+            self._charm.on[relation_name].relation_broken, self._on_relation_broken_event
+        )
+
+    def _on_relation_broken_event(self, e: RelationBrokenEvent):
+        """Handle relation broken events."""
+        self.on.broken.emit(e.relation)
 
     def _on_relation_event(self, e: RelationEvent):
         """Handle relation created/joined/changed events."""
@@ -661,8 +677,7 @@ class TracingEndpointProvider(Object):
                             url=url,
                             protocol=ProtocolType(
                                 name=protocol,
-                                type=ReceiverProtocolType.get(protocol)
-                                or TransportProtocolType(""),
+                                type=receiver_protocol_to_transport_protocol.get(protocol), # type: ignore
                             ),
                         )
                         for protocol, url in receivers
