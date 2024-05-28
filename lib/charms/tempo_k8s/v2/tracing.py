@@ -95,7 +95,7 @@ from ops.charm import (
 )
 from ops.framework import EventSource, Object
 from ops.model import ModelError, Relation
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 # The unique Charmhub library identifier, never change it
 LIBID = "12977e9aa0b34367903d8afeb8c3d85d"
@@ -114,16 +114,6 @@ logger = logging.getLogger(__name__)
 DEFAULT_RELATION_NAME = "tracing"
 RELATION_INTERFACE_NAME = "tracing"
 
-ReceiverProtocolType = {
-    "zipkin": "http",
-    "kafka": "http",
-    "opencensus": "http",
-    "tempo_http": "http",
-    "tempo_grpc": "grpc",
-    "otlp_grpc": "grpc",
-    "otlp_http": "http",
-}
-
 ReceiverProtocol = Literal[
     "zipkin",
     "kafka",
@@ -135,7 +125,28 @@ ReceiverProtocol = Literal[
 ]
 
 RawReceiver = Tuple[ReceiverProtocol, str]
+"""Helper type. A raw receiver is defined as a tuple consisting of the protocol name, and the (external, if available),
+(secured, if available) resolvable server url.
+"""
+
 BUILTIN_JUJU_KEYS = {"ingress-address", "private-address", "egress-subnets"}
+
+
+class TransportProtocolType(str, enum.Enum):
+    """Receiver Type."""
+    http = "http"
+    grpc = "grpc"
+
+
+ReceiverProtocolType = {
+    "zipkin": TransportProtocolType.http,
+    "kafka": TransportProtocolType.http,
+    "opencensus": TransportProtocolType.http,
+    "tempo_http": TransportProtocolType.http,
+    "tempo_grpc": TransportProtocolType.grpc,
+    "otlp_grpc": TransportProtocolType.grpc,
+    "otlp_http": TransportProtocolType.http,
+}
 
 
 class TracingError(Exception):
@@ -296,25 +307,52 @@ else:
 
 
 # todo use models from charm-relation-interfaces
-class TransportProtocolType(str, enum.Enum):
-    """Receiver Type."""
+if int(pydantic.version.VERSION.split(".")[0]) < 2:
 
-    http = "http"
-    grpc = "grpc"
+    class ProtocolType(BaseModel):
+        """Protocol Type."""
 
+        class Config:
+            """Pydantic config."""
+            use_enum_values = True
+            """Allow serializing enum values."""
 
-class ProtocolType(BaseModel):
-    """Protocol Type."""
+        name: str = Field(
+            ...,
+            description="Receiver protocol name. What protocols are supported (and what they are called) "
+            "may differ per provider.",
+            examples=["otlp_grpc", "otlp_http", "tempo_http"],
+        )
 
-    name: str = Field(
-        ...,
-        description="Receiver protocol name. What protocols are supported (and what they are called) "
-        "may differ per provider.",
-        examples=["otlp_grpc", "otlp_http", "tempo_http"],
-    )
-    type: str = Field(
-        ..., description="The transport protocol used by this receiver.", examples=["http", "grpc"]
-    )
+        type: TransportProtocolType = Field(
+            ...,
+            description="The transport protocol used by this receiver.",
+            examples=["http", "grpc"],
+        )
+
+else:
+
+    class ProtocolType(BaseModel):
+        """Protocol Type."""
+
+        model_config = ConfigDict(
+            # Allow serializing enum values.
+            use_enum_values=True
+        )
+        """Pydantic config."""
+
+        name: str = Field(
+            ...,
+            description="Receiver protocol name. What protocols are supported (and what they are called) "
+            "may differ per provider.",
+            examples=["otlp_grpc", "otlp_http", "tempo_http"],
+        )
+
+        type: TransportProtocolType = Field(
+            ...,
+            description="The transport protocol used by this receiver.",
+            examples=["http", "grpc"],
+        )
 
 
 class Receiver(BaseModel):
@@ -337,8 +375,10 @@ class Receiver(BaseModel):
 class TracingProviderAppData(DatabagModel):  # noqa: D101
     """Application databag model for the tracing provider."""
 
-    receivers: List[Receiver]
-    """Enabled receivers and ports at which they are listening."""
+    receivers: List[Receiver] = Field(
+        ...,
+        description="A list of enabled receivers in the form of the protocol they use and their resolvable server url.",
+    )
 
 
 class TracingRequirerAppData(DatabagModel):  # noqa: D101
