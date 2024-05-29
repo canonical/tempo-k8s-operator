@@ -18,10 +18,7 @@ resources:
     upstream-source: python:slim-buster
 
 requires:
-  tracing-v1:
-    interface: tracing
-    limit: 1
-  tracing-v2:
+  tracing:
     interface: tracing
     limit: 1
 

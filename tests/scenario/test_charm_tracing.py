@@ -8,6 +8,7 @@ from charms.tempo_k8s.v1.charm_tracing import CHARM_TRACING_ENABLED
 from charms.tempo_k8s.v1.charm_tracing import _autoinstrument as autoinstrument
 from charms.tempo_k8s.v2.tracing import (
     ProtocolNotRequestedError,
+    ProtocolType,
     Receiver,
     TracingEndpointRequirer,
     TracingProviderAppData,
@@ -378,7 +379,12 @@ def test_tracing_requirer_remote_charm_request_response(leader):
             TracingRequirerAppData(receivers=["otlp_http"]).dump() if not leader else {}
         ),
         remote_app_data=TracingProviderAppData(
-            host="foo.com", receivers=[Receiver(port=80, protocol="otlp_http")]
+            host="foo.com",
+            receivers=[
+                Receiver(
+                    url="http://foo.com:80", protocol=ProtocolType(name="otlp_http", type="http")
+                )
+            ],
         ).dump(),
     )
     with ctx.manager("start", State(leader=leader, relations=[tracing])) as mgr:
@@ -396,9 +402,12 @@ def test_tracing_requirer_remote_charm_no_request_but_response(leader):
         "tracing",
         # empty local app data
         remote_app_data=TracingProviderAppData(
-            host="foo.com",
             # but the remote end has sent the data you need
-            receivers=[Receiver(port=80, protocol="otlp_http")],
+            receivers=[
+                Receiver(
+                    url="http://foo.com:80", protocol=ProtocolType(name="otlp_http", type="http")
+                )
+            ],
         ).dump(),
     )
     with ctx.manager("start", State(leader=leader, relations=[tracing])) as mgr:
