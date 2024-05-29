@@ -114,7 +114,8 @@ class Tempo:
         if ingress is used, return endpoint provided by the ingress instead.
         """
         protocol_type = receiver_protocol_to_transport_protocol.get(protocol)
-        has_ingress = ingress.is_ready()
+        # ingress.is_ready returns True even when traefik hasn't sent any data yet
+        has_ingress = ingress.is_ready() and ingress.external_host and ingress.scheme
         receiver_port = self.receiver_ports[protocol]
 
         if has_ingress:

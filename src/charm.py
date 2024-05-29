@@ -378,7 +378,7 @@ class TempoCharm(CharmBase):
         res = {}
         for receiver in self._requested_receivers():
             res[receiver.replace("_", "-")] = (
-                f"{self.ingress.external_host or self.tempo.url}/{receiver}"
+                f"{self.ingress.external_host or self.tempo.url}:{self.tempo.receiver_ports[receiver]}"
             )
         event.set_results(res)
 
