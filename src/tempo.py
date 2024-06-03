@@ -12,7 +12,11 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import ops
 import tenacity
 import yaml
-from charms.tempo_k8s.v2.tracing import ReceiverProtocol
+from charms.tempo_k8s.v2.tracing import (
+    ReceiverProtocol,
+    receiver_protocol_to_transport_protocol,
+)
+from charms.traefik_route_k8s.v0.traefik_route import TraefikRouteRequirer
 from ops.pebble import Layer
 
 logger = logging.getLogger(__name__)
@@ -44,7 +48,7 @@ class Tempo:
         "tempo_grpc": 9096,  # default grpc listen port is 9095, but that conflicts with promtail.
     }
 
-    receiver_ports: Dict[ReceiverProtocol, int] = {
+    receiver_ports: Dict[str, int] = {
         "zipkin": 9411,
         "otlp_grpc": 4317,
         "otlp_http": 4318,
@@ -103,6 +107,27 @@ class Tempo:
         """Base url at which the tempo server is locally reachable over http."""
         scheme = "https" if self.tls_ready else "http"
         return f"{scheme}://{self._external_hostname}"
+
+    def get_receiver_url(self, protocol: ReceiverProtocol, ingress: TraefikRouteRequirer):
+        """Return the receiver endpoint URL based on the protocol.
+
+        if ingress is used, return endpoint provided by the ingress instead.
+        """
+        protocol_type = receiver_protocol_to_transport_protocol.get(protocol)
+        # ingress.is_ready returns True even when traefik hasn't sent any data yet
+        has_ingress = ingress.is_ready() and ingress.external_host and ingress.scheme
+        receiver_port = self.receiver_ports[protocol]
+
+        if has_ingress:
+            url = (
+                ingress.external_host
+                if protocol_type == "grpc"
+                else f"{ingress.scheme}://{ingress.external_host}"
+            )
+        else:
+            url = self._external_hostname if protocol_type == "grpc" else self.url
+
+        return f"{url}:{receiver_port}"
 
     def plan(self):
         """Update pebble plan and start the tempo-ready service."""

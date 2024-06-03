@@ -1,4 +1,3 @@
-import json
 import socket
 
 import pytest
@@ -37,10 +36,9 @@ def test_requirer_api(context):
     tracing = Relation(
         "tracing",
         remote_app_data={
-            "receivers": '[{"protocol": "otlp_grpc", "port": 4317}, '
-            '{"protocol": "otlp_http", "port": 4318}, '
-            '{"protocol": "zipkin", "port": 9411}]',
-            "host": json.dumps(host),
+            "receivers": f'[{{"protocol": {{"name": "otlp_grpc", "type": "grpc"}}, "url": "{host}:4317"}}, '
+            f'{{"protocol": {{"name": "otlp_http", "type": "http"}}, "url": "http://{host}:4318"}}, '
+            f'{{"protocol": {{"name": "zipkin", "type": "http"}}, "url": "http://{host}:9411" }}]',
         },
     )
     state = State(leader=True, relations=[tracing])
@@ -57,9 +55,9 @@ def test_requirer_api(context):
 
     rchanged, epchanged = context.emitted_events
     assert isinstance(epchanged, EndpointChangedEvent)
-    assert epchanged.host == host
-    assert epchanged.receivers[0].protocol == "otlp_grpc"
-    assert epchanged.host == host
+    assert epchanged.receivers[0].protocol.name == "otlp_grpc"
+    assert epchanged.receivers[1].protocol.name == "otlp_http"
+    assert epchanged.receivers[2].protocol.name == "zipkin"
 
 
 def test_requirer_api_with_internal_scheme(context):
@@ -67,11 +65,9 @@ def test_requirer_api_with_internal_scheme(context):
     tracing = Relation(
         "tracing",
         remote_app_data={
-            "receivers": '[{"protocol": "otlp_grpc", "port": 4317}, '
-            '{"protocol": "otlp_http", "port": 4318}, '
-            '{"protocol": "zipkin", "port": 9411}]',
-            "host": json.dumps(host),
-            "internal_scheme": '"https"',
+            "receivers": f'[{{"protocol": {{"name": "otlp_grpc", "type": "grpc"}} , "url": "{host}:4317"}}, '
+            f'{{"protocol": {{"name": "otlp_http", "type": "http"}}, "url": "https://{host}:4318"}}, '
+            f'{{"protocol": {{"name": "zipkin", "type": "http"}}, "url":  "https://{host}:9411"}}]',
         },
     )
     state = State(leader=True, relations=[tracing])
@@ -88,22 +84,18 @@ def test_requirer_api_with_internal_scheme(context):
 
     rchanged, epchanged = context.emitted_events
     assert isinstance(epchanged, EndpointChangedEvent)
-    assert epchanged.host == host
-    assert epchanged.receivers[0].protocol == "otlp_grpc"
+    assert epchanged.receivers[0].protocol.name == "otlp_grpc"
 
 
 def test_ingressed_requirer_api(context):
     # WHEN external_url is present in remote app databag
     external_url = "http://1.2.3.4"
-    host = socket.getfqdn()
     tracing = Relation(
         "tracing",
         remote_app_data={
-            "receivers": '[{"protocol": "otlp_grpc", "port": 4317}, '
-            '{"protocol": "otlp_http", "port": 4318}, '
-            '{"protocol": "zipkin", "port": 9411}]',
-            "host": json.dumps(host),
-            "external_url": json.dumps(external_url),
+            "receivers": f'[{{"protocol": {{"name": "otlp_grpc", "type": "grpc"}}, "url": "{external_url.split("://")[1]}:4317" }}, '
+            f'{{"protocol": {{"name": "otlp_http", "type": "http"}} , "url": "{external_url}:4318" }}, '
+            f'{{"protocol": {{"name": "zipkin", "type": "http"}} , "url": "{external_url}:9411" }}]',
         },
     )
     state = State(leader=True, relations=[tracing])
@@ -127,9 +119,7 @@ def test_ingressed_requirer_api(context):
 
     rchanged, epchanged = context.emitted_events
     assert isinstance(epchanged, EndpointChangedEvent)
-    assert epchanged.host == host
-    assert epchanged.receivers[0].protocol == "otlp_grpc"
-    assert epchanged.external_url == external_url
+    assert epchanged.receivers[0].protocol.name == "otlp_grpc"
 
 
 @pytest.mark.parametrize(

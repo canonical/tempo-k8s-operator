@@ -36,7 +36,6 @@ def copy_charm_libs_into_tester_charm(ops_test):
         "observability_libs/v1/cert_handler.py",
         "tls_certificates_interface/v3/tls_certificates.py",
         "tempo_k8s/v1/charm_tracing.py",
-        "tempo_k8s/v1/tracing.py",
         "tempo_k8s/v2/tracing.py",
     ]
 

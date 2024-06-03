@@ -7,9 +7,7 @@ import time
 from pathlib import Path
 from typing import List, Optional
 
-from charms.tempo_k8s.v2.tracing import (
-    TracingEndpointRequirer as TracingEndpointRequirerV2,
-)
+from charms.tempo_k8s.v2.tracing import TracingEndpointRequirer
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.resources import Resource
@@ -43,8 +41,8 @@ class TempoTesterGrpcCharm(CharmBase):
 
         self.container: Container = self.unit.get_container(self._container_name)
 
-        self.tracing_v2 = TracingEndpointRequirerV2(
-            self, relation_name="tracing-v2", protocols=["otlp_grpc"]
+        self.tracing = TracingEndpointRequirer(
+            self, relation_name="tracing", protocols=["otlp_grpc"]
         )
 
         # Core lifecycle events
@@ -53,7 +51,7 @@ class TempoTesterGrpcCharm(CharmBase):
         # Peer relation events
         self.framework.observe(self.on[self._peer_relation_name].relation_joined, self._update)
         self.framework.observe(self.on[self._peer_relation_name].relation_changed, self._update)
-        self.framework.observe(self.tracing_v2.on.endpoint_changed, self._update)
+        self.framework.observe(self.tracing.on.endpoint_changed, self._update)
 
     @property
     def peers(self) -> List[str]:
@@ -105,7 +103,7 @@ class TempoTesterGrpcCharm(CharmBase):
             "PORT": self.config["port"],
             "HOST": self.config["host"],
             "APP_NAME": self.app.name,
-            "TEMPO_ENDPOINT": str(self.tracing_v2.get_endpoint("otlp_grpc") or ""),
+            "TEMPO_ENDPOINT": str(self.tracing.get_endpoint("otlp_grpc") or ""),
         }
         logging.info(f"Initing pebble layer with env: {str(env)}")
 
@@ -226,7 +224,7 @@ class TempoTesterGrpcCharm(CharmBase):
             self.unit.status = MaintenanceStatus("waiting for IP address...")
             return
 
-        if not self.tracing_v2.is_ready():
+        if not self.tracing.is_ready():
             self.unit.status = WaitingStatus("waiting for tracing to be ready...")
             return
 
@@ -264,8 +262,8 @@ class TempoTesterGrpcCharm(CharmBase):
 
     def tempo_otlp_grpc_endpoint(self) -> Optional[str]:
         """Endpoint at which the charm tracing information will be forwarded."""
-        if self.tracing_v2.is_ready():
-            return self.tracing_v2.get_endpoint("otlp_grpc")
+        if self.tracing.is_ready():
+            return self.tracing.get_endpoint("otlp_grpc")
         else:
             return None
 
@@ -295,8 +293,8 @@ class TempoTesterGrpcCharm(CharmBase):
                     logger.info("spans emitted")
 
     def _send_grpc_traces(self):
-        if self.tracing_v2.is_ready():
-            logger.info("v2 tracing is ready")
+        if self.tracing.is_ready():
+            logger.info("tracing is ready")
             endpoint = self.tempo_otlp_grpc_endpoint()
             self._emit_trace(endpoint)
 

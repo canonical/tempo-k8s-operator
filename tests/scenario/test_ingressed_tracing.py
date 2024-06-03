@@ -1,5 +1,3 @@
-import json
-import socket
 from unittest.mock import patch
 
 import pytest
@@ -26,10 +24,7 @@ def test_external_url_present(context, base_state):
     # THEN external_url is present in tracing relation databag
     tracing_out = out.get_relations(tracing.endpoint)[0]
     assert tracing_out.local_app_data == {
-        "receivers": '[{"protocol": "otlp_http", "port": 4318}]',
-        "host": json.dumps(socket.getfqdn()),
-        "external_url": '"http://1.2.3.4"',
-        "internal_scheme": '"http"',
+        "receivers": '[{"protocol": {"name": "otlp_http", "type": "http"}, "url": "http://1.2.3.4:4318"}]',
     }
 
 
