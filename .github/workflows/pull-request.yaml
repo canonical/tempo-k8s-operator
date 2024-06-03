@@ -8,5 +8,5 @@ on:
 jobs:
   pull-request:
     name: PR
-    uses: canonical/observability/.github/workflows/charm-pull-request.yaml@https://github.com/canonical/observability/tree/scenario-snapshot-on-itest-failure
+    uses: canonical/observability/.github/workflows/charm-pull-request.yaml@scenario-snapshot-on-itest-failure
     secrets: inherit
