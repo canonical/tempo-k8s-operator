@@ -215,9 +215,6 @@ class TempoCharm(CharmBase):
             self._publish_v1_data(e.relation)
 
     def _on_tracing_relation_changed(self, e: RelationEvent):
-        self.unit.status = ActiveStatus("foo there!")
-        raise RuntimeError("hoo")
-
         if not self.tracing.is_v2(e.relation):
             self._publish_v1_data(e.relation)
 

@@ -166,3 +166,7 @@ async def test_remove_relation(ops_test: OpsTest):
             apps=[TESTER_GRPC_APP_NAME], raise_on_blocked=True, timeout=1000
         ),
     )
+
+@pytest.mark.teardown
+async def test_fail(ops_test: OpsTest):
+    assert False
