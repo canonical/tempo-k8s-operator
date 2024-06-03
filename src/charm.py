@@ -201,22 +201,7 @@ class TempoCharm(CharmBase):
     def _on_tracing_request(self, e: RequestEvent):
         """Handle a remote requesting a tracing endpoint."""
         logger.debug(f"received tracing request from {e.relation.app}: {e.requested_receivers}")
-        self._update_tracing_v2_relations()
-
-    def _on_tracing_relation_created(self, e: RelationEvent):
-        if not self.tracing.is_v2(e.relation):
-            self._publish_v1_data(e.relation)
-            # if this is the first legacy relation we get, we need to update ALL other relations
-            # as we might need to add all legacy protocols to the mix
-            self._update_tracing_v2_relations()
-
-    def _on_tracing_relation_joined(self, e: RelationEvent):
-        if not self.tracing.is_v2(e.relation):
-            self._publish_v1_data(e.relation)
-
-    def _on_tracing_relation_changed(self, e: RelationEvent):
-        if not self.tracing.is_v2(e.relation):
-            self._publish_v1_data(e.relation)
+        self._update_tracing_relations()
 
     def _on_ingress_relation_created(self, e: RelationEvent):
         self._configure_ingress(e)
