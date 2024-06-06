@@ -466,3 +466,53 @@ def test_borky_tempo_return_value(borky_return_value, caplog):
     # logger.exception in _setup_root_span_initializer
     assert "exception retrieving the tracing endpoint from" in caplog.text
     assert "proceeding with charm_tracing DISABLED." in caplog.text
+
+
+class MyCharmStaticMethods(CharmBase):
+    META = {"name": "jolene"}
+
+    def __init__(self, fw):
+        super().__init__(fw)
+        fw.observe(self.on.start, self._on_start)
+
+    def _on_start(self, _):
+        assert OtherObj()._staticmeth(1) == 2
+        assert OtherObj._staticmeth(1) == 2
+
+    @property
+    def tempo(self):
+        return "foo.bar:80"
+
+
+class OtherObj:
+    @staticmethod
+    def _staticmeth(i):
+        return 1 + i
+
+
+autoinstrument(MyCharmStaticMethods, MyCharmStaticMethods.tempo, extra_types=[OtherObj])
+
+
+def test_trace_staticmethods(caplog):
+    import opentelemetry
+
+    with patch(
+        "opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter.export"
+    ) as f:
+        f.return_value = opentelemetry.sdk.trace.export.SpanExportResult.SUCCESS
+        ctx = Context(MyCharmStaticMethods, meta=MyCharmStaticMethods.META)
+        ctx.run("start", State())
+
+        spans = f.call_args_list[0].args[0]
+
+        span_names = [span.name for span in spans]
+        assert span_names == [
+            "(static) method call: OtherObj._staticmeth",
+            "(static) method call: OtherObj._staticmeth",
+            "method call: MyCharmStaticMethods._on_start",
+            "event: start",
+            "charm exec",
+        ]
+
+        for span in spans:
+            assert span.resource.attributes["service.name"] == "jolene"
