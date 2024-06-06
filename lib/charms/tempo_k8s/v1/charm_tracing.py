@@ -147,7 +147,7 @@ LIBAPI = 1
 # Increment this PATCH version before using `charmcraft publish-lib` or reset
 # to 0 if you are raising the major API version
 
-LIBPATCH = 7
+LIBPATCH = 8
 
 PYDEPS = ["opentelemetry-exporter-otlp-proto-http==1.21.0"]
 
@@ -531,6 +531,16 @@ def trace_function(function: _F) -> _F:
     return _trace_callable(function, "function")
 
 
+def _check_type(value, fn_param: inspect.Parameter):
+    if fn_param.kind not in (fn_param.POSITIONAL_OR_KEYWORD, fn_param.POSITIONAL_ONLY):
+        return
+
+    # We do not type check if the default value is None or if the argument is none
+    is_none = fn_param.default is None or value is None
+    if not is_none and type(value) is not fn_param.annotation:
+        raise TypeError(fn_param.name)
+
+
 def _trace_callable(callable: _F, qualifier: str, static: bool = False) -> _F:
     logger.info(f"instrumenting {callable}")
 
@@ -544,7 +554,11 @@ def _trace_callable(callable: _F, qualifier: str, static: bool = False) -> _F:
                 # if you call MyObj().mystaticmethod we'll receive the MyObj instance as first argument,
                 # if you call MyObj.mystaticmethod we won't.
                 try:
-                    inspect.signature(callable).bind(*args, **kwargs)
+                    sig = inspect.signature(callable)
+                    sig.bind(*args, **kwargs)
+                    for arg, param in zip(args, sig.parameters.values()):
+                        _check_type(arg, param)
+
                 except TypeError:
                     return callable(*args[1:], **kwargs)  # type: ignore
             return callable(*args, **kwargs)  # type: ignore
