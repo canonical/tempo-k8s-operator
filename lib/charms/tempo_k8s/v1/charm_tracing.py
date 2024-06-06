@@ -552,6 +552,7 @@ def _trace_callable(callable: _F, qualifier: str) -> _F:
         name = getattr(callable, "__qualname__", getattr(callable, "__name__", str(callable)))
         with _span(f"{qualifier} call: {name}"):  # type: ignore
             return callable(*args, **kwargs)  # type: ignore
+
     # wrapped_function.__signature__ = sig
     return wrapped_function  # type: ignore
 
