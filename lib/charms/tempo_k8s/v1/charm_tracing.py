@@ -533,16 +533,6 @@ def trace_function(function: _F) -> _F:
     return _trace_callable(function, "function")
 
 
-def _check_type(value, fn_param: inspect.Parameter):
-    if fn_param.kind not in (fn_param.POSITIONAL_OR_KEYWORD, fn_param.POSITIONAL_ONLY):
-        return
-
-    # We do not type check if the default value is None or if the argument is none
-    is_none = fn_param.default is None or value is None
-    if not is_none and type(value) is not fn_param.annotation:
-        raise TypeError(fn_param.name)
-
-
 def _trace_callable(callable: _F, qualifier: str) -> _F:
     logger.info(f"instrumenting {callable}")
 
