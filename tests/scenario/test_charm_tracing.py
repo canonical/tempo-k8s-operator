@@ -483,14 +483,10 @@ class MyCharmStaticMethods(CharmBase):
 
     def _on_update_status(self, _):
         # super-ugly edge cases
-        OtherObj()._this_will_work_on_instances_only(OtherObj())
-        OtherObj()._this_too(OtherObj())
-
-        with pytest.raises(TypeError):
-            OtherObj._this_will_work_on_instances_only(OtherObj())
-
-        with pytest.raises(TypeError):
-            OtherObj._this_too(OtherObj(), foo=2)
+        OtherObj()._staticmeth3(OtherObj())
+        OtherObj()._staticmeth4(OtherObj())
+        OtherObj._staticmeth3(OtherObj())
+        OtherObj._staticmeth4(OtherObj(), foo=2)
 
     @property
     def tempo(self):
@@ -511,11 +507,11 @@ class OtherObj:
         return 1 + i
 
     @staticmethod
-    def _this_will_work_on_instances_only(abc: "OtherObj", foo="bar"):
+    def _staticmeth3(abc: "OtherObj", foo="bar"):
         return 1 + 1
 
     @staticmethod
-    def _this_too(abc: int, foo="bar"):
+    def _staticmeth4(abc: int, foo="bar"):
         return 1 + 1
 
 
@@ -536,12 +532,12 @@ def test_trace_staticmethods(caplog):
 
         span_names = [span.name for span in spans]
         assert span_names == [
-            "(static) method call: OtherObj._staticmeth",
-            "(static) method call: OtherObj._staticmeth1",
-            "(static) method call: OtherObj._staticmeth2",
-            "(static) method call: OtherObj._staticmeth",
-            "(static) method call: OtherObj._staticmeth1",
-            "(static) method call: OtherObj._staticmeth2",
+            "method call: OtherObj._staticmeth",
+            "method call: OtherObj._staticmeth1",
+            "method call: OtherObj._staticmeth2",
+            "method call: OtherObj._staticmeth",
+            "method call: OtherObj._staticmeth1",
+            "method call: OtherObj._staticmeth2",
             "method call: MyCharmStaticMethods._on_start",
             "event: start",
             "charm exec",
