@@ -17,6 +17,7 @@ from charms.tempo_k8s.v2.tracing import (
     receiver_protocol_to_transport_protocol,
 )
 from charms.traefik_route_k8s.v0.traefik_route import TraefikRouteRequirer
+from ops import ModelError
 from ops.pebble import Layer
 
 logger = logging.getLogger(__name__)
@@ -157,6 +158,15 @@ class Tempo:
             return True
         return False
 
+    @property
+    def is_tempo_service_defined(self) -> bool:
+        """Check that the tempo service is present in the plan."""
+        try:
+            self.container.get_service("tempo")
+            return True
+        except ModelError:
+            return False
+
     @tenacity.retry(
         # if restart FAILS (this function returns False)
         retry=tenacity.retry_if_result(lambda r: r is False),
@@ -176,23 +186,37 @@ class Tempo:
 
         if not self.container.can_connect():
             return False
+        if not self.is_tempo_service_defined:
+            # quite expensive to hit this every time, because of the retry, so let's warn.
+            logger.warning(
+                "you shouldn't call .restart() before .plan() has taken place."
+                "use .is_tempo_service_defined to guard against this situation."
+            )
+            return False
 
-        self.container.stop("tempo")
-        service_status = self.container.get_service("tempo").current
+        try:
+            is_started = self.container.get_service("tempo").is_running()
+        except ModelError:
+            is_started = False
 
         # verify if tempo is already inactive, then try to start a new instance
-        if service_status == ops.pebble.ServiceStatus.INACTIVE:
+        if is_started:
+            try:
+                self.container.restart("tempo")
+            except ops.pebble.ChangeError:
+                # if tempo fails to start, we'll try again after some backoff
+                return False
+        else:
             try:
                 self.container.start("tempo")
             except ops.pebble.ChangeError:
                 # if tempo fails to start, we'll try again after retry backoff
                 return False
 
-            # set the notice to start checking for tempo server readiness so we don't have to
-            # wait for an update-status
-            self.container.start("tempo-ready")
-            return True
-        return False
+        # set the notice to start checking for tempo server readiness so we don't have to
+        # wait for an update-status
+        self.container.start("tempo-ready")
+        return True
 
     def get_current_config(self) -> Optional[dict]:
         """Fetch the current configuration from the container."""
