@@ -474,10 +474,19 @@ class MyCharmStaticMethods(CharmBase):
     def __init__(self, fw):
         super().__init__(fw)
         fw.observe(self.on.start, self._on_start)
+        fw.observe(self.on.update_status, self._on_update_status)
 
     def _on_start(self, _):
-        assert OtherObj()._staticmeth(1) == 2
-        assert OtherObj._staticmeth(1) == 2
+        for o in (OtherObj(), OtherObj):
+            for meth in ("_staticmeth", "_staticmeth1", "_staticmeth2"):
+                assert getattr(o, meth)(1) == 2
+
+    def _on_update_status(self, _):
+        # super-ugly edge cases
+        OtherObj()._staticmeth3(OtherObj())
+        OtherObj()._staticmeth4(OtherObj())
+        OtherObj._staticmeth3(OtherObj())
+        OtherObj._staticmeth4(OtherObj(), foo=2)
 
     @property
     def tempo(self):
@@ -486,8 +495,24 @@ class MyCharmStaticMethods(CharmBase):
 
 class OtherObj:
     @staticmethod
-    def _staticmeth(i):
+    def _staticmeth(i: int, *args, **kwargs):
         return 1 + i
+
+    @staticmethod
+    def _staticmeth1(i: int):
+        return 1 + i
+
+    @staticmethod
+    def _staticmeth2(i: int, foo="bar"):
+        return 1 + i
+
+    @staticmethod
+    def _staticmeth3(abc: "OtherObj", foo="bar"):
+        return 1 + 1
+
+    @staticmethod
+    def _staticmeth4(abc: int, foo="bar"):
+        return 1 + 1
 
 
 autoinstrument(MyCharmStaticMethods, MyCharmStaticMethods.tempo, extra_types=[OtherObj])
@@ -507,8 +532,12 @@ def test_trace_staticmethods(caplog):
 
         span_names = [span.name for span in spans]
         assert span_names == [
-            "(static) method call: OtherObj._staticmeth",
-            "(static) method call: OtherObj._staticmeth",
+            "method call: OtherObj._staticmeth",
+            "method call: OtherObj._staticmeth1",
+            "method call: OtherObj._staticmeth2",
+            "method call: OtherObj._staticmeth",
+            "method call: OtherObj._staticmeth1",
+            "method call: OtherObj._staticmeth2",
             "method call: MyCharmStaticMethods._on_start",
             "event: start",
             "charm exec",
@@ -516,3 +545,14 @@ def test_trace_staticmethods(caplog):
 
         for span in spans:
             assert span.resource.attributes["service.name"] == "jolene"
+
+
+def test_trace_staticmethods_bork(caplog):
+    import opentelemetry
+
+    with patch(
+        "opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter.export"
+    ) as f:
+        f.return_value = opentelemetry.sdk.trace.export.SpanExportResult.SUCCESS
+        ctx = Context(MyCharmStaticMethods, meta=MyCharmStaticMethods.META)
+        ctx.run("update-status", State())
