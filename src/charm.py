@@ -177,7 +177,9 @@ class TempoCharm(CharmBase):
             self.tempo.update_config(self._requested_receivers())
             # sync scheme change with traefik and related consumers
             self._configure_ingress(_)
-            self.tempo.restart()
+
+            if self.tempo.is_tempo_service_defined:
+                self.tempo.restart()
 
         # sync the server cert with the charm container.
         # technically, because of charm tracing, this will be called first thing on each event
@@ -247,7 +249,7 @@ class TempoCharm(CharmBase):
         if not updated:
             logger.debug("Config not updated; skipping tempo restart")
         if updated:
-            restarted = self.tempo.restart()
+            restarted = self.tempo.is_tempo_service_defined and self.tempo.restart()
             if not restarted:
                 # assume that this will be handled at the next pebble-ready
                 logger.debug("Cannot reconfigure/restart tempo at this time.")

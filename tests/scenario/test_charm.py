@@ -93,3 +93,29 @@ def test_tempo_restart_on_ingress_v2_changed(context, tmp_path, requested_protoc
         context.output_state.get_container("tempo").service_status["tempo"]
         is pebble.ServiceStatus.ACTIVE
     )
+
+
+def test_tempo_tracing_created_before_pebble_ready(context, tmp_path):
+    # GIVEN there is no plan yet
+    tempo = Container(
+        "tempo",
+        can_connect=True,
+    )
+
+    # WHEN
+    # the charm receives a tracing-relation-created requesting an otlp_grpc receiver
+    tracing = Relation(
+        "tracing",
+        remote_app_data={"receivers": '["otlp_http"]'},
+        local_app_data={
+            "receivers": '[{"protocol": {"name": "otlp_grpc", "type": "grpc"} , "url": "foo.com:10"}, '
+            '{"protocol": {"name": "otlp_http", "type": "http"}, "url": "http://foo.com:11"}, '
+        },
+    )
+    state = State(leader=True, containers=[tempo], relations=[tracing])
+    state_out = context.run(tracing.created_event, state)
+
+    # THEN
+    # tempo still has no services
+    tempo_out = state_out.get_container("tempo")
+    assert not tempo_out.services
