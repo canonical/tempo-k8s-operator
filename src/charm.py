@@ -238,7 +238,7 @@ class TempoCharm(CharmBase):
     def _on_s3_changed(self, _):
         self.tempo.update_config(self._requested_receivers(), self._s3_config)
         # TODO do we really have to restart?
-        self.tempo.restart()
+        # self.tempo.restart()
 
     def _on_config_changed(self, _):
         # check if certificate files haven't disappeared and recreate them if needed
