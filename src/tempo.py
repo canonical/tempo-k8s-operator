@@ -144,7 +144,9 @@ class Tempo:
         # is not autostart-enabled, we just run it once on pebble-ready.
         self.container.start("tempo-ready")
 
-    def update_config(self, requested_receivers: Sequence[ReceiverProtocol], s3_config: Optional[dict] = None) -> bool:
+    def update_config(
+        self, requested_receivers: Sequence[ReceiverProtocol], s3_config: Optional[dict] = None
+    ) -> bool:
         """Generate a config and push it to the container it if necessary."""
         container = self.container
         if not container.can_connect():
@@ -277,7 +279,9 @@ class Tempo:
 
         return server_config
 
-    def generate_config(self, receivers: Sequence[ReceiverProtocol], s3_config: Optional[dict] = None) -> dict:
+    def generate_config(
+        self, receivers: Sequence[ReceiverProtocol], s3_config: Optional[dict] = None
+    ) -> dict:
         """Generate the Tempo configuration.
 
         Only activate the provided receivers.
@@ -343,9 +347,15 @@ class Tempo:
                         "bucket": s3_config["bucket"],
                         "access_key": s3_config["access-key"],
                         # remove scheme to avoid "Endpoint url cannot have fully qualified paths." on Tempo startup
-                        "endpoint": re.sub(rf"^{urlparse(s3_config['endpoint']).scheme}://", "", s3_config["endpoint"]),
+                        "endpoint": re.sub(
+                            rf"^{urlparse(s3_config['endpoint']).scheme}://",
+                            "",
+                            s3_config["endpoint"],
+                        ),
                         "secret_key": s3_config["secret-key"],
-                        "insecure": False if s3_config["endpoint"].startswith("https://") else True,
+                        "insecure": (
+                            False if s3_config["endpoint"].startswith("https://") else True
+                        ),
                     },
                     "wal": {
                         # where to store the wal locally

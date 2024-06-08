@@ -164,7 +164,13 @@ class TempoCharm(CharmBase):
         if not self.s3_requirer.relations:
             return None
         s3_config = self.s3_requirer.get_s3_connection_info()
-        if s3_config and "bucket" in s3_config and "endpoint" in s3_config and "access-key" in s3_config and "secret-key" in s3_config:
+        if (
+            s3_config
+            and "bucket" in s3_config
+            and "endpoint" in s3_config
+            and "access-key" in s3_config
+            and "secret-key" in s3_config
+        ):
             return s3_config
         return None
 
