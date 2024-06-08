@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 import ops
+from charms.data_platform_libs.v0.s3 import S3Requirer
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
 from charms.grafana_k8s.v0.grafana_source import GrafanaSourceProvider
 from charms.loki_k8s.v0.loki_push_api import LogProxyConsumer
@@ -66,6 +67,8 @@ class TempoCharm(CharmBase):
             sans=[self.hostname],
         )
 
+        self.s3_requirer = S3Requirer(self, Tempo.s3_relation_name, Tempo.s3_bucket_name)
+
         # configure this tempo as a datasource in grafana
         self.grafana_source_provider = GrafanaSourceProvider(
             self,
@@ -111,6 +114,8 @@ class TempoCharm(CharmBase):
             self.on.tempo_pebble_custom_notice, self._on_tempo_pebble_custom_notice
         )
         self.framework.observe(self.on.update_status, self._on_update_status)
+        self.framework.observe(self.s3_requirer.on.credentials_changed, self._on_s3_changed)
+        self.framework.observe(self.s3_requirer.on.credentials_gone, self._on_s3_changed)
         self.framework.observe(self.tracing.on.request, self._on_tracing_request)
         self.framework.observe(self.on.collect_unit_status, self._on_collect_unit_status)
         self.framework.observe(self.on.list_receivers_action, self._on_list_receivers_action)
@@ -154,6 +159,15 @@ class TempoCharm(CharmBase):
             and (self.cert_handler.ca_cert is not None)
         )
 
+    @property
+    def _s3_config(self) -> Optional[dict]:
+        if not self.s3_requirer.relations:
+            return None
+        s3_config = self.s3_requirer.get_s3_connection_info()
+        if s3_config and "bucket" in s3_config and "endpoint" in s3_config and "access-key" in s3_config and "secret-key" in s3_config:
+            return s3_config
+        return None
+
     def _on_tracing_broken(self, _):
         """Update tracing relations' databags once one relation is removed."""
         self._update_tracing_relations()
@@ -174,7 +188,7 @@ class TempoCharm(CharmBase):
 
         if was_ready != self.tempo.tls_ready:
             # tls readiness change means config change.
-            self.tempo.update_config(self._requested_receivers())
+            self.tempo.update_config(self._requested_receivers(), self._s3_config)
             # sync scheme change with traefik and related consumers
             self._configure_ingress(_)
 
@@ -215,6 +229,11 @@ class TempoCharm(CharmBase):
         # as traefik_route goes through app data, we need to take lead of traefik_route if our leader dies.
         self._configure_ingress(e)
 
+    def _on_s3_changed(self, _):
+        self.tempo.update_config(self._requested_receivers(), self._s3_config)
+        # TODO do we really have to restart?
+        self.tempo.restart()
+
     def _on_config_changed(self, _):
         # check if certificate files haven't disappeared and recreate them if needed
         if self.tls_available and not self.tempo.tls_ready:
@@ -245,7 +264,7 @@ class TempoCharm(CharmBase):
     def _restart_if_receivers_changed(self, requested_receivers):
         # if the receivers have changed, we need to reconfigure tempo
         self.unit.status = MaintenanceStatus("reconfiguring Tempo...")
-        updated = self.tempo.update_config(requested_receivers)
+        updated = self.tempo.update_config(requested_receivers, self._s3_config)
         if not updated:
             logger.debug("Config not updated; skipping tempo restart")
         if updated:
@@ -275,7 +294,7 @@ class TempoCharm(CharmBase):
             logger.warning("container not ready, cannot configure; will retry soon")
             return event.defer()
 
-        self.tempo.update_config(self._requested_receivers())
+        self.tempo.update_config(self._requested_receivers(), self._s3_config)
         self.tempo.plan()
 
         self.unit.set_workload_version(self.version)

@@ -4,10 +4,12 @@
 
 """Tempo workload configuration and client."""
 import logging
+import re
 import socket
 from pathlib import Path
 from subprocess import CalledProcessError, getoutput
 from typing import Dict, List, Optional, Sequence, Tuple
+from urllib.parse import urlparse
 
 import ops
 import tenacity
@@ -43,6 +45,9 @@ class Tempo:
     wal_path = "/etc/tempo/tempo_wal"
     log_path = "/var/log/tempo.log"
     tempo_ready_notice_key = "canonical.com/tempo/workload-ready"
+
+    s3_relation_name = "s3"
+    s3_bucket_name = "tempo"
 
     server_ports = {
         "tempo_http": 3200,
@@ -139,14 +144,14 @@ class Tempo:
         # is not autostart-enabled, we just run it once on pebble-ready.
         self.container.start("tempo-ready")
 
-    def update_config(self, requested_receivers: Sequence[ReceiverProtocol]) -> bool:
+    def update_config(self, requested_receivers: Sequence[ReceiverProtocol], s3_config: Optional[dict] = None) -> bool:
         """Generate a config and push it to the container it if necessary."""
         container = self.container
         if not container.can_connect():
             logger.debug("Container can't connect: config update skipped.")
             return False
 
-        new_config = self.generate_config(requested_receivers)
+        new_config = self.generate_config(requested_receivers, s3_config)
 
         if self.get_current_config() != new_config:
             logger.debug("Pushing new config to container...")
@@ -272,7 +277,7 @@ class Tempo:
 
         return server_config
 
-    def generate_config(self, receivers: Sequence[ReceiverProtocol]) -> dict:
+    def generate_config(self, receivers: Sequence[ReceiverProtocol], s3_config: Optional[dict] = None) -> dict:
         """Generate the Tempo configuration.
 
         Only activate the provided receivers.
@@ -304,23 +309,7 @@ class Tempo:
                 }
             },
             # see https://grafana.com/docs/tempo/latest/configuration/#storage
-            "storage": {
-                "trace": {
-                    # FIXME: not good for production! backend configuration to use;
-                    #  one of "gcs", "s3", "azure" or "local"
-                    "backend": "local",
-                    "local": {"path": "/traces"},
-                    "wal": {
-                        # where to store the wal locally
-                        "path": self.wal_path
-                    },
-                    "pool": {
-                        # number of traces per index record
-                        "max_workers": 400,
-                        "queue_depth": 20000,
-                    },
-                }
-            },
+            "storage": self._build_storage_config(s3_config),
         }
 
         if self.tls_ready:
@@ -344,6 +333,46 @@ class Tempo:
             config["memberlist"] = tls_config
 
         return config
+
+    def _build_storage_config(self, s3_config: Optional[dict] = None):
+        if s3_config:
+            return {
+                "trace": {
+                    "backend": "s3",
+                    "s3": {
+                        "bucket": s3_config["bucket"],
+                        "access_key": s3_config["access-key"],
+                        # remove scheme to avoid "Endpoint url cannot have fully qualified paths." on Tempo startup
+                        "endpoint": re.sub(rf"^{urlparse(s3_config['endpoint']).scheme}://", "", s3_config["endpoint"]),
+                        "secret_key": s3_config["secret-key"],
+                        "insecure": False if s3_config["endpoint"].startswith("https://") else True,
+                    },
+                    "wal": {
+                        # where to store the wal locally
+                        "path": self.wal_path
+                    },
+                    "pool": {
+                        # number of traces per index record
+                        "max_workers": 400,
+                        "queue_depth": 20000,
+                    },
+                }
+            }
+        return {
+            "trace": {
+                "backend": "local",
+                "local": {"path": "/traces"},
+                "wal": {
+                    # where to store the wal locally
+                    "path": self.wal_path
+                },
+                "pool": {
+                    # number of traces per index record
+                    "max_workers": 400,
+                    "queue_depth": 20000,
+                },
+            }
+        }
 
     @property
     def pebble_layer(self) -> Layer:

@@ -61,6 +61,11 @@ provides:
 
 
 requires:
+  s3:
+    interface: s3
+    limit: 1
+    description: |
+      Obtains access to the s3 bucket for data storage.
   logging:
     interface: loki_push_api
     description: |
