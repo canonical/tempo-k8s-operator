@@ -122,6 +122,7 @@ def test_tempo_tracing_created_before_pebble_ready(context, tmp_path):
     tempo_out = state_out.get_container("tempo")
     assert not tempo_out.services
 
+
 def test_tracing_storage_is_configured_to_local_without_relation(context, tmp_path):
     # GIVEN tempo mock
     container, tempo = _tempo_mock_with_initial_config(tmp_path)
@@ -139,13 +140,21 @@ def test_tracing_storage_is_configured_to_local_without_relation(context, tmp_pa
     assert fetched_config["storage"]["trace"]["backend"] == "local"
 
 
-@pytest.mark.parametrize("relation_data", ({}, {
-    "access-key": "key",
-    "bucket": "tempo",
-    "endpoint": "http://1.2.3.4:9000",
-    "secret-key": "soverysecret",
-}))
-def test_tracing_storage_is_configured_to_s3_if_s3_relation_filled(context, tmp_path, relation_data):
+@pytest.mark.parametrize(
+    "relation_data",
+    (
+        {},
+        {
+            "access-key": "key",
+            "bucket": "tempo",
+            "endpoint": "http://1.2.3.4:9000",
+            "secret-key": "soverysecret",
+        },
+    ),
+)
+def test_tracing_storage_is_configured_to_s3_if_s3_relation_filled(
+    context, tmp_path, relation_data
+):
     # GIVEN tempo mock
     container, tempo = _tempo_mock_with_initial_config(tmp_path)
 
@@ -153,9 +162,7 @@ def test_tracing_storage_is_configured_to_s3_if_s3_relation_filled(context, tmp_
     s3_relation = Relation(
         "s3",
         remote_app_data=relation_data,
-        local_app_data={
-            "bucket": "tempo"
-        },
+        local_app_data={"bucket": "tempo"},
     )
 
     state = State(leader=True, containers=[tempo], relations=[s3_relation])
