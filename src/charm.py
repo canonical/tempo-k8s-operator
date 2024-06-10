@@ -28,13 +28,12 @@ from charms.traefik_route_k8s.v0.traefik_route import TraefikRouteRequirer
 from ops.charm import (
     CharmBase,
     CollectStatusEvent,
-    HookEvent,
     PebbleNoticeEvent,
     RelationEvent,
     WorkloadEvent,
 )
 from ops.main import main
-from ops.model import ActiveStatus, MaintenanceStatus, WaitingStatus
+from ops.model import ActiveStatus, BlockedStatus, MaintenanceStatus, WaitingStatus
 from tempo import Tempo
 
 logger = logging.getLogger(__name__)
@@ -100,6 +99,16 @@ class TempoCharm(CharmBase):
 
         self.tracing = TracingEndpointProvider(self, external_url=self._external_url)
 
+        if not self.is_consistent():
+            logger.error(
+                f"Inconsistent deployment. {self.unit.name} will be unresponsive. "
+                "This likely means you need to add an s3 integration. "
+                "This charm will be unresponsive and refuse to handle any event until "
+                "the situation is resolved by the cloud admin, to avoid data loss."
+            )
+            self.framework.observe(self.on.collect_unit_status, self._on_collect_unit_status)
+            return  # refuse to handle any other event as we can't possibly know what to do.
+
         self.framework.observe(
             self.on["ingress"].relation_created, self._on_ingress_relation_created
         )
@@ -107,6 +116,7 @@ class TempoCharm(CharmBase):
             self.on["ingress"].relation_joined, self._on_ingress_relation_joined
         )
         self.framework.observe(self.on.leader_elected, self._on_leader_elected)
+        self.framework.observe(self.on.leader_settings_changed, self._on_leader_settings_changed)
         self.framework.observe(self.ingress.on.ready, self._on_ingress_ready)
 
         self.framework.observe(self.on.tempo_pebble_ready, self._on_tempo_pebble_ready)
@@ -114,8 +124,10 @@ class TempoCharm(CharmBase):
             self.on.tempo_pebble_custom_notice, self._on_tempo_pebble_custom_notice
         )
         self.framework.observe(self.on.update_status, self._on_update_status)
-        self.framework.observe(self.s3_requirer.on.credentials_changed, self._on_s3_changed)
-        self.framework.observe(self.s3_requirer.on.credentials_gone, self._on_s3_changed)
+        self.framework.observe(
+            self.s3_requirer.on.credentials_changed, self._on_s3_credentials_changed
+        )
+        self.framework.observe(self.s3_requirer.on.credentials_gone, self._on_s3_credentials_gone)
         self.framework.observe(self.tracing.on.request, self._on_tracing_request)
         self.framework.observe(self.on.collect_unit_status, self._on_collect_unit_status)
         self.framework.observe(self.on.list_receivers_action, self._on_list_receivers_action)
@@ -196,7 +208,7 @@ class TempoCharm(CharmBase):
             # tls readiness change means config change.
             self.tempo.update_config(self._requested_receivers(), self._s3_config)
             # sync scheme change with traefik and related consumers
-            self._configure_ingress(_)
+            self._configure_ingress()
 
             if self.tempo.is_tempo_service_defined:
                 self.tempo.restart()
@@ -208,8 +220,8 @@ class TempoCharm(CharmBase):
         # update relations to reflect the new certificate
         self._update_tracing_relations()
 
-    def _configure_ingress(self, _) -> None:
-        """Make sure the traefik route and tracing relation data are up to date."""
+    def _configure_ingress(self) -> None:
+        """Make sure the traefik route and tracing relation data are up-to-date."""
         if not self.unit.is_leader():
             return
 
@@ -225,18 +237,43 @@ class TempoCharm(CharmBase):
         logger.debug(f"received tracing request from {e.relation.app}: {e.requested_receivers}")
         self._update_tracing_relations()
 
-    def _on_ingress_relation_created(self, e: RelationEvent):
-        self._configure_ingress(e)
+    def _on_ingress_relation_created(self, _: RelationEvent):
+        self._configure_ingress()
 
-    def _on_ingress_relation_joined(self, e: RelationEvent):
-        self._configure_ingress(e)
+    def _on_ingress_relation_joined(self, _: RelationEvent):
+        self._configure_ingress()
 
-    def _on_leader_elected(self, e: HookEvent):
+    def _on_leader_settings_changed(self, _: ops.LeaderSettingsChangedEvent):
+        if not self._is_s3_ready():
+            logger.error(
+                "Losing leadership without s3. " "This unit will soon be in an inconsistent state."
+            )
+
+    def _on_leader_elected(self, _: ops.LeaderElectedEvent):
         # as traefik_route goes through app data, we need to take lead of traefik_route if our leader dies.
-        self._configure_ingress(e)
+        self._configure_ingress()
 
-    def _on_s3_changed(self, _):
-        self.tempo.update_config(self._requested_receivers(), self._s3_config)
+    def _on_s3_credentials_changed(self, _):
+        self._on_s3_changed()
+
+    def _on_s3_credentials_gone(self, _):
+        self._on_s3_changed()
+
+    def _on_s3_changed(self):
+        could_scale_before = self.tempo.can_scale()
+
+        s3_config = self._s3_config
+        self.tempo.update_config(self._requested_receivers(), s3_config)
+
+        can_scale_now = self.tempo.can_scale()
+        # if we had s3, and we don't anymore, we need to replan from 'scaling-monolithic' to 'all'
+        # if we didn't have s3, and now we do, we can replan from 'all' to 'scaling-monolithic'
+        if could_scale_before != can_scale_now:
+            if self.tempo.is_tempo_service_defined:
+                self.tempo.plan()
+            else:
+                # assume that this will be handled at the next pebble-ready
+                logger.debug("Cannot reconfigure/restart tempo at this time.")
 
     def _on_config_changed(self, _):
         # check if certificate files haven't disappeared and recreate them if needed
@@ -386,7 +423,22 @@ class TempoCharm(CharmBase):
 
         return None
 
+    def is_consistent(self):
+        """Check deployment consistency."""
+        if not self.unit.is_leader() and not self._is_s3_ready():
+            return False
+        return True
+
+    def _is_s3_ready(self) -> bool:
+        return bool(self._s3_config)
+
     def _on_collect_unit_status(self, e: CollectStatusEvent):
+        if not self.is_consistent():
+            e.add_status(
+                BlockedStatus(
+                    "Unit *disabled*. Cannot scale Tempo without adding an s3 integration."
+                )
+            )
         if not self.tempo.container.can_connect():
             e.add_status(WaitingStatus("Tempo container not ready"))
         if not self.tempo.is_ready():

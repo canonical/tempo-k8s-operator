@@ -225,6 +225,13 @@ class Tempo:
         self.container.start("tempo-ready")
         return True
 
+    def shutdown(self):
+        """Gracefully shutdown the tempo process."""
+        for service in ["tempo", "tempo-ready"]:
+            if self.container.get_service(service).is_running():
+                self.container.stop(service)
+                logger.info(f"stopped {service}")
+
     def get_current_config(self) -> Optional[dict]:
         """Fetch the current configuration from the container."""
         if not self.container.can_connect():
@@ -339,9 +346,20 @@ class Tempo:
         return config
 
     def _build_storage_config(self, s3_config: Optional[dict] = None):
+        storage_config = {
+            "wal": {
+                # where to store the wal locally
+                "path": self.wal_path
+            },
+            "pool": {
+                # number of traces per index record
+                "max_workers": 400,
+                "queue_depth": 20000,
+            },
+        }
         if s3_config:
-            return {
-                "trace": {
+            storage_config.update(
+                {
                     "backend": "s3",
                     "s3": {
                         "bucket": s3_config["bucket"],
@@ -357,43 +375,35 @@ class Tempo:
                             False if s3_config["endpoint"].startswith("https://") else True
                         ),
                     },
-                    "wal": {
-                        # where to store the wal locally
-                        "path": self.wal_path
-                    },
-                    "pool": {
-                        # number of traces per index record
-                        "max_workers": 400,
-                        "queue_depth": 20000,
-                    },
                 }
-            }
-        return {
-            "trace": {
-                "backend": "local",
-                "local": {"path": "/traces"},
-                "wal": {
-                    # where to store the wal locally
-                    "path": self.wal_path
-                },
-                "pool": {
-                    # number of traces per index record
-                    "max_workers": 400,
-                    "queue_depth": 20000,
-                },
-            }
-        }
+            )
+        else:
+            storage_config.update(
+                {
+                    "backend": "local",
+                    "local": {"path": "/traces"},
+                }
+            )
+        return {"trace": storage_config}
+
+    def can_scale(self) -> bool:
+        """Return whether this tempo instance can scale, i.e., whether s3 is configured."""
+        config = self.get_current_config()
+        if not config:
+            return False
+        return config["storage"]["trace"]["backend"] == "s3"
 
     @property
     def pebble_layer(self) -> Layer:
         """Generate the pebble layer for the Tempo container."""
+        target = "scalable-single-binary" if self.can_scale() else "all"
         return Layer(
             {
                 "services": {
                     "tempo": {
                         "override": "replace",
                         "summary": "Main Tempo layer",
-                        "command": f'/bin/sh -c "/tempo -config.file={self.config_path} | tee {self.log_path}"',
+                        "command": f'/bin/sh -c "/tempo -config.file={self.config_path} -target {target} | tee {self.log_path}"',
                         "startup": "enabled",
                     }
                 },
