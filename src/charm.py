@@ -34,6 +34,7 @@ from ops.charm import (
 )
 from ops.main import main
 from ops.model import ActiveStatus, BlockedStatus, MaintenanceStatus, WaitingStatus
+
 from tempo import Tempo
 
 logger = logging.getLogger(__name__)

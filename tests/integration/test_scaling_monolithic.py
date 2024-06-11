@@ -2,7 +2,7 @@ import logging
 import tempfile
 from pathlib import Path
 from subprocess import run
-from typing import Literal, Dict
+from typing import Dict, Literal
 
 import pytest
 import yaml
@@ -21,9 +21,7 @@ logger = logging.getLogger(__name__)
 @pytest.mark.abort_on_fail
 async def test_deploy_tempo(ops_test: OpsTest):
     tempo_charm = await ops_test.build_charm(".")
-    resources = {
-        "tempo-image": METADATA["resources"]["tempo-image"]["upstream-source"]
-    }
+    resources = {"tempo-image": METADATA["resources"]["tempo-image"]["upstream-source"]}
     await ops_test.model.deploy(tempo_charm, resources=resources, application_name=APP_NAME),
 
     await ops_test.model.wait_for_idle(
@@ -33,6 +31,7 @@ async def test_deploy_tempo(ops_test: OpsTest):
         timeout=10000,
         raise_on_error=False,
     )
+
 
 @pytest.mark.abort_on_fail
 async def test_scale_tempo_up_without_s3_blocks(ops_test: OpsTest):
@@ -48,14 +47,14 @@ async def test_scale_tempo_up_without_s3_blocks(ops_test: OpsTest):
 
 
 def present_facade(
-        interface: str,
-        app_data: Dict = None,
-        unit_data: Dict = None,
-        role: Literal["provide", "require"] = "provide",
-        model: str = None,
-        app: str = "facade"):
+    interface: str,
+    app_data: Dict = None,
+    unit_data: Dict = None,
+    role: Literal["provide", "require"] = "provide",
+    model: str = None,
+    app: str = "facade",
+):
     """Set up the facade charm to present this data over the interface ``interface``."""
-
     data = {
         "endpoint": f"{role}-{interface}",
     }
@@ -66,13 +65,10 @@ def present_facade(
 
     with tempfile.NamedTemporaryFile() as f:
         fpath = Path(f.name)
-        fpath.write_text(
-            yaml.safe_dump(data)
-        )
+        fpath.write_text(yaml.safe_dump(data))
 
         _model = f" --model {model}" if model else ""
-        run(f"juju run {app}/0 {_model} --params {fpath.absolute()}")
-
+        run(f"juju run {app}/0{_model} --params {fpath.absolute()}")
 
 
 @pytest.mark.setup
@@ -81,13 +77,16 @@ async def test_tempo_active_when_deploy_s3_facade(ops_test: OpsTest):
     await ops_test.model.deploy(FACADE)
     await ops_test.model.integrate(APP_NAME + ":s3", FACADE + ":provide-s3")
 
-    present_facade("s3", model=ops_test.model_name,
-                   app_data={
-                       "access-key": "key",
-                       "bucket": "tempo",
-                       "endpoint": "http://1.2.3.4:9000",
-                       "secret-key": "soverysecret",
-                   })
+    present_facade(
+        "s3",
+        model=ops_test.model_name,
+        app_data={
+            "access-key": "key",
+            "bucket": "tempo",
+            "endpoint": "http://1.2.3.4:9000",
+            "secret-key": "soverysecret",
+        },
+    )
 
     await ops_test.model.wait_for_idle(
         apps=[APP_NAME],
