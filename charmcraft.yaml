@@ -93,6 +93,12 @@ actions:
     description: |
       Returns a list of all enabled receiver endpoints.
 
+peers:
+  tempo-peers:
+    interface: tempo_peers
+    description: |
+      peer relation for internal coordination
+      
 
 bases:
   - build-on:

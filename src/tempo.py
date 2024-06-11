@@ -171,7 +171,7 @@ class Tempo:
         try:
             self.container.get_service("tempo")
             return True
-        except ModelError:
+        except (ModelError, ops.pebble.ConnectionError):
             return False
 
     @tenacity.retry(

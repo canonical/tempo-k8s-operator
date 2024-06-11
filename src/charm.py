@@ -101,12 +101,16 @@ class TempoCharm(CharmBase):
 
         if not self.is_consistent():
             logger.error(
-                f"Inconsistent deployment. {self.unit.name} will be unresponsive. "
+                f"Inconsistent deployment. {self.unit.name} will be shutting down. "
                 "This likely means you need to add an s3 integration. "
                 "This charm will be unresponsive and refuse to handle any event until "
                 "the situation is resolved by the cloud admin, to avoid data loss."
             )
             self.framework.observe(self.on.collect_unit_status, self._on_collect_unit_status)
+
+            if self.tempo.is_tempo_service_defined:
+                self.tempo.shutdown()
+
             return  # refuse to handle any other event as we can't possibly know what to do.
 
         self.framework.observe(
@@ -423,9 +427,17 @@ class TempoCharm(CharmBase):
 
         return None
 
+    def is_scaled(self) -> bool:
+        """Check whether Tempo is deployed with scale > 1."""
+        # TODO write ADR for deployment model: tempo-k8s monolithic + scalable monolithic + coordinator
+        relation = self.model.get_relation("tempo-peers")
+        if not relation:
+            return False
+        return len(relation.units) > 1
+
     def is_consistent(self):
         """Check deployment consistency."""
-        if not self.unit.is_leader() and not self._is_s3_ready():
+        if self.is_scaled() and not self._is_s3_ready():
             return False
         return True
 
