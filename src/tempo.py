@@ -139,10 +139,17 @@ class Tempo:
         """Update pebble plan and start the tempo-ready service."""
         self.container.add_layer("tempo", self.pebble_layer, combine=True)
         self.container.add_layer("tempo-ready", self.tempo_ready_layer, combine=True)
-        self.container.replan()
-
-        # is not autostart-enabled, we just run it once on pebble-ready.
-        self.container.start("tempo-ready")
+        try:
+            self.container.replan()
+            # is not autostart-enabled, we just run it once on pebble-ready.
+            self.container.start("tempo-ready")
+        except ops.pebble.ChangeError:
+            # replan failed likely because address was still in use. try to (re)start tempo with backoff as a fallback
+            restart_result = self.restart()
+            if not restart_result:
+                logger.exception(
+                    "Starting tempo failed with a ChangeError and restart attempts didn't resolve the issue"
+                )
 
     def update_config(
         self, requested_receivers: Sequence[ReceiverProtocol], s3_config: Optional[dict] = None
@@ -202,7 +209,7 @@ class Tempo:
             return False
 
         try:
-            is_started = self.container.get_service("tempo").is_running()
+            is_started = self.is_running
         except ModelError:
             is_started = False
 
@@ -224,6 +231,10 @@ class Tempo:
         # wait for an update-status
         self.container.start("tempo-ready")
         return True
+
+    @property
+    def is_running(self) -> bool:
+        return self.container.get_service("tempo").is_running()
 
     def shutdown(self):
         """Gracefully shutdown the tempo process."""
