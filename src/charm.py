@@ -168,7 +168,7 @@ class TempoCharm(CharmBase):
     def is_worker_node(self) -> bool:
         """Check whether this Tempo charm is configured to run a worker node."""
         if self.is_clustered:
-            return self.config.get("run_monolith_worker_node_when_clustered", True)
+            return self.config.get("coordinator_runs_workload_when_clustered", True)
         return True
 
     @property
@@ -411,12 +411,14 @@ class TempoCharm(CharmBase):
                 )
             )
         else:
-            # no issues: tempo is consistent
-            if not self.coordinator.is_recommended:
-                e.add_status(ActiveStatus("[coordinator] degraded"))
+            if self.is_clustered:
+                # no issues: tempo is consistent
+                if not self.coordinator.is_recommended:
+                    e.add_status(ActiveStatus("[coordinator] degraded"))
+                else:
+                    e.add_status(ActiveStatus())
             else:
                 e.add_status(ActiveStatus())
-
 
     ###################
     # UTILITY METHODS #

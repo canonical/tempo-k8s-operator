@@ -99,7 +99,7 @@ actions:
 
 config:
   options:
-    run_monolith_worker_node_when_clustered:
+    coordinator_runs_workload_when_clustered:
       type: boolean
       default: true
       description: |

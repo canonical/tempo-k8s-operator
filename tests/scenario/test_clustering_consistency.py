@@ -101,7 +101,7 @@ def test_scaling_no_s3_inconsistent(context, tempo_container_ready, peers):
     assert_status(state_out, unit="blocked")
 
 
-def test_scaled_coordinator_no_s3_inconsistent(context, peers, cluster, tempo_container_ready):
+def test_clustered_and_scaled_coordinator_no_s3_inconsistent(context, peers, cluster, tempo_container_ready):
     state = scenario.State(
         leader=True,
         containers=[tempo_container_ready],
@@ -128,7 +128,7 @@ def test_clustered_coordinator_no_s3_inconsistent(context, tempo_container_ready
 def test_single_coordinator_no_s3_no_worker_inconsistent(context, tempo_container_ready, cluster):
     state = scenario.State(
         leader=True,
-        config={"run_monolith_worker_node_when_clustered": False},
+        config={"coordinator_runs_workload_when_clustered": False},
         containers=[tempo_container_ready],
         relations=[cluster]
     )
@@ -182,9 +182,8 @@ def test_clustered_with_s3_consistent(context, s3_ready_state, tempo_container_r
     assert_status(state_out, unit="active")
 
 
-def test_coord_only_scaling_with_s3_inconsistent(context, s3_ready_state, tempo_container_ready, s3, peers):
+def test_coord_only_scaling_with_s3_consistent(context, s3_ready_state, tempo_container_ready, s3, peers):
     state = s3_ready_state.replace(
-        config={"run_monolith_worker_node_when_clustered": False},
         relations=[peers, s3]
     )
 
@@ -205,7 +204,7 @@ def test_coord_only_scaling_with_s3_inconsistent(context, s3_ready_state, tempo_
 def test_coord_only_clustered_scaling_with_s3_inconsistent(context, tempo_container_ready, s3, peers, cluster,
                                                            s3_ready_state):
     state = s3_ready_state.replace(
-        config={"run_monolith_worker_node_when_clustered": False},
+        config={"coordinator_runs_workload_when_clustered": False},
         relations=[peers, s3, cluster]
     )
 
@@ -231,7 +230,7 @@ def test_coord_only_clustered_scaling_with_s3_inconsistent(context, tempo_contai
 
 def test_coord_only_clustered_with_s3_inconsistent(context, tempo_container_ready, s3, cluster, s3_ready_state):
     state = s3_ready_state.replace(
-        config={"run_monolith_worker_node_when_clustered": False},
+        config={"coordinator_runs_workload_when_clustered": False},
         relations=[s3, cluster]
     )
 
@@ -263,7 +262,7 @@ def generate_cluster_relations(deployment_spec: Dict[TempoRole, int], template: 
 def test_full_clustering_consistent(context, tempo_container_ready, s3, cluster, s3_ready_state):
     """The happy path of all happy paths."""
     state = s3_ready_state.replace(
-        config={"run_monolith_worker_node_when_clustered": False},
+        config={"coordinator_runs_workload_when_clustered": False},
         relations=[s3, *generate_cluster_relations(MINIMAL_DEPLOYMENT, cluster)]
     )
 
@@ -275,7 +274,7 @@ def test_full_clustering_consistent(context, tempo_container_ready, s3, cluster,
 
 def test_full_clustering_recommended(context, tempo_container_ready, s3, cluster, s3_ready_state):
     state = s3_ready_state.replace(
-        config={"run_monolith_worker_node_when_clustered": False},
+        config={"coordinator_runs_workload_when_clustered": False},
         relations=[s3, *generate_cluster_relations(RECOMMENDED_DEPLOYMENT, cluster)]
     )
 

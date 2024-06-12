@@ -504,8 +504,8 @@ def trace_type(cls: _T) -> _T:
     for name, method in inspect.getmembers(cls, predicate=inspect.isfunction):
         logger.info(f"discovered {method}")
 
-        if method.__name__.startswith("__"):
-            logger.info(f"skipping {method} (dunder)")
+        if not method.__name__.isidentifier():
+            logger.info(f"skipping {method}")
             continue
 
         new_method = trace_method(method)
