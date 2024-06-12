@@ -74,12 +74,14 @@ class Tempo:
         container: ops.Container,
         external_host: Optional[str] = None,
         enable_receivers: Optional[Sequence[ReceiverProtocol]] = None,
+        run_worker_node: bool = True
     ):
         # ports source: https://github.com/grafana/tempo/blob/main/example/docker-compose/local/docker-compose.yaml
 
         # fqdn, if an ingress is not available, else the ingress address.
         self._external_hostname = external_host or socket.getfqdn()
         self.container = container
+        self.run_worker_node = run_worker_node
         self.enabled_receivers = enable_receivers or []
 
     @property
@@ -137,6 +139,10 @@ class Tempo:
 
     def plan(self):
         """Update pebble plan and start the tempo-ready service."""
+        if not self.run_worker_node:
+            logger.info("will not plan tempo container: this node is a coordinator")
+            return
+
         self.container.add_layer("tempo", self.pebble_layer, combine=True)
         self.container.add_layer("tempo-ready", self.tempo_ready_layer, combine=True)
         self.container.replan()

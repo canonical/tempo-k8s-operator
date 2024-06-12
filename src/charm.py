@@ -3,28 +3,14 @@
 # See LICENSE file for licensing details.
 
 """Charmed Operator for Tempo; a lightweight object storage based tracing backend."""
-
+import json
 import logging
 import re
 import socket
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict, List
 
 import ops
-from charms.data_platform_libs.v0.s3 import S3Requirer
-from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
-from charms.grafana_k8s.v0.grafana_source import GrafanaSourceProvider
-from charms.loki_k8s.v0.loki_push_api import LogProxyConsumer
-from charms.observability_libs.v0.kubernetes_service_patch import KubernetesServicePatch
-from charms.observability_libs.v1.cert_handler import CertHandler
-from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
-from charms.tempo_k8s.v1.charm_tracing import trace_charm
-from charms.tempo_k8s.v2.tracing import (
-    ReceiverProtocol,
-    RequestEvent,
-    TracingEndpointProvider,
-)
-from charms.traefik_route_k8s.v0.traefik_route import TraefikRouteRequirer
 from ops.charm import (
     CharmBase,
     CollectStatusEvent,
@@ -33,9 +19,25 @@ from ops.charm import (
     WorkloadEvent,
 )
 from ops.main import main
-from ops.model import ActiveStatus, BlockedStatus, MaintenanceStatus, WaitingStatus
+from ops.model import ActiveStatus, BlockedStatus, MaintenanceStatus, WaitingStatus, Relation
 
+from charms.data_platform_libs.v0.s3 import S3Requirer
+from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
+from charms.grafana_k8s.v0.grafana_source import GrafanaSourceProvider
+from charms.loki_k8s.v0.loki_push_api import LogProxyConsumer
+from charms.observability_libs.v0.kubernetes_service_patch import KubernetesServicePatch
+from charms.observability_libs.v1.cert_handler import CertHandler, VAULT_SECRET_LABEL
+from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
+from charms.tempo_k8s.v1.charm_tracing import trace_charm
+from charms.tempo_k8s.v2.tracing import (
+    ReceiverProtocol,
+    RequestEvent,
+    TracingEndpointProvider,
+)
+from charms.traefik_route_k8s.v0.traefik_route import TraefikRouteRequirer
+from coordinator import TempoCoordinator
 from tempo import Tempo
+from tempo_cluster import TempoClusterProvider
 
 logger = logging.getLogger(__name__)
 
@@ -50,16 +52,18 @@ class TempoCharm(CharmBase):
 
     def __init__(self, *args):
         super().__init__(*args)
+        self.ingress = TraefikRouteRequirer(self, self.model.get_relation("ingress"), "ingress")  # type: ignore
+        self.tempo_cluster = TempoClusterProvider(self)
+        self.coordinator = TempoCoordinator(self.tempo_cluster,
+                                            is_worker=self.is_worker_node)
+
         self.tempo = tempo = Tempo(
             self.unit.get_container("tempo"),
             external_host=self.hostname,
             # we need otlp_http receiver for charm_tracing
             enable_receivers=["otlp_http"],
+            run_worker_node=self.is_worker_node
         )
-
-        # TODO:
-        #  ingress route provisioning a separate TCP ingress for each receiver if GRPC doesn't work directly
-        self.ingress = TraefikRouteRequirer(self, self.model.get_relation("ingress"), "ingress")  # type: ignore
 
         self.cert_handler = CertHandler(
             self,
@@ -100,7 +104,16 @@ class TempoCharm(CharmBase):
 
         self.tracing = TracingEndpointProvider(self, external_url=self._external_url)
 
-        if not self.is_consistent():
+        self._inconsistencies = self.coordinator.get_deployment_inconsistencies(
+            clustered=self.is_clustered,
+            scaled=self.is_scaled,
+            has_workers=self.tempo_cluster.has_workers,
+            is_worker_node=self.is_worker_node,
+            has_s3=self.is_s3_ready
+        )
+        self._is_consistent = not self._inconsistencies
+
+        if not self._is_consistent:
             logger.error(
                 f"Inconsistent deployment. {self.unit.name} will be shutting down. "
                 "This likely means you need to add an s3 integration. "
@@ -140,6 +153,44 @@ class TempoCharm(CharmBase):
         self.framework.observe(self.on.config_changed, self._on_config_changed)
         self.framework.observe(self.tracing.on.broken, self._on_tracing_broken)
 
+    ######################
+    # UTILITY PROPERTIES #
+    ######################
+
+    @property
+    def is_worker_node(self) -> bool:
+        """Check whether this Tempo charm is configured to run a worker node."""
+        if self.is_clustered:
+            return self.config.get("run_monolith_worker_node_when_clustered", True)
+        return True
+
+    @property
+    def is_scaled(self) -> bool:
+        """Check whether Tempo is deployed with scale > 1."""
+        relation = self.model.get_relation("tempo-peers")
+        if not relation:
+            return False
+        return len(relation.units) > 1
+
+    @property
+    def is_clustered(self) -> bool:
+        """Check whether this Tempo is a coordinator and has worker nodes connected to it."""
+        return self.tempo_cluster.has_workers
+
+    @property
+    def is_s3_ready(self) -> bool:
+        # we have an s3 config
+
+        # we cannot check for self.tempo.can_scale() here, because if we are handling a s3-changed
+        # event, it may be that we have a s3 config which is not yet on disk (it will be put there by
+        # our on_s3_changed event handler momentarily).
+        return bool(self._s3_config)
+
+    @property
+    def hostname(self) -> str:
+        """Unit's hostname."""
+        return socket.getfqdn()
+
     @property
     def _external_http_server_url(self) -> str:
         """External url of the http(s) server."""
@@ -170,10 +221,10 @@ class TempoCharm(CharmBase):
     def tls_available(self) -> bool:
         """Return True if tls is enabled and the necessary certs are found."""
         return (
-            self.cert_handler.enabled
-            and (self.cert_handler.server_cert is not None)
-            and (self.cert_handler.private_key is not None)
-            and (self.cert_handler.ca_cert is not None)
+                self.cert_handler.enabled
+                and (self.cert_handler.server_cert is not None)
+                and (self.cert_handler.private_key is not None)
+                and (self.cert_handler.ca_cert is not None)
         )
 
     @property
@@ -182,15 +233,18 @@ class TempoCharm(CharmBase):
             return None
         s3_config = self.s3_requirer.get_s3_connection_info()
         if (
-            s3_config
-            and "bucket" in s3_config
-            and "endpoint" in s3_config
-            and "access-key" in s3_config
-            and "secret-key" in s3_config
+                s3_config
+                and "bucket" in s3_config
+                and "endpoint" in s3_config
+                and "access-key" in s3_config
+                and "secret-key" in s3_config
         ):
             return s3_config
         return None
 
+    ##################
+    # EVENT HANDLERS #
+    ##################
     def _on_tracing_broken(self, _):
         """Update tracing relations' databags once one relation is removed."""
         self._update_tracing_relations()
@@ -225,17 +279,8 @@ class TempoCharm(CharmBase):
         # update relations to reflect the new certificate
         self._update_tracing_relations()
 
-    def _configure_ingress(self) -> None:
-        """Make sure the traefik route and tracing relation data are up-to-date."""
-        if not self.unit.is_leader():
-            return
-
-        if self.ingress.is_ready():
-            self.ingress.submit_to_traefik(
-                self._ingress_config, static=self._static_ingress_config
-            )
-            if self.ingress.external_host:
-                self._update_tracing_relations()
+        # notify the cluster
+        self._update_tempo_cluster()
 
     def _on_tracing_request(self, e: RequestEvent):
         """Handle a remote requesting a tracing endpoint."""
@@ -249,7 +294,7 @@ class TempoCharm(CharmBase):
         self._configure_ingress()
 
     def _on_leader_settings_changed(self, _: ops.LeaderSettingsChangedEvent):
-        if not self._is_s3_ready():
+        if not self.is_s3_ready:
             logger.error(
                 "Losing leadership without s3. " "This unit will soon be in an inconsistent state."
             )
@@ -274,11 +319,13 @@ class TempoCharm(CharmBase):
         # if we had s3, and we don't anymore, we need to replan from 'scaling-monolithic' to 'all'
         # if we didn't have s3, and now we do, we can replan from 'all' to 'scaling-monolithic'
         if could_scale_before != can_scale_now:
-            if self.tempo.is_tempo_service_defined:
-                self.tempo.plan()
-            else:
-                # assume that this will be handled at the next pebble-ready
-                logger.debug("Cannot reconfigure/restart tempo at this time.")
+            if not self.tempo.is_tempo_service_defined:
+                # TODO: should we be deferring this to the next pebble-ready instead?
+                logger.debug("tempo was not running! Starting it now")
+
+            self.tempo.plan()
+
+        self._update_tempo_cluster()
 
     def _on_config_changed(self, _):
         # check if certificate files haven't disappeared and recreate them if needed
@@ -290,44 +337,7 @@ class TempoCharm(CharmBase):
                 ca=self.cert_handler.ca_cert,  # type: ignore
             )
 
-    def _update_tracing_relations(self):
-        tracing_relations = self.model.relations["tracing"]
-        if not tracing_relations:
-            # todo: set waiting status and configure tempo to run without receivers if possible,
-            #  else perhaps postpone starting the workload at all.
-            logger.warning("no tracing relations: Tempo has no receivers configured.")
-            return
-
-        requested_receivers = self._requested_receivers()
-        # publish requested protocols to all relations
-        if self.unit.is_leader():
-            self.tracing.publish_receivers(
-                [(p, self.tempo.get_receiver_url(p, self.ingress)) for p in requested_receivers]
-            )
-
-        self._restart_if_receivers_changed(requested_receivers)
-
-    def _restart_if_receivers_changed(self, requested_receivers):
-        # if the receivers have changed, we need to reconfigure tempo
-        self.unit.status = MaintenanceStatus("reconfiguring Tempo...")
-        updated = self.tempo.update_config(requested_receivers, self._s3_config)
-        if not updated:
-            logger.debug("Config not updated; skipping tempo restart")
-        if updated:
-            restarted = self.tempo.is_tempo_service_defined and self.tempo.restart()
-            if not restarted:
-                # assume that this will be handled at the next pebble-ready
-                logger.debug("Cannot reconfigure/restart tempo at this time.")
-
-    def _requested_receivers(self) -> Tuple[ReceiverProtocol, ...]:
-        """List what receivers we should activate, based on the active tracing relations."""
-        # we start with the sum of the requested endpoints from the requirers
-        requested_protocols = set(self.tracing.requested_protocols())
-
-        # and publish only those we support
-        requested_receivers = requested_protocols.intersection(set(self.tempo.receiver_ports))
-        requested_receivers.update(self.tempo.enabled_receivers)
-        return tuple(requested_receivers)
+        self._update_tempo_cluster()
 
     def _on_tempo_pebble_custom_notice(self, event: PebbleNoticeEvent):
         if event.notice.key == self.tempo.tempo_ready_notice_key:
@@ -357,6 +367,107 @@ class TempoCharm(CharmBase):
     def _on_ingress_revoked(self, _event):
         # whenever there's a change in ingress, we need to update all tracing relations
         self._update_tracing_relations()
+
+    def _on_list_receivers_action(self, event: ops.ActionEvent):
+        res = {}
+        for receiver in self._requested_receivers():
+            res[receiver.replace("_", "-")] = (
+                f"{self.ingress.external_host or self.tempo.url}:{self.tempo.receiver_ports[receiver]}"
+            )
+        event.set_results(res)
+
+    # keep this event handler at the bottom
+    def _on_collect_unit_status(self, e: CollectStatusEvent):
+        # todo add [nginx.workload] statuses
+
+        if not self.tempo.container.can_connect():
+            e.add_status(WaitingStatus("[workload.tempo] Tempo container not ready"))
+        if not self.tempo.is_ready():
+            e.add_status(WaitingStatus("[workload.tempo] Tempo API not ready just yet..."))
+
+        # todo: how to surface this inconsistent state?
+        # if not self.tempo.can_scale() and self.is_s3_ready):
+        #     e.add_status(BlockedStatus("[s3] s3 ready but tempo not configured."))
+
+        # TODO: should we set these statuses on the leader only, or on all units?
+        if issues := self._inconsistencies:
+            for issue in issues:
+                e.add_status(
+                    BlockedStatus("[consistency.issues]" + issue)
+                )
+            e.add_status(
+                BlockedStatus(
+                    "[consistency] Unit *disabled*."
+                )
+            )
+        else:
+            # no issues: tempo is consistent
+            if not self.is_worker_node:
+                # coordinator
+                if not self.coordinator.is_recommended:
+                    e.add_status(ActiveStatus("Tempo coordinator ready"))
+                else:
+                    e.add_status(ActiveStatus("Tempo coordinator ready and HA"))
+
+            else:
+                # worker
+                e.add_status(ActiveStatus())
+
+    ###################
+    # UTILITY METHODS #
+    ###################
+    def _configure_ingress(self) -> None:
+        """Make sure the traefik route and tracing relation data are up-to-date."""
+        if not self.unit.is_leader():
+            return
+
+        if self.ingress.is_ready():
+            self.ingress.submit_to_traefik(
+                self._ingress_config, static=self._static_ingress_config
+            )
+            if self.ingress.external_host:
+                self._update_tracing_relations()
+
+    def _update_tracing_relations(self):
+        tracing_relations = self.model.relations["tracing"]
+        if not tracing_relations:
+            # todo: set waiting status and configure tempo to run without receivers if possible,
+            #  else perhaps postpone starting the workload at all.
+            logger.warning("no tracing relations: Tempo has no receivers configured.")
+            return
+
+        requested_receivers = self._requested_receivers()
+        # publish requested protocols to all relations
+        if self.unit.is_leader():
+            self.tracing.publish_receivers(
+                [(p, self.tempo.get_receiver_url(p, self.ingress)) for p in requested_receivers]
+            )
+
+        self._restart_if_receivers_changed(requested_receivers)
+
+        self._update_tempo_cluster()
+
+    def _restart_if_receivers_changed(self, requested_receivers):
+        # if the receivers have changed, we need to reconfigure tempo
+        self.unit.status = MaintenanceStatus("reconfiguring Tempo...")
+        updated = self.tempo.update_config(requested_receivers, self._s3_config)
+        if not updated:
+            logger.debug("Config not updated; skipping tempo restart")
+        if updated:
+            restarted = self.tempo.is_tempo_service_defined and self.tempo.restart()
+            if not restarted:
+                # assume that this will be handled at the next pebble-ready
+                logger.debug("Cannot reconfigure/restart tempo at this time.")
+
+    def _requested_receivers(self) -> Tuple[ReceiverProtocol, ...]:
+        """List what receivers we should activate, based on the active tracing relations."""
+        # we start with the sum of the requested endpoints from the requirers
+        requested_protocols = set(self.tracing.requested_protocols())
+
+        # and publish only those we support
+        requested_receivers = requested_protocols.intersection(set(self.tempo.receiver_ports))
+        requested_receivers.update(self.tempo.enabled_receivers)
+        return tuple(requested_receivers)
 
     @property
     def version(self) -> str:
@@ -428,49 +539,52 @@ class TempoCharm(CharmBase):
 
         return None
 
-    def is_scaled(self) -> bool:
-        """Check whether Tempo is deployed with scale > 1."""
-        # TODO write ADR for deployment model: tempo-k8s monolithic + scalable monolithic + coordinator
-        relation = self.model.get_relation("tempo-peers")
-        if not relation:
-            return False
-        return len(relation.units) > 1
-
-    def is_consistent(self):
-        """Check deployment consistency."""
-        if self.is_scaled() and not self._is_s3_ready():
-            return False
-        return True
-
-    def _is_s3_ready(self) -> bool:
-        return bool(self._s3_config)
-
-    def _on_collect_unit_status(self, e: CollectStatusEvent):
-        if not self.is_consistent():
-            e.add_status(
-                BlockedStatus(
-                    "Unit *disabled*. Cannot scale Tempo without adding an s3 integration."
-                )
-            )
-        if not self.tempo.container.can_connect():
-            e.add_status(WaitingStatus("Tempo container not ready"))
-        if not self.tempo.is_ready():
-            e.add_status(WaitingStatus("Tempo API not ready just yet..."))
-
-        e.add_status(ActiveStatus())
-
     @property
-    def hostname(self) -> str:
-        """Unit's hostname."""
-        return socket.getfqdn()
+    def loki_endpoints_by_unit(self) -> Dict[str, str]:
+        """Loki endpoints from relation data in the format needed for Pebble log forwarding.
 
-    def _on_list_receivers_action(self, event: ops.ActionEvent):
-        res = {}
-        for receiver in self._requested_receivers():
-            res[receiver.replace("_", "-")] = (
-                f"{self.ingress.external_host or self.tempo.url}:{self.tempo.receiver_ports[receiver]}"
-            )
-        event.set_results(res)
+        Returns:
+            A dictionary of remote units and the respective Loki endpoint.
+            {
+                "loki/0": "http://loki:3100/loki/api/v1/push",
+                "another-loki/0": "http://another-loki:3100/loki/api/v1/push",
+            }
+        """
+        endpoints: Dict = {}
+        relations: List[Relation] = self.model.relations.get("logging-consumer", [])
+
+        for relation in relations:
+            for unit in relation.units:
+                if "endpoint" not in relation.data[unit]:
+                    continue
+                endpoint = relation.data[unit]["endpoint"]
+                deserialized_endpoint = json.loads(endpoint)
+                url = deserialized_endpoint["url"]
+                endpoints[unit.name] = url
+
+        return endpoints
+
+    def _update_tempo_cluster(self):
+        """Build the config and publish everything to the application databag."""
+        if not self.coordinator.is_coherent():
+            return
+
+        kwargs = {}
+
+        if self.tls_available:
+            # we share the certs in plaintext as they're not sensitive information
+            kwargs['ca_cert'] = self.cert_handler.ca_cert
+            kwargs['server_cert'] = self.cert_handler.server_cert
+            kwargs['privkey_secret_id'] = self.tempo_cluster.publish_privkey(VAULT_SECRET_LABEL)
+
+        # On every function call, we always publish everything to the databag; however, if there
+        # are no changes, Juju will notice there's no delta and do nothing
+        self.tempo_cluster.publish_data(
+            tempo_config=self.tempo.generate_config(self._requested_receivers(), self._s3_config),
+            loki_endpoints=self.loki_endpoints_by_unit,
+            # TODO tempo receiver for charm tracing
+            **kwargs
+        )
 
     @property
     def _static_ingress_config(self) -> dict:

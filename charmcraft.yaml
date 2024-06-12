@@ -41,6 +41,10 @@ resources:
     upstream-source: grafana/tempo:2.4.0
 
 provides:
+  tempo-cluster:
+    interface: tempo_cluster
+    description: |
+      Connect any number of tempo-worker-k8s charms to cluster the Tempo components off to different nodes.
   grafana-dashboard:
     interface: grafana_dashboard
     description: |
@@ -92,6 +96,20 @@ actions:
   list-receivers:
     description: |
       Returns a list of all enabled receiver endpoints.
+
+config:
+  options:
+    run_monolith_worker_node_when_clustered:
+      type: boolean
+      default: true
+      description: |
+        Whether this charm should also run a worker node when related
+        to any number of specialized worker applications.
+        
+        Set it to ``false`` if you want this charm to stop running `Tempo` 
+        as soon as you integrate it with a tempo-worker-k8s-charm instance. 
+        In this case, tempo-k8s will only act as coordinator 
+        (and reverse proxy) for the tempo cluster.
 
 peers:
   tempo-peers:
