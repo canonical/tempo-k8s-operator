@@ -1,5 +1,6 @@
 import json
 import logging
+import shlex
 import tempfile
 from pathlib import Path
 from subprocess import run
@@ -69,7 +70,7 @@ def present_facade(
         fpath.write_text(yaml.safe_dump(data))
 
         _model = f" --model {model}" if model else ""
-        run(f"juju run {app}/0{_model} --params {fpath.absolute()}")
+        run(shlex.split(f"juju run {app}/0{_model} --params {fpath.absolute()}"))
 
 
 @pytest.mark.setup
@@ -87,6 +88,13 @@ async def test_tempo_active_when_deploy_s3_facade(ops_test: OpsTest):
             "endpoint": "http://1.2.3.4:9000",
             "secret-key": "soverysecret",
         },
+    )
+
+    await ops_test.model.wait_for_idle(
+        apps=[FACADE],
+        raise_on_blocked=True,
+        status="active",
+        timeout=2000,
     )
 
     await ops_test.model.wait_for_idle(
