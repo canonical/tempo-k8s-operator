@@ -75,7 +75,7 @@ def present_facade(
 @pytest.mark.setup
 @pytest.mark.abort_on_fail
 async def test_tempo_active_when_deploy_s3_facade(ops_test: OpsTest):
-    await ops_test.model.deploy(FACADE)
+    await ops_test.model.deploy(FACADE, channel="edge")
     await ops_test.model.integrate(APP_NAME + ":s3", FACADE + ":provide-s3")
 
     present_facade(
