@@ -91,7 +91,10 @@ async def test_tempo_active_when_deploy_s3_facade(ops_test: OpsTest):
 
     await ops_test.model.wait_for_idle(
         apps=[APP_NAME],
-        # tempo might be in waiting as it waits for tempo workload ready
+        # we can't raise on blocked as tempo will likely start at blocked
+        raise_on_blocked=False,
+        # we can't wait for a specific status as tempo
+        # might quickly go from waiting to active depending on when the notice comes in
         timeout=1000,
     )
 
