@@ -1,7 +1,15 @@
+from typing import Dict
 from unittest.mock import patch
 
 import pytest
 import scenario
+from scenario.state import next_relation_id
+
+from coordinator import RECOMMENDED_DEPLOYMENT, MINIMAL_DEPLOYMENT
+from tempo_cluster import TempoRole, TempoClusterRequirerAppData, TempoClusterRequirerUnitData, JujuTopology
+
+SCALABLE_MODE = "scalable-single-binary"
+MONOLITH_MODE = "all"
 
 
 def assert_tempo_running_with_target(target: str, state: scenario.State):
@@ -14,11 +22,18 @@ def assert_tempo_not_running(state: scenario.State):
     assert not tempo_svc or not tempo_svc.is_running()
 
 
-def assert_status(state: scenario.State, unit: str = None, app: str = None):
+def assert_status(state: scenario.State, unit: str = None, app: str = None, message: str = None):
     if unit:
-        assert state.unit_status.name == unit
+        status = state.unit_status
+        assert status.name == unit
+        if message:
+            assert status.message == message
+
     if app:
-        assert state.app_status.name == app
+        status = state.app_status
+        assert status.name == app
+        if message:
+            assert status.message == message
 
 
 @pytest.fixture
@@ -69,7 +84,7 @@ def test_monolithic(context, tempo_container_ready):
     )
     state_out = context.run("update-status", state)
 
-    assert_tempo_running_with_target("all", state_out)
+    assert_tempo_running_with_target(MONOLITH_MODE, state_out)
     assert_status(state_out, unit="active")
 
 
@@ -121,6 +136,7 @@ def test_single_coordinator_no_s3_no_worker_inconsistent(context, tempo_containe
     assert_tempo_not_running(state_out)
     assert_status(state_out, unit="blocked")
 
+
 @pytest.fixture
 def s3_ready_state(context, tempo_container_ready, peers, s3):
     state = scenario.State(
@@ -140,7 +156,7 @@ def test_scaling_with_s3_consistent(context, s3_ready_state, tempo_container_rea
     with context.manager(peers.joined_event, state) as mgr:
         assert mgr.charm._is_consistent
         state_out = mgr.run()
-    assert_tempo_running_with_target("scalable-single-binary", state_out)
+    assert_tempo_running_with_target(SCALABLE_MODE, state_out)
     assert_status(state_out, unit="active")
 
 
@@ -152,7 +168,7 @@ def test_clustered_scaling_with_s3_consistent(context, s3_ready_state, tempo_con
     # doesn't matter what event we're processing...
     for event in [cluster.joined_event, peers.joined_event]:
         state_out = context.run(event, state)
-        assert_tempo_running_with_target("scalable-single-binary", state_out)
+        assert_tempo_running_with_target(SCALABLE_MODE, state_out)
         assert_status(state_out, unit="active")
 
 
@@ -162,7 +178,7 @@ def test_clustered_with_s3_consistent(context, s3_ready_state, tempo_container_r
     )
 
     state_out = context.run(cluster.joined_event, state)
-    assert_tempo_running_with_target("scalable-single-binary", state_out)
+    assert_tempo_running_with_target(SCALABLE_MODE, state_out)
     assert_status(state_out, unit="active")
 
 
@@ -182,11 +198,12 @@ def test_coord_only_scaling_with_s3_inconsistent(context, s3_ready_state, tempo_
         assert mgr.charm._is_consistent
         state_out = mgr.run()
 
-    assert_tempo_running_with_target("scalable-single-binary", state_out)
+    assert_tempo_running_with_target(SCALABLE_MODE, state_out)
     assert_status(state_out, unit="active")
 
 
-def test_coord_only_clustered_scaling_with_s3_inconsistent(context, tempo_container_ready, s3, peers, cluster, s3_ready_state):
+def test_coord_only_clustered_scaling_with_s3_inconsistent(context, tempo_container_ready, s3, peers, cluster,
+                                                           s3_ready_state):
     state = s3_ready_state.replace(
         config={"run_monolith_worker_node_when_clustered": False},
         relations=[peers, s3, cluster]
@@ -223,3 +240,46 @@ def test_coord_only_clustered_with_s3_inconsistent(context, tempo_container_read
     assert_tempo_not_running(state_out)
     assert_status(state_out, unit="blocked")
 
+
+def generate_cluster_relations(deployment_spec: Dict[TempoRole, int], template: scenario.Relation):
+    cluster_relations = []
+    for role, n in deployment_spec.items():
+        c = template.replace(
+            relation_id=next_relation_id(),
+            remote_app_data=TempoClusterRequirerAppData(role=role).dump(),
+            remote_units_data={
+                i: TempoClusterRequirerUnitData(
+                    juju_topology=JujuTopology(
+                        model="model-name",
+                        unit=str(i)),
+                    address=f"0.0.0.{i}"
+                ).dump() for i in range(n)
+            }
+        )
+        cluster_relations.append(c)
+    return cluster_relations
+
+
+def test_full_clustering_consistent(context, tempo_container_ready, s3, cluster, s3_ready_state):
+    """The happy path of all happy paths."""
+    state = s3_ready_state.replace(
+        config={"run_monolith_worker_node_when_clustered": False},
+        relations=[s3, *generate_cluster_relations(MINIMAL_DEPLOYMENT, cluster)]
+    )
+
+    # doesn't quite matter what event we're processing
+    state_out = context.run("update-status", state)
+    assert_tempo_running_with_target(SCALABLE_MODE, state_out)
+    assert_status(state_out, unit="active", message="[coordinator] degraded")
+
+
+def test_full_clustering_recommended(context, tempo_container_ready, s3, cluster, s3_ready_state):
+    state = s3_ready_state.replace(
+        config={"run_monolith_worker_node_when_clustered": False},
+        relations=[s3, *generate_cluster_relations(RECOMMENDED_DEPLOYMENT, cluster)]
+    )
+
+    # doesn't quite matter what event we're processing
+    state_out = context.run("update-status", state)
+    assert_tempo_running_with_target(SCALABLE_MODE, state_out)
+    assert_status(state_out, unit="active", message="")

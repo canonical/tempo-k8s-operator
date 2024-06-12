@@ -16,7 +16,7 @@ from typing import Any, Dict, MutableMapping, Optional, cast, List, Set
 
 import ops
 import pydantic
-from ops import EventSource, Object, ObjectEvents, RelationCreatedEvent
+from ops import EventSource, Object, ObjectEvents
 from pydantic import BaseModel, ConfigDict
 
 # The only reason we need the tracing lib is this enum. Not super nice.
@@ -187,25 +187,19 @@ class TempoClusterProviderAppData(DatabagModel):
     tempo_receiver: Optional[Dict[ReceiverProtocol, str]] = None
 
 
-class TempoClusterRemovedEvent(ops.EventBase):
-    """Event emitted when the relation with the "tempo-cluster" provider has been severed.
-
-    Or when the relation data has been wiped.
-    """
+class TempoClusterChangedEvent(ops.EventBase):
+    """Event emitted when any "tempo-cluster" relation event fires."""
 
 
-class TempoClusterRequirerEvents(ObjectEvents):
-    """Events emitted by the TempoClusterRequirer "tempo-cluster" endpoint wrapper."""
-
-    config_received = EventSource(ConfigReceivedEvent)
-    created = EventSource(RelationCreatedEvent)
-    removed = EventSource(TempoClusterRemovedEvent)
+class TempoClusterProviderEvents(ObjectEvents):
+    """Events emitted by the TempoClusterProvider "tempo-cluster" endpoint wrapper."""
+    changed = EventSource(TempoClusterChangedEvent)
 
 
 class TempoClusterProvider(Object):
     """``tempo-cluster`` provider endpoint wrapper."""
 
-    on = TempoClusterRequirerEvents()  # type: ignore
+    on = TempoClusterProviderEvents()  # type: ignore
 
     def __init__(
             self,
@@ -222,15 +216,23 @@ class TempoClusterProvider(Object):
             rel for rel in self.model.relations[endpoint] if (rel.app and rel.data)
         ]
 
-        # self.framework.observe(
-        #     self._charm.on[endpoint].relation_changed, self._on_tempo_cluster_relation_changed
-        # )
-        # self.framework.observe(
-        #     self._charm.on[endpoint].relation_created, self._on_tempo_cluster_relation_created
-        # )
-        # self.framework.observe(
-        #     self._charm.on[endpoint].relation_broken, self._on_tempo_cluster_relation_broken
-        # )
+        # we coalesce all tempo-cluster-relation-* events into a single cluster-changed API.
+        # the coordinator uses a common exit hook reconciler, that's why.
+        self.framework.observe(
+            self._charm.on[endpoint].relation_joined, self._on_tempo_cluster_changed
+        )
+        self.framework.observe(
+            self._charm.on[endpoint].relation_changed, self._on_tempo_cluster_changed
+        )
+        self.framework.observe(
+            self._charm.on[endpoint].relation_departed, self._on_tempo_cluster_changed
+        )
+        self.framework.observe(
+            self._charm.on[endpoint].relation_broken, self._on_tempo_cluster_changed
+        )
+
+    def _on_tempo_cluster_changed(self, _):
+        self.on.changed.emit()
 
     def publish_privkey(self, label: str) -> str:
         """Grant the secret containing the privkey to all relations, and return the secret ID."""
@@ -323,6 +325,9 @@ class TempoClusterProvider(Object):
                 if worker_role is TempoRole.monolithic:
                     for role in [r for r in TempoRole if r is not TempoRole.monolithic]:
                         data[role] += role_n
+                    continue
+
+                data[worker_role] += role_n
 
         dct = dict(data)
         # exclude monolithic roles from the count, if any slipped through

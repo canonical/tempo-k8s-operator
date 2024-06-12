@@ -6,6 +6,7 @@ import scenario
 
 from charm import TempoCharm
 from charms.tls_certificates_interface.v3.tls_certificates import ProviderCertificate
+from tempo_cluster import TempoClusterProviderAppData
 
 
 @pytest.fixture
@@ -100,16 +101,20 @@ def test_certs_ready(context, state_with_certs):
         assert charm.cert_handler.private_key
 
 
-def test_certs_sharing(context, state_with_certs, cluster):
+def test_cluster_relation(context, state_with_certs, cluster):
     clustered_state = state_with_certs.replace(
         relations=state_with_certs.relations + [cluster]
     )
 
-    with context.manager(cluster.joined_event, clustered_state) as mgr:
-        charm: TempoCharm = mgr.charm
-
-    state_out = mgr.output
+    state_out = context.run(cluster.joined_event, clustered_state)
     cluster_out = state_out.get_relations(cluster.endpoint)[0]
-    assert cluster_out.local_app_data
-    assert cluster_out.local_app_data
+    local_app_data = TempoClusterProviderAppData.load(cluster_out.local_app_data)
 
+    assert local_app_data.ca_cert == MOCK_CA_CERT
+    assert local_app_data.server_cert == MOCK_SERVER_CERT
+    secret = [s for s in state_out.secrets if s.id == local_app_data.privkey_secret_id][0]
+
+    # certhandler's vault uses revision 0 to store an uninitialized-vault marker
+    assert secret.contents[1]['private-key']
+
+    assert local_app_data.tempo_config

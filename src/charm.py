@@ -127,31 +127,38 @@ class TempoCharm(CharmBase):
 
             return  # refuse to handle any other event as we can't possibly know what to do.
 
-        self.framework.observe(
-            self.on["ingress"].relation_created, self._on_ingress_relation_created
-        )
-        self.framework.observe(
-            self.on["ingress"].relation_joined, self._on_ingress_relation_joined
-        )
+        # lifecycle
         self.framework.observe(self.on.leader_elected, self._on_leader_elected)
         self.framework.observe(self.on.leader_settings_changed, self._on_leader_settings_changed)
+        self.framework.observe(self.on.update_status, self._on_update_status)
+        self.framework.observe(self.on.collect_unit_status, self._on_collect_unit_status)
+        self.framework.observe(self.on.config_changed, self._on_config_changed)
+        self.framework.observe(self.on.list_receivers_action, self._on_list_receivers_action)
+
+        # ingress
         self.framework.observe(self.ingress.on.ready, self._on_ingress_ready)
 
+        # workload
         self.framework.observe(self.on.tempo_pebble_ready, self._on_tempo_pebble_ready)
         self.framework.observe(
             self.on.tempo_pebble_custom_notice, self._on_tempo_pebble_custom_notice
         )
-        self.framework.observe(self.on.update_status, self._on_update_status)
+
+        # s3
         self.framework.observe(
             self.s3_requirer.on.credentials_changed, self._on_s3_credentials_changed
         )
         self.framework.observe(self.s3_requirer.on.credentials_gone, self._on_s3_credentials_gone)
+
+        # tracing
         self.framework.observe(self.tracing.on.request, self._on_tracing_request)
-        self.framework.observe(self.on.collect_unit_status, self._on_collect_unit_status)
-        self.framework.observe(self.on.list_receivers_action, self._on_list_receivers_action)
-        self.framework.observe(self.cert_handler.on.cert_changed, self._on_cert_handler_changed)
-        self.framework.observe(self.on.config_changed, self._on_config_changed)
         self.framework.observe(self.tracing.on.broken, self._on_tracing_broken)
+
+        # tls
+        self.framework.observe(self.cert_handler.on.cert_changed, self._on_cert_handler_changed)
+
+        # cluster
+        self.framework.observe(self.tempo_cluster.on.changed, self._on_tempo_cluster_changed)
 
     ######################
     # UTILITY PROPERTIES #
@@ -287,6 +294,9 @@ class TempoCharm(CharmBase):
         logger.debug(f"received tracing request from {e.relation.app}: {e.requested_receivers}")
         self._update_tracing_relations()
 
+    def _on_tempo_cluster_changed(self, _: RelationEvent):
+        self._update_tempo_cluster()
+
     def _on_ingress_relation_created(self, _: RelationEvent):
         self._configure_ingress()
 
@@ -402,16 +412,11 @@ class TempoCharm(CharmBase):
             )
         else:
             # no issues: tempo is consistent
-            if not self.is_worker_node:
-                # coordinator
-                if not self.coordinator.is_recommended:
-                    e.add_status(ActiveStatus("Tempo coordinator ready"))
-                else:
-                    e.add_status(ActiveStatus("Tempo coordinator ready and HA"))
-
+            if not self.coordinator.is_recommended:
+                e.add_status(ActiveStatus("[coordinator] degraded"))
             else:
-                # worker
                 e.add_status(ActiveStatus())
+
 
     ###################
     # UTILITY METHODS #
@@ -566,7 +571,7 @@ class TempoCharm(CharmBase):
 
     def _update_tempo_cluster(self):
         """Build the config and publish everything to the application databag."""
-        if not self.coordinator.is_coherent():
+        if not self.coordinator.is_coherent:
             return
 
         kwargs = {}

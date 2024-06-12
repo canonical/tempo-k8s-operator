@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 MINIMAL_DEPLOYMENT = {
     TempoRole.querier: 1,
     TempoRole.query_frontend: 1,
-    TempoRole.ingester: 3,
+    TempoRole.ingester: 1,
     TempoRole.distributor: 1,
     TempoRole.compactor: 1,
     TempoRole.metrics_generator: 1
