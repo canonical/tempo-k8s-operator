@@ -1,3 +1,4 @@
+import json
 import logging
 import tempfile
 from pathlib import Path
@@ -26,7 +27,7 @@ async def test_deploy_tempo(ops_test: OpsTest):
 
     await ops_test.model.wait_for_idle(
         apps=[APP_NAME],
-        status="waiting",  # waits for tempo workload ready
+        # tempo might be in waiting as it waits for tempo workload ready
         raise_on_blocked=True,
         timeout=10000,
         raise_on_error=False,
@@ -59,9 +60,9 @@ def present_facade(
         "endpoint": f"{role}-{interface}",
     }
     if app_data:
-        data["app_data"] = app_data
+        data["app_data"] = json.dumps(app_data)
     if unit_data:
-        data["unit_data"] = unit_data
+        data["unit_data"] = json.dumps(unit_data)
 
     with tempfile.NamedTemporaryFile() as f:
         fpath = Path(f.name)
@@ -90,7 +91,7 @@ async def test_tempo_active_when_deploy_s3_facade(ops_test: OpsTest):
 
     await ops_test.model.wait_for_idle(
         apps=[APP_NAME],
-        status="waiting",  # tempo waits for tempo workload ready
+        # tempo might be in waiting as it waits for tempo workload ready
         timeout=1000,
     )
 

@@ -434,7 +434,9 @@ class TempoCharm(CharmBase):
         relation = self.model.get_relation("tempo-peers")
         if not relation:
             return False
-        return len(relation.units) > 1
+
+        # self is not included in relation.units
+        return bool(relation.units)
 
     def is_consistent(self):
         """Check deployment consistency."""
