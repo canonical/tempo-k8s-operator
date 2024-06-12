@@ -319,6 +319,10 @@ class Tempo:
                     "v2_out_buffer_bytes": 5242880,
                 }
             },
+            # TODO this won't work for distributed coordinator where query frontend will be on a different unit
+            "querier": {
+                "frontend_worker": {"frontend_address": f"localhost:{self.tempo_grpc_server_port}"}
+            },
             # see https://grafana.com/docs/tempo/latest/configuration/#storage
             "storage": self._build_storage_config(s3_config),
         }
