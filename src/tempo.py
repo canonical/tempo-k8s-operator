@@ -367,11 +367,10 @@ class Tempo:
             config["ingester_client"] = {"grpc_client_config": tls_config}
             config["metrics_generator_client"] = {"grpc_client_config": tls_config}
 
-            # docs say it's `querier.query-frontend` but tempo complains about that
-            config["querier"] = {"frontend_worker": {"grpc_client_config": tls_config}}
+            config["querier"]["frontend_worker"].update({"grpc_client_config": tls_config})
 
             # this is not an error.
-            config["memberlist"] = tls_config
+            config["memberlist"].update(tls_config)
 
         return config
 
