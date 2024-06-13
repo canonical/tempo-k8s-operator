@@ -49,6 +49,8 @@ class Tempo:
     s3_relation_name = "s3"
     s3_bucket_name = "tempo"
 
+    memberlist_port = 7946
+
     server_ports = {
         "tempo_http": 3200,
         "tempo_grpc": 9096,  # default grpc listen port is 9095, but that conflicts with promtail.
@@ -152,7 +154,10 @@ class Tempo:
                 )
 
     def update_config(
-        self, requested_receivers: Sequence[ReceiverProtocol], s3_config: Optional[dict] = None
+        self,
+        requested_receivers: Sequence[ReceiverProtocol],
+        s3_config: Optional[dict] = None,
+        peers: Optional[List[str]] = None,
     ) -> bool:
         """Generate a config and push it to the container it if necessary."""
         container = self.container
@@ -160,7 +165,7 @@ class Tempo:
             logger.debug("Container can't connect: config update skipped.")
             return False
 
-        new_config = self.generate_config(requested_receivers, s3_config)
+        new_config = self.generate_config(requested_receivers, s3_config, peers)
 
         if self.get_current_config() != new_config:
             logger.debug("Pushing new config to container...")
@@ -298,7 +303,10 @@ class Tempo:
         return server_config
 
     def generate_config(
-        self, receivers: Sequence[ReceiverProtocol], s3_config: Optional[dict] = None
+        self,
+        receivers: Sequence[ReceiverProtocol],
+        s3_config: Optional[dict] = None,
+        peers: Optional[List[str]] = None,
     ) -> dict:
         """Generate the Tempo configuration.
 
@@ -317,6 +325,13 @@ class Tempo:
                 "trace_idle_period": "10s",
                 "max_block_bytes": 100,
                 "max_block_duration": "30m",
+            },
+            "memberlist": {
+                "abort_if_cluster_join_fails": False,
+                "bind_port": self.memberlist_port,
+                "join_members": (
+                    [f"{peer}:{self.memberlist_port}" for peer in peers] if peers else []
+                ),
             },
             "compactor": {
                 "compaction": {

@@ -8,7 +8,7 @@ import logging
 import re
 import socket
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Set, Tuple
 
 import ops
 from charms.data_platform_libs.v0.s3 import S3Requirer
@@ -139,6 +139,12 @@ class TempoCharm(CharmBase):
         self.framework.observe(self.cert_handler.on.cert_changed, self._on_cert_handler_changed)
         self.framework.observe(self.on.config_changed, self._on_config_changed)
         self.framework.observe(self.tracing.on.broken, self._on_tracing_broken)
+        self.framework.observe(
+            self.on.tempo_peers_relation_created, self._on_tempo_peers_relation_created
+        )
+        self.framework.observe(
+            self.on.tempo_peers_relation_changed, self._on_tempo_peers_relation_changed
+        )
 
     @property
     def _external_http_server_url(self) -> str:
@@ -211,7 +217,7 @@ class TempoCharm(CharmBase):
 
         if was_ready != self.tempo.tls_ready:
             # tls readiness change means config change.
-            self.tempo.update_config(self._requested_receivers(), self._s3_config)
+            self._update_tempo_config()
             # sync scheme change with traefik and related consumers
             self._configure_ingress()
 
@@ -267,8 +273,7 @@ class TempoCharm(CharmBase):
     def _on_s3_changed(self):
         could_scale_before = self.tempo.can_scale()
 
-        s3_config = self._s3_config
-        self.tempo.update_config(self._requested_receivers(), s3_config)
+        self._update_tempo_config()
 
         can_scale_now = self.tempo.can_scale()
         # if we had s3, and we don't anymore, we need to replan from 'scaling-monolithic' to 'all'
@@ -279,6 +284,37 @@ class TempoCharm(CharmBase):
             else:
                 # assume that this will be handled at the next pebble-ready
                 logger.debug("Cannot reconfigure/restart tempo at this time.")
+
+    def _on_tempo_peers_relation_created(self, event: ops.RelationCreatedEvent):
+        if self._local_ip:
+            event.relation.data[self.unit]["local-ip"] = self._local_ip
+
+    def _on_tempo_peers_relation_changed(self, _):
+        if self._update_tempo_config():
+            self.tempo.restart()
+
+    def _update_tempo_config(self) -> bool:
+        peers = self.peers()
+        relation = self.model.get_relation("tempo-peers")
+        # get unit addresses for all the other units from a databag
+        if peers and relation:
+            addresses = [relation.data[unit].get("local-ip") for unit in peers]
+            addresses = list(filter(None, addresses))
+        else:
+            addresses = []
+
+        # add own address
+        if self._local_ip:
+            addresses.append(self._local_ip)
+
+        return self.tempo.update_config(self._requested_receivers(), self._s3_config, addresses)
+
+    @property
+    def _local_ip(self) -> Optional[str]:
+        binding = self.model.get_binding("tempo-peers")
+        if binding and binding._relation_id:
+            return str(binding.network.bind_address)
+        return None
 
     def _on_config_changed(self, _):
         # check if certificate files haven't disappeared and recreate them if needed
@@ -305,12 +341,12 @@ class TempoCharm(CharmBase):
                 [(p, self.tempo.get_receiver_url(p, self.ingress)) for p in requested_receivers]
             )
 
-        self._restart_if_receivers_changed(requested_receivers)
+        self._restart_if_receivers_changed()
 
-    def _restart_if_receivers_changed(self, requested_receivers):
+    def _restart_if_receivers_changed(self):
         # if the receivers have changed, we need to reconfigure tempo
         self.unit.status = MaintenanceStatus("reconfiguring Tempo...")
-        updated = self.tempo.update_config(requested_receivers, self._s3_config)
+        updated = self._update_tempo_config()
         if not updated:
             logger.debug("Config not updated; skipping tempo restart")
         if updated:
@@ -340,7 +376,7 @@ class TempoCharm(CharmBase):
             logger.warning("container not ready, cannot configure; will retry soon")
             return event.defer()
 
-        self.tempo.update_config(self._requested_receivers(), self._s3_config)
+        self._update_tempo_config()
         self.tempo.plan()
 
         self.unit.set_workload_version(self.version)
@@ -437,6 +473,14 @@ class TempoCharm(CharmBase):
 
         # self is not included in relation.units
         return bool(relation.units)
+
+    def peers(self) -> Optional[Set[ops.model.Unit]]:
+        relation = self.model.get_relation("tempo-peers")
+        if not relation:
+            return None
+
+        # self is not included in relation.units
+        return relation.units
 
     def is_consistent(self):
         """Check deployment consistency."""
