@@ -71,9 +71,7 @@ def _tempo_mock_with_initial_config(tmp_path):
     container.can_connect = lambda: True
     # prevent tls_ready from reporting True
     container.exists = lambda path: (
-        False
-        if path in [Tempo.tls_cert_path, Tempo.tls_key_path, Tempo.tls_ca_path]
-        else True
+        False if path in [Tempo.tls_cert_path, Tempo.tls_key_path, Tempo.tls_ca_path] else True
     )
     initial_config = Tempo(container).generate_config(["otlp_http"])
     tempo_config.write_text(yaml.safe_dump(initial_config))
