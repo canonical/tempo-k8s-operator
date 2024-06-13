@@ -4,10 +4,12 @@
 
 """Tempo workload configuration and client."""
 import logging
+import re
 import socket
 from pathlib import Path
 from subprocess import CalledProcessError, getoutput
 from typing import Dict, List, Optional, Sequence, Tuple
+from urllib.parse import urlparse
 
 import ops
 import tenacity
@@ -43,6 +45,11 @@ class Tempo:
     wal_path = "/etc/tempo/tempo_wal"
     log_path = "/var/log/tempo.log"
     tempo_ready_notice_key = "canonical.com/tempo/workload-ready"
+
+    s3_relation_name = "s3"
+    s3_bucket_name = "tempo"
+
+    memberlist_port = 7946
 
     server_ports = {
         "tempo_http": 3200,
@@ -134,19 +141,31 @@ class Tempo:
         """Update pebble plan and start the tempo-ready service."""
         self.container.add_layer("tempo", self.pebble_layer, combine=True)
         self.container.add_layer("tempo-ready", self.tempo_ready_layer, combine=True)
-        self.container.replan()
+        try:
+            self.container.replan()
+            # is not autostart-enabled, we just run it once on pebble-ready.
+            self.container.start("tempo-ready")
+        except ops.pebble.ChangeError:
+            # replan failed likely because address was still in use. try to (re)start tempo with backoff as a fallback
+            restart_result = self.restart()
+            if not restart_result:
+                logger.exception(
+                    "Starting tempo failed with a ChangeError and restart attempts didn't resolve the issue"
+                )
 
-        # is not autostart-enabled, we just run it once on pebble-ready.
-        self.container.start("tempo-ready")
-
-    def update_config(self, requested_receivers: Sequence[ReceiverProtocol]) -> bool:
+    def update_config(
+        self,
+        requested_receivers: Sequence[ReceiverProtocol],
+        s3_config: Optional[dict] = None,
+        peers: Optional[List[str]] = None,
+    ) -> bool:
         """Generate a config and push it to the container it if necessary."""
         container = self.container
         if not container.can_connect():
             logger.debug("Container can't connect: config update skipped.")
             return False
 
-        new_config = self.generate_config(requested_receivers)
+        new_config = self.generate_config(requested_receivers, s3_config, peers)
 
         if self.get_current_config() != new_config:
             logger.debug("Pushing new config to container...")
@@ -164,7 +183,7 @@ class Tempo:
         try:
             self.container.get_service("tempo")
             return True
-        except ModelError:
+        except (ModelError, ops.pebble.ConnectionError):
             return False
 
     @tenacity.retry(
@@ -195,7 +214,7 @@ class Tempo:
             return False
 
         try:
-            is_started = self.container.get_service("tempo").is_running()
+            is_started = self.is_running
         except ModelError:
             is_started = False
 
@@ -217,6 +236,17 @@ class Tempo:
         # wait for an update-status
         self.container.start("tempo-ready")
         return True
+
+    @property
+    def is_running(self) -> bool:
+        return self.container.get_service("tempo").is_running()
+
+    def shutdown(self):
+        """Gracefully shutdown the tempo process."""
+        for service in ["tempo", "tempo-ready"]:
+            if self.container.get_service(service).is_running():
+                self.container.stop(service)
+                logger.info(f"stopped {service}")
 
     def get_current_config(self) -> Optional[dict]:
         """Fetch the current configuration from the container."""
@@ -272,7 +302,12 @@ class Tempo:
 
         return server_config
 
-    def generate_config(self, receivers: Sequence[ReceiverProtocol]) -> dict:
+    def generate_config(
+        self,
+        receivers: Sequence[ReceiverProtocol],
+        s3_config: Optional[dict] = None,
+        peers: Optional[List[str]] = None,
+    ) -> dict:
         """Generate the Tempo configuration.
 
         Only activate the provided receivers.
@@ -291,6 +326,13 @@ class Tempo:
                 "max_block_bytes": 100,
                 "max_block_duration": "30m",
             },
+            "memberlist": {
+                "abort_if_cluster_join_fails": False,
+                "bind_port": self.memberlist_port,
+                "join_members": (
+                    [f"{peer}:{self.memberlist_port}" for peer in peers] if peers else []
+                ),
+            },
             "compactor": {
                 "compaction": {
                     # blocks in this time window will be compacted together
@@ -303,24 +345,12 @@ class Tempo:
                     "v2_out_buffer_bytes": 5242880,
                 }
             },
-            # see https://grafana.com/docs/tempo/latest/configuration/#storage
-            "storage": {
-                "trace": {
-                    # FIXME: not good for production! backend configuration to use;
-                    #  one of "gcs", "s3", "azure" or "local"
-                    "backend": "local",
-                    "local": {"path": "/traces"},
-                    "wal": {
-                        # where to store the wal locally
-                        "path": self.wal_path
-                    },
-                    "pool": {
-                        # number of traces per index record
-                        "max_workers": 400,
-                        "queue_depth": 20000,
-                    },
-                }
+            # TODO this won't work for distributed coordinator where query frontend will be on a different unit
+            "querier": {
+                "frontend_worker": {"frontend_address": f"localhost:{self.tempo_grpc_server_port}"}
             },
+            # see https://grafana.com/docs/tempo/latest/configuration/#storage
+            "storage": self._build_storage_config(s3_config),
         }
 
         if self.tls_ready:
@@ -337,24 +367,72 @@ class Tempo:
             config["ingester_client"] = {"grpc_client_config": tls_config}
             config["metrics_generator_client"] = {"grpc_client_config": tls_config}
 
-            # docs say it's `querier.query-frontend` but tempo complains about that
-            config["querier"] = {"frontend_worker": {"grpc_client_config": tls_config}}
+            config["querier"]["frontend_worker"].update({"grpc_client_config": tls_config})
 
             # this is not an error.
-            config["memberlist"] = tls_config
+            config["memberlist"].update(tls_config)
 
         return config
+
+    def _build_storage_config(self, s3_config: Optional[dict] = None):
+        storage_config = {
+            "wal": {
+                # where to store the wal locally
+                "path": self.wal_path
+            },
+            "pool": {
+                # number of traces per index record
+                "max_workers": 400,
+                "queue_depth": 20000,
+            },
+        }
+        if s3_config:
+            storage_config.update(
+                {
+                    "backend": "s3",
+                    "s3": {
+                        "bucket": s3_config["bucket"],
+                        "access_key": s3_config["access-key"],
+                        # remove scheme to avoid "Endpoint url cannot have fully qualified paths." on Tempo startup
+                        "endpoint": re.sub(
+                            rf"^{urlparse(s3_config['endpoint']).scheme}://",
+                            "",
+                            s3_config["endpoint"],
+                        ),
+                        "secret_key": s3_config["secret-key"],
+                        "insecure": (
+                            False if s3_config["endpoint"].startswith("https://") else True
+                        ),
+                    },
+                }
+            )
+        else:
+            storage_config.update(
+                {
+                    "backend": "local",
+                    "local": {"path": "/traces"},
+                }
+            )
+        return {"trace": storage_config}
+
+    def can_scale(self) -> bool:
+        """Return whether this tempo instance can scale, i.e., whether s3 is configured."""
+        config = self.get_current_config()
+        if not config:
+            return False
+        return config["storage"]["trace"]["backend"] == "s3"
 
     @property
     def pebble_layer(self) -> Layer:
         """Generate the pebble layer for the Tempo container."""
+        target = "scalable-single-binary" if self.can_scale() else "all"
         return Layer(
             {
                 "services": {
                     "tempo": {
                         "override": "replace",
                         "summary": "Main Tempo layer",
-                        "command": f'/bin/sh -c "/tempo -config.file={self.config_path} | tee {self.log_path}"',
+                        "command": f'/bin/sh -c "/tempo -config.file={self.config_path} -target {target} | tee {self.log_path}"',
                         "startup": "enabled",
                     }
                 },

@@ -25,7 +25,6 @@ from prometheus_client.openmetrics.exposition import (
 )
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
-from starlette.responses import Response
 from starlette.routing import Match
 from starlette.status import HTTP_500_INTERNAL_SERVER_ERROR
 from starlette.types import ASGIApp
@@ -168,7 +167,7 @@ def init_overlord():
                     print(f"received {resp} from {subordinate}")
                     try:
                         id_, value_ = resp.text.split("=")
-                    except:
+                    except:  # noqa
                         id_ = value_ = None
                         print(f"error handling response from {url}: invalid text: {resp.text}")
 

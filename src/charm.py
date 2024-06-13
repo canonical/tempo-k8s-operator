@@ -8,9 +8,10 @@ import logging
 import re
 import socket
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Set, Tuple
 
 import ops
+from charms.data_platform_libs.v0.s3 import S3Requirer
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
 from charms.grafana_k8s.v0.grafana_source import GrafanaSourceProvider
 from charms.loki_k8s.v0.loki_push_api import LogProxyConsumer
@@ -27,13 +28,13 @@ from charms.traefik_route_k8s.v0.traefik_route import TraefikRouteRequirer
 from ops.charm import (
     CharmBase,
     CollectStatusEvent,
-    HookEvent,
     PebbleNoticeEvent,
     RelationEvent,
     WorkloadEvent,
 )
 from ops.main import main
-from ops.model import ActiveStatus, MaintenanceStatus, WaitingStatus
+from ops.model import ActiveStatus, BlockedStatus, MaintenanceStatus, WaitingStatus
+
 from tempo import Tempo
 
 logger = logging.getLogger(__name__)
@@ -66,6 +67,8 @@ class TempoCharm(CharmBase):
             sans=[self.hostname],
         )
 
+        self.s3_requirer = S3Requirer(self, Tempo.s3_relation_name, Tempo.s3_bucket_name)
+
         # configure this tempo as a datasource in grafana
         self.grafana_source_provider = GrafanaSourceProvider(
             self,
@@ -97,6 +100,20 @@ class TempoCharm(CharmBase):
 
         self.tracing = TracingEndpointProvider(self, external_url=self._external_url)
 
+        if not self.is_consistent():
+            logger.error(
+                f"Inconsistent deployment. {self.unit.name} will be shutting down. "
+                "This likely means you need to add an s3 integration. "
+                "This charm will be unresponsive and refuse to handle any event until "
+                "the situation is resolved by the cloud admin, to avoid data loss."
+            )
+            self.framework.observe(self.on.collect_unit_status, self._on_collect_unit_status)
+
+            if self.tempo.is_tempo_service_defined:
+                self.tempo.shutdown()
+
+            return  # refuse to handle any other event as we can't possibly know what to do.
+
         self.framework.observe(
             self.on["ingress"].relation_created, self._on_ingress_relation_created
         )
@@ -104,6 +121,7 @@ class TempoCharm(CharmBase):
             self.on["ingress"].relation_joined, self._on_ingress_relation_joined
         )
         self.framework.observe(self.on.leader_elected, self._on_leader_elected)
+        self.framework.observe(self.on.leader_settings_changed, self._on_leader_settings_changed)
         self.framework.observe(self.ingress.on.ready, self._on_ingress_ready)
 
         self.framework.observe(self.on.tempo_pebble_ready, self._on_tempo_pebble_ready)
@@ -111,12 +129,22 @@ class TempoCharm(CharmBase):
             self.on.tempo_pebble_custom_notice, self._on_tempo_pebble_custom_notice
         )
         self.framework.observe(self.on.update_status, self._on_update_status)
+        self.framework.observe(
+            self.s3_requirer.on.credentials_changed, self._on_s3_credentials_changed
+        )
+        self.framework.observe(self.s3_requirer.on.credentials_gone, self._on_s3_credentials_gone)
         self.framework.observe(self.tracing.on.request, self._on_tracing_request)
         self.framework.observe(self.on.collect_unit_status, self._on_collect_unit_status)
         self.framework.observe(self.on.list_receivers_action, self._on_list_receivers_action)
         self.framework.observe(self.cert_handler.on.cert_changed, self._on_cert_handler_changed)
         self.framework.observe(self.on.config_changed, self._on_config_changed)
         self.framework.observe(self.tracing.on.broken, self._on_tracing_broken)
+        self.framework.observe(
+            self.on.tempo_peers_relation_created, self._on_tempo_peers_relation_created
+        )
+        self.framework.observe(
+            self.on.tempo_peers_relation_changed, self._on_tempo_peers_relation_changed
+        )
 
     @property
     def _external_http_server_url(self) -> str:
@@ -154,6 +182,21 @@ class TempoCharm(CharmBase):
             and (self.cert_handler.ca_cert is not None)
         )
 
+    @property
+    def _s3_config(self) -> Optional[dict]:
+        if not self.s3_requirer.relations:
+            return None
+        s3_config = self.s3_requirer.get_s3_connection_info()
+        if (
+            s3_config
+            and "bucket" in s3_config
+            and "endpoint" in s3_config
+            and "access-key" in s3_config
+            and "secret-key" in s3_config
+        ):
+            return s3_config
+        return None
+
     def _on_tracing_broken(self, _):
         """Update tracing relations' databags once one relation is removed."""
         self._update_tracing_relations()
@@ -174,9 +217,9 @@ class TempoCharm(CharmBase):
 
         if was_ready != self.tempo.tls_ready:
             # tls readiness change means config change.
-            self.tempo.update_config(self._requested_receivers())
+            self._update_tempo_config()
             # sync scheme change with traefik and related consumers
-            self._configure_ingress(_)
+            self._configure_ingress()
 
             if self.tempo.is_tempo_service_defined:
                 self.tempo.restart()
@@ -188,8 +231,8 @@ class TempoCharm(CharmBase):
         # update relations to reflect the new certificate
         self._update_tracing_relations()
 
-    def _configure_ingress(self, _) -> None:
-        """Make sure the traefik route and tracing relation data are up to date."""
+    def _configure_ingress(self) -> None:
+        """Make sure the traefik route and tracing relation data are up-to-date."""
         if not self.unit.is_leader():
             return
 
@@ -205,15 +248,73 @@ class TempoCharm(CharmBase):
         logger.debug(f"received tracing request from {e.relation.app}: {e.requested_receivers}")
         self._update_tracing_relations()
 
-    def _on_ingress_relation_created(self, e: RelationEvent):
-        self._configure_ingress(e)
+    def _on_ingress_relation_created(self, _: RelationEvent):
+        self._configure_ingress()
 
-    def _on_ingress_relation_joined(self, e: RelationEvent):
-        self._configure_ingress(e)
+    def _on_ingress_relation_joined(self, _: RelationEvent):
+        self._configure_ingress()
 
-    def _on_leader_elected(self, e: HookEvent):
+    def _on_leader_settings_changed(self, _: ops.LeaderSettingsChangedEvent):
+        if not self._is_s3_ready():
+            logger.error(
+                "Losing leadership without s3. " "This unit will soon be in an inconsistent state."
+            )
+
+    def _on_leader_elected(self, _: ops.LeaderElectedEvent):
         # as traefik_route goes through app data, we need to take lead of traefik_route if our leader dies.
-        self._configure_ingress(e)
+        self._configure_ingress()
+
+    def _on_s3_credentials_changed(self, _):
+        self._on_s3_changed()
+
+    def _on_s3_credentials_gone(self, _):
+        self._on_s3_changed()
+
+    def _on_s3_changed(self):
+        could_scale_before = self.tempo.can_scale()
+
+        self._update_tempo_config()
+
+        can_scale_now = self.tempo.can_scale()
+        # if we had s3, and we don't anymore, we need to replan from 'scaling-monolithic' to 'all'
+        # if we didn't have s3, and now we do, we can replan from 'all' to 'scaling-monolithic'
+        if could_scale_before != can_scale_now:
+            if self.tempo.is_tempo_service_defined:
+                self.tempo.plan()
+            else:
+                # assume that this will be handled at the next pebble-ready
+                logger.debug("Cannot reconfigure/restart tempo at this time.")
+
+    def _on_tempo_peers_relation_created(self, event: ops.RelationCreatedEvent):
+        if self._local_ip:
+            event.relation.data[self.unit]["local-ip"] = self._local_ip
+
+    def _on_tempo_peers_relation_changed(self, _):
+        if self._update_tempo_config():
+            self.tempo.restart()
+
+    def _update_tempo_config(self) -> bool:
+        peers = self.peers()
+        relation = self.model.get_relation("tempo-peers")
+        # get unit addresses for all the other units from a databag
+        if peers and relation:
+            addresses = [relation.data[unit].get("local-ip") for unit in peers]
+            addresses = list(filter(None, addresses))
+        else:
+            addresses = []
+
+        # add own address
+        if self._local_ip:
+            addresses.append(self._local_ip)
+
+        return self.tempo.update_config(self._requested_receivers(), self._s3_config, addresses)
+
+    @property
+    def _local_ip(self) -> Optional[str]:
+        binding = self.model.get_binding("tempo-peers")
+        if binding and binding._relation_id:
+            return str(binding.network.bind_address)
+        return None
 
     def _on_config_changed(self, _):
         # check if certificate files haven't disappeared and recreate them if needed
@@ -240,12 +341,12 @@ class TempoCharm(CharmBase):
                 [(p, self.tempo.get_receiver_url(p, self.ingress)) for p in requested_receivers]
             )
 
-        self._restart_if_receivers_changed(requested_receivers)
+        self._restart_if_receivers_changed()
 
-    def _restart_if_receivers_changed(self, requested_receivers):
+    def _restart_if_receivers_changed(self):
         # if the receivers have changed, we need to reconfigure tempo
         self.unit.status = MaintenanceStatus("reconfiguring Tempo...")
-        updated = self.tempo.update_config(requested_receivers)
+        updated = self._update_tempo_config()
         if not updated:
             logger.debug("Config not updated; skipping tempo restart")
         if updated:
@@ -275,7 +376,7 @@ class TempoCharm(CharmBase):
             logger.warning("container not ready, cannot configure; will retry soon")
             return event.defer()
 
-        self.tempo.update_config(self._requested_receivers())
+        self._update_tempo_config()
         self.tempo.plan()
 
         self.unit.set_workload_version(self.version)
@@ -363,7 +464,40 @@ class TempoCharm(CharmBase):
 
         return None
 
+    def is_scaled(self) -> bool:
+        """Check whether Tempo is deployed with scale > 1."""
+        # TODO write ADR for deployment model: tempo-k8s monolithic + scalable monolithic + coordinator
+        relation = self.model.get_relation("tempo-peers")
+        if not relation:
+            return False
+
+        # self is not included in relation.units
+        return bool(relation.units)
+
+    def peers(self) -> Optional[Set[ops.model.Unit]]:
+        relation = self.model.get_relation("tempo-peers")
+        if not relation:
+            return None
+
+        # self is not included in relation.units
+        return relation.units
+
+    def is_consistent(self):
+        """Check deployment consistency."""
+        if self.is_scaled() and not self._is_s3_ready():
+            return False
+        return True
+
+    def _is_s3_ready(self) -> bool:
+        return bool(self._s3_config)
+
     def _on_collect_unit_status(self, e: CollectStatusEvent):
+        if not self.is_consistent():
+            e.add_status(
+                BlockedStatus(
+                    "Unit *disabled*. Cannot scale Tempo without adding an s3 integration."
+                )
+            )
         if not self.tempo.container.can_connect():
             e.add_status(WaitingStatus("Tempo container not ready"))
         if not self.tempo.is_ready():
