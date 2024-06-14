@@ -187,7 +187,8 @@ class TempoCharm(CharmBase):
         relation = self.model.get_relation("tempo-peers")
         if not relation:
             return False
-        return len(relation.units) > 1
+        # does not include self
+        return len(relation.units) > 0
 
     @property
     def is_clustered(self) -> bool:
@@ -371,10 +372,13 @@ class TempoCharm(CharmBase):
 
     @property
     def _local_ip(self) -> Optional[str]:
-        binding = self.model.get_binding("tempo-peers")
-        if binding and binding._relation_id:
-            return str(binding.network.bind_address)
-        return None
+        try:
+            return str(self.model.get_binding('tempo-peers').network.bind_address)
+        except (ops.ModelError, KeyError) as e:
+            logger.debug("failed to obtain local ip from tempo-peers binding", exc_info=True)
+            logger.error(f"unable to get local IP at this time: failed with {type(e)}; "
+                         f"see debug log for more info")
+            return None
 
     def _on_config_changed(self, _):
         # check if certificate files haven't disappeared and recreate them if needed
@@ -390,9 +394,9 @@ class TempoCharm(CharmBase):
 
     def _on_tempo_pebble_custom_notice(self, event: PebbleNoticeEvent):
         if event.notice.key == self.tempo.tempo_ready_notice_key:
-            logger.debug("pebble api reports ready")
-            # collect-unit-status should do the rest.
-            self.tempo.container.stop("tempo-ready")
+            logger.debug("pebble api reported ready")
+            # collect-unit-status should do the rest and report that pebble is ready.
+            self.tempo.receive_tempo_ready_notice()
 
     def _on_tempo_pebble_ready(self, event: WorkloadEvent):
         if not self.tempo.container.can_connect():

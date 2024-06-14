@@ -14,7 +14,7 @@ os.environ["CHARM_TRACING_ENABLED"] = "0"
 
 def get_facade(name="facade"):
     facade = App.from_path(
-        "/home/pietro/canonical/charm-relation-interfaces/facade-charm",
+        "/home/pietro/canonical/charm-relation-interfaces/facade_charm",
         name=name,
     )
     return facade

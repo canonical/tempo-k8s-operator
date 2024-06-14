@@ -529,3 +529,9 @@ class Tempo:
             config["jaeger"] = {"protocols": jaeger_config}
 
         return config
+
+    def receive_tempo_ready_notice(self):
+        """Handle the tempo-ready-pebble-notice event by turning off the notice itself."""
+        if self.container.get_services("tempo-ready"):
+            self.container.stop("tempo-ready")
+
