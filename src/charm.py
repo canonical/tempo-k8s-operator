@@ -8,7 +8,7 @@ import logging
 import re
 import socket
 from pathlib import Path
-from typing import Optional, Tuple, Dict, List
+from typing import Dict, List
 from typing import Optional, Set, Tuple
 
 import ops
@@ -20,9 +20,9 @@ from ops.charm import (
     WorkloadEvent,
 )
 from ops.main import main
-from ops.model import ActiveStatus, BlockedStatus, MaintenanceStatus, WaitingStatus, Relation
+from ops.model import ActiveStatus, BlockedStatus, MaintenanceStatus, WaitingStatus
+from ops.model import Relation
 
-from charms.data_platform_libs.v0.s3 import S3Requirer
 from charms.data_platform_libs.v0.s3 import S3Requirer
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
 from charms.grafana_k8s.v0.grafana_source import GrafanaSourceProvider
@@ -38,16 +38,6 @@ from charms.tempo_k8s.v2.tracing import (
 )
 from charms.traefik_route_k8s.v0.traefik_route import TraefikRouteRequirer
 from coordinator import TempoCoordinator
-from ops.charm import (
-    CharmBase,
-    CollectStatusEvent,
-    PebbleNoticeEvent,
-    RelationEvent,
-    WorkloadEvent,
-)
-from ops.main import main
-from ops.model import ActiveStatus, BlockedStatus, MaintenanceStatus, WaitingStatus
-
 from tempo import Tempo
 from tempo_cluster import TempoClusterProvider
 
@@ -138,23 +128,6 @@ class TempoCharm(CharmBase):
 
             return  # refuse to handle any other event as we can't possibly know what to do.
 
-        self.framework.observe(
-            self.on["ingress"].relation_created, self._on_ingress_relation_created
-
-        if not self._is_consistent:
-            logger.error(
-                f"Inconsistent deployment. {self.unit.name} will be shutting down. "
-                "This likely means you need to add an s3 integration. "
-                "This charm will be unresponsive and refuse to handle any event until "
-                "the situation is resolved by the cloud admin, to avoid data loss."
-            )
-            self.framework.observe(self.on.collect_unit_status, self._on_collect_unit_status)
-
-            if self.tempo.is_tempo_service_defined:
-                self.tempo.shutdown()
-
-            return  # refuse to handle any other event as we can't possibly know what to do.
-
         # lifecycle
         self.framework.observe(self.on.leader_elected, self._on_leader_elected)
         self.framework.observe(self.on.leader_settings_changed, self._on_leader_settings_changed)
@@ -164,6 +137,9 @@ class TempoCharm(CharmBase):
         self.framework.observe(self.on.list_receivers_action, self._on_list_receivers_action)
 
         # ingress
+        ingress = self.on["ingress"]
+        self.framework.observe(ingress.relation_created, self._on_ingress_relation_created)
+        self.framework.observe(ingress.relation_joined, self._on_ingress_relation_joined)
         self.framework.observe(self.ingress.on.ready, self._on_ingress_ready)
 
         # workload
@@ -323,18 +299,6 @@ class TempoCharm(CharmBase):
         # notify the cluster
         self._update_tempo_cluster()
 
-    def _configure_ingress(self) -> None:
-        """Make sure the traefik route and tracing relation data are up-to-date."""
-        if not self.unit.is_leader():
-            return
-
-        if self.ingress.is_ready():
-            self.ingress.submit_to_traefik(
-                self._ingress_config, static=self._static_ingress_config
-            )
-            if self.ingress.external_host:
-                self._update_tracing_relations()
-
     def _on_tracing_request(self, e: RequestEvent):
         """Handle a remote requesting a tracing endpoint."""
         logger.debug(f"received tracing request from {e.relation.app}: {e.requested_receivers}")
@@ -380,7 +344,6 @@ class TempoCharm(CharmBase):
             self.tempo.plan()
 
         self._update_tempo_cluster()
-
 
     def _on_tempo_peers_relation_created(self, event: ops.RelationCreatedEvent):
         if self._local_ip:
@@ -530,7 +493,7 @@ class TempoCharm(CharmBase):
 
         self._update_tempo_cluster()
 
-    def _restart_if_receivers_changed(self, requested_receivers):
+    def _restart_if_receivers_changed(self):
         # if the receivers have changed, we need to reconfigure tempo
         self.unit.status = MaintenanceStatus("reconfiguring Tempo...")
         updated = self._update_tempo_config()
@@ -629,7 +592,6 @@ class TempoCharm(CharmBase):
 
         # self is not included in relation.units
         return relation.units
-
 
     def _is_s3_ready(self) -> bool:
         return bool(self._s3_config)

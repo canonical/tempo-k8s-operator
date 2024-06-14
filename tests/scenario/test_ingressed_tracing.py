@@ -97,4 +97,5 @@ def test_ingress_relation_set_with_dynamic_config(context, base_state):
 
     # THEN dynamic config is present in ingress relation
     ingress_out = out.get_relations(ingress.endpoint)[0]
+    assert ingress_out.local_app_data
     assert yaml.safe_load(ingress_out.local_app_data["config"]) == expected_rel_data
