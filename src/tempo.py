@@ -49,6 +49,8 @@ class Tempo:
     s3_relation_name = "s3"
     s3_bucket_name = "tempo"
 
+    memberlist_port = 7946
+
     server_ports = {
         "tempo_http": 3200,
         "tempo_grpc": 9096,  # default grpc listen port is 9095, but that conflicts with promtail.
@@ -145,13 +147,23 @@ class Tempo:
 
         self.container.add_layer("tempo", self.pebble_layer, combine=True)
         self.container.add_layer("tempo-ready", self.tempo_ready_layer, combine=True)
-        self.container.replan()
-
-        # is not autostart-enabled, we just run it once on pebble-ready.
-        self.container.start("tempo-ready")
+        try:
+            self.container.replan()
+            # is not autostart-enabled, we just run it once on pebble-ready.
+            self.container.start("tempo-ready")
+        except ops.pebble.ChangeError:
+            # replan failed likely because address was still in use. try to (re)start tempo with backoff as a fallback
+            restart_result = self.restart()
+            if not restart_result:
+                logger.exception(
+                    "Starting tempo failed with a ChangeError and restart attempts didn't resolve the issue"
+                )
 
     def update_config(
-        self, requested_receivers: Sequence[ReceiverProtocol], s3_config: Optional[dict] = None
+        self,
+        requested_receivers: Sequence[ReceiverProtocol],
+        s3_config: Optional[dict] = None,
+        peers: Optional[List[str]] = None,
     ) -> bool:
         """Generate a config and push it to the container it if necessary."""
         container = self.container
@@ -159,7 +171,7 @@ class Tempo:
             logger.debug("Container can't connect: config update skipped.")
             return False
 
-        new_config = self.generate_config(requested_receivers, s3_config)
+        new_config = self.generate_config(requested_receivers, s3_config, peers)
 
         if self.get_current_config() != new_config:
             logger.debug("Pushing new config to container...")
@@ -208,7 +220,7 @@ class Tempo:
             return False
 
         try:
-            is_started = self.container.get_service("tempo").is_running()
+            is_started = self.is_running
         except ModelError:
             is_started = False
 
@@ -237,6 +249,10 @@ class Tempo:
             if self.container.get_service(service).is_running():
                 self.container.stop(service)
                 logger.info(f"stopped {service}")
+
+    @property
+    def is_running(self) -> bool:
+        return self.container.get_service("tempo").is_running()
 
     def get_current_config(self) -> Optional[dict]:
         """Fetch the current configuration from the container."""
@@ -293,7 +309,10 @@ class Tempo:
         return server_config
 
     def generate_config(
-        self, receivers: Sequence[ReceiverProtocol], s3_config: Optional[dict] = None
+        self,
+        receivers: Sequence[ReceiverProtocol],
+        s3_config: Optional[dict] = None,
+        peers: Optional[List[str]] = None,
     ) -> dict:
         """Generate the Tempo configuration.
 
@@ -313,6 +332,13 @@ class Tempo:
                 "max_block_bytes": 100,
                 "max_block_duration": "30m",
             },
+            "memberlist": {
+                "abort_if_cluster_join_fails": False,
+                "bind_port": self.memberlist_port,
+                "join_members": (
+                    [f"{peer}:{self.memberlist_port}" for peer in peers] if peers else []
+                ),
+            },
             "compactor": {
                 "compaction": {
                     # blocks in this time window will be compacted together
@@ -324,6 +350,10 @@ class Tempo:
                     "compacted_block_retention": "1h",
                     "v2_out_buffer_bytes": 5242880,
                 }
+            },
+            # TODO this won't work for distributed coordinator where query frontend will be on a different unit
+            "querier": {
+                "frontend_worker": {"frontend_address": f"localhost:{self.tempo_grpc_server_port}"}
             },
             # see https://grafana.com/docs/tempo/latest/configuration/#storage
             "storage": self._build_storage_config(s3_config),
@@ -343,11 +373,10 @@ class Tempo:
             config["ingester_client"] = {"grpc_client_config": tls_config}
             config["metrics_generator_client"] = {"grpc_client_config": tls_config}
 
-            # docs say it's `querier.query-frontend` but tempo complains about that
-            config["querier"] = {"frontend_worker": {"grpc_client_config": tls_config}}
+            config["querier"]["frontend_worker"].update({"grpc_client_config": tls_config})
 
             # this is not an error.
-            config["memberlist"] = tls_config
+            config["memberlist"].update(tls_config)
 
         return config
 

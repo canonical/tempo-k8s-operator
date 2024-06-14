@@ -1,0 +1,8 @@
+endpoint: provide-s3
+app_data: |
+  {
+    "access-key": "mykey",
+    "bucket": "BuckyMcBucket",
+    "endpoint": "http://1.2.3.4:9000",
+    "secret-key": "soverysecret"
+  }

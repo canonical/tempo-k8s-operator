@@ -10,13 +10,17 @@ from scenario import Container, Mount, Relation, State
 from scenario.sequences import check_builtin_sequences
 
 from tempo import Tempo
+from tests.scenario.helpers import get_tempo_config
 
 TEMPO_CHARM_ROOT = Path(__file__).parent.parent.parent
 
 
 @pytest.fixture(params=(True, False))
 def base_state(request):
-    return State(leader=request.param, containers=[Container("tempo", can_connect=True)])
+    return State(
+        leader=request.param,
+        containers=[Container("tempo", can_connect=True)],
+    )
 
 
 def test_builtin_sequences(tempo_charm, base_state):
@@ -38,7 +42,8 @@ def test_tempo_restart_on_ingress_v2_changed(context, tmp_path, requested_protoc
 
     # the remote end requests an otlp_grpc endpoint
     ingress = Relation(
-        "tracing", remote_app_data=TracingRequirerAppData(receivers=[requested_protocol]).dump()
+        "tracing",
+        remote_app_data=TracingRequirerAppData(receivers=[requested_protocol]).dump(),
     )
 
     # WHEN
@@ -48,10 +53,10 @@ def test_tempo_restart_on_ingress_v2_changed(context, tmp_path, requested_protoc
 
     # THEN
     # Tempo pushes a new config to the container filesystem
-    fs = tempo.get_filesystem(context)
-    cfg_path = Path(str(fs) + Tempo.config_path)
-    new_config = yaml.safe_load(cfg_path.read_text())
-    expected_config = Tempo(container).generate_config(["otlp_http", requested_protocol])
+    new_config = get_tempo_config(tempo, context)
+    expected_config = Tempo(container).generate_config(
+        ["otlp_http", requested_protocol],
+    )
     assert new_config == expected_config
     # AND restarts the pebble service.
     assert (
@@ -82,8 +87,8 @@ def _tempo_mock_with_initial_config(tmp_path):
                         "tempo": {"startup": "enabled"},
                         "tempo-ready": {"startup": "disabled"},
                     },
-                }
-            )
+                },
+            ),
         },
         service_status={
             # we don't have a way to check if the service has been restarted: all that scenario does ATM is set it to
@@ -112,7 +117,7 @@ def test_tempo_tracing_created_before_pebble_ready(context, tmp_path):
         remote_app_data={"receivers": '["otlp_http"]'},
         local_app_data={
             "receivers": '[{"protocol": {"name": "otlp_grpc", "type": "grpc"} , "url": "foo.com:10"}, '
-            '{"protocol": {"name": "otlp_http", "type": "http"}, "url": "http://foo.com:11"}, '
+            '{"protocol": {"name": "otlp_http", "type": "http"}, "url": "http://foo.com:11"}, ',
         },
     )
     state = State(leader=True, containers=[tempo], relations=[tracing])
@@ -133,12 +138,10 @@ def test_tracing_storage_is_configured_to_local_without_relation(context, tmp_pa
     context.run("update-status", state)
 
     # THEN tempo's config has a local storage configured
-    fs = tempo.get_filesystem(context)
-    cfg_path = Path(str(fs) + Tempo.config_path)
-    fetched_config = yaml.safe_load(cfg_path.read_text())
+    config = get_tempo_config(tempo, context)
     expected_config = Tempo(container).generate_config(["otlp_http"])
-    assert fetched_config == expected_config
-    assert fetched_config["storage"]["trace"]["backend"] == "local"
+    assert config == expected_config
+    assert config["storage"]["trace"]["backend"] == "local"
 
 
 @pytest.mark.parametrize(
@@ -154,7 +157,9 @@ def test_tracing_storage_is_configured_to_local_without_relation(context, tmp_pa
     ),
 )
 def test_tracing_storage_is_configured_to_s3_if_s3_relation_filled(
-    context, tmp_path, relation_data
+    context,
+    tmp_path,
+    relation_data,
 ):
     # GIVEN tempo mock
     container, tempo = _tempo_mock_with_initial_config(tmp_path)
@@ -171,8 +176,6 @@ def test_tracing_storage_is_configured_to_s3_if_s3_relation_filled(
 
     # THEN
     # Tempo's config contains the data from the relation
-    fs = tempo.get_filesystem(context)
-    cfg_path = Path(str(fs) + Tempo.config_path)
-    new_config = yaml.safe_load(cfg_path.read_text())
+    new_config = get_tempo_config(tempo, context)
     expected_config = Tempo(container).generate_config(["otlp_http"], relation_data)
     assert new_config == expected_config

@@ -1,4 +1,6 @@
+import json
 import logging
+import shlex
 import tempfile
 from pathlib import Path
 from subprocess import run
@@ -26,7 +28,7 @@ async def test_deploy_tempo(ops_test: OpsTest):
 
     await ops_test.model.wait_for_idle(
         apps=[APP_NAME],
-        status="waiting",  # waits for tempo workload ready
+        # tempo might be in waiting as it waits for tempo workload ready
         raise_on_blocked=True,
         timeout=10000,
         raise_on_error=False,
@@ -59,22 +61,22 @@ def present_facade(
         "endpoint": f"{role}-{interface}",
     }
     if app_data:
-        data["app_data"] = app_data
+        data["app_data"] = json.dumps(app_data)
     if unit_data:
-        data["unit_data"] = unit_data
+        data["unit_data"] = json.dumps(unit_data)
 
     with tempfile.NamedTemporaryFile() as f:
         fpath = Path(f.name)
         fpath.write_text(yaml.safe_dump(data))
 
         _model = f" --model {model}" if model else ""
-        run(f"juju run {app}/0{_model} --params {fpath.absolute()}")
+        run(shlex.split(f"juju run {app}/0{_model} --params {fpath.absolute()}"))
 
 
 @pytest.mark.setup
 @pytest.mark.abort_on_fail
 async def test_tempo_active_when_deploy_s3_facade(ops_test: OpsTest):
-    await ops_test.model.deploy(FACADE)
+    await ops_test.model.deploy(FACADE, channel="edge")
     await ops_test.model.integrate(APP_NAME + ":s3", FACADE + ":provide-s3")
 
     present_facade(
@@ -89,8 +91,18 @@ async def test_tempo_active_when_deploy_s3_facade(ops_test: OpsTest):
     )
 
     await ops_test.model.wait_for_idle(
+        apps=[FACADE],
+        raise_on_blocked=True,
+        status="active",
+        timeout=2000,
+    )
+
+    await ops_test.model.wait_for_idle(
         apps=[APP_NAME],
-        status="waiting",  # tempo waits for tempo workload ready
+        # we can't raise on blocked as tempo will likely start at blocked
+        raise_on_blocked=False,
+        # we can't wait for a specific status as tempo
+        # might quickly go from waiting to active depending on when the notice comes in
         timeout=1000,
     )
 

@@ -97,6 +97,12 @@ actions:
     description: |
       Returns a list of all enabled receiver endpoints.
 
+peers:
+  tempo-peers:
+    interface: tempo_peers
+    description: |
+      peer relation for internal coordination
+
 config:
   options:
     coordinator_runs_workload_when_clustered:
@@ -111,12 +117,6 @@ config:
         In this case, tempo-k8s will only act as coordinator 
         (and reverse proxy) for the tempo cluster.
 
-peers:
-  tempo-peers:
-    interface: tempo_peers
-    description: |
-      peer relation for internal coordination
-      
 
 bases:
   - build-on:
