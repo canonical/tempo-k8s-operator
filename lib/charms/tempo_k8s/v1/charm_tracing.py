@@ -14,8 +14,9 @@ To start using this library, you need to do two things:
 
 `@trace_charm(tracing_endpoint="my_tracing_endpoint")`
 
-2) add to your charm a "my_tracing_endpoint" (you can name this attribute whatever you like) **property**
-that returns an otlp http/https endpoint url. If you are using the `TracingEndpointProvider` as
+2) add to your charm a "my_tracing_endpoint" (you can name this attribute whatever you like) **property**,
+**method** or **instance attribute** that returns an otlp http/https endpoint url.
+If you are using the `TracingEndpointProvider` as
 `self.tracing = TracingEndpointProvider(self)`, the implementation could be:
 
 ```
@@ -122,6 +123,7 @@ from typing import (
 )
 
 import opentelemetry
+import ops
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import Span, TracerProvider
@@ -146,7 +148,7 @@ LIBAPI = 1
 # Increment this PATCH version before using `charmcraft publish-lib` or reset
 # to 0 if you are raising the major API version
 
-LIBPATCH = 8
+LIBPATCH = 9
 
 PYDEPS = ["opentelemetry-exporter-otlp-proto-http==1.21.0"]
 
@@ -161,6 +163,16 @@ CHARM_TRACING_ENABLED = "CHARM_TRACING_ENABLED"
 def is_enabled() -> bool:
     """Whether charm tracing is enabled."""
     return os.getenv(CHARM_TRACING_ENABLED, "1") == "1"
+
+
+# Issue is, we can pass to trace_charm the name of a property or the name of an instance attribute
+#  we can get the property (the function) by doing a getattr on the type, but we can only get the
+#  instance attribute by doing a getattr on the instance.
+# The signature of _autoinstrument expects a string, so we need to know whether the string we are
+#  receiving represents the return value of a property or the name of an attribute we still need to
+#  get on the instance. This is what this horrible hack is for. Have fun debugging.
+class _InstanceAttribute(str):
+    """String subclass used to distinguish the return value of a property from the name of an instance attribute."""
 
 
 @contextmanager
@@ -232,8 +244,18 @@ class UntraceableObjectError(TracingError):
     """Raised when an object you're attempting to instrument cannot be autoinstrumented."""
 
 
-def _get_tracing_endpoint(tracing_endpoint_getter, self, charm):
-    if isinstance(tracing_endpoint_getter, property):
+class TLSError(TracingError):
+    """Raised when the tracing endpoint is https but we don't have a cert yet."""
+
+
+def _get_tracing_endpoint(
+    tracing_endpoint_getter: Union[_GetterType, _InstanceAttribute],
+    self: ops.CharmBase,
+    charm: Type[ops.CharmBase],
+):
+    if isinstance(tracing_endpoint_getter, _InstanceAttribute):
+        tracing_endpoint = getattr(self, tracing_endpoint_getter)
+    elif isinstance(tracing_endpoint_getter, property):
         tracing_endpoint = tracing_endpoint_getter.__get__(self)
     else:  # method or callable
         tracing_endpoint = tracing_endpoint_getter(self)
@@ -254,8 +276,14 @@ def _get_tracing_endpoint(tracing_endpoint_getter, self, charm):
     return f"{tracing_endpoint}/v1/traces"
 
 
-def _get_server_cert(server_cert_getter, self, charm):
-    if isinstance(server_cert_getter, property):
+def _get_server_cert(
+    server_cert_getter: Union[_GetterType, _InstanceAttribute],
+    self: ops.CharmBase,
+    charm: Type[ops.CharmBase],
+):
+    if isinstance(server_cert_getter, _InstanceAttribute):
+        server_cert = getattr(self, server_cert_getter)
+    elif isinstance(server_cert_getter, property):
         server_cert = server_cert_getter.__get__(self)
     else:  # method or callable
         server_cert = server_cert_getter(self)
@@ -275,8 +303,8 @@ def _get_server_cert(server_cert_getter, self, charm):
 
 def _setup_root_span_initializer(
     charm: Type[CharmBase],
-    tracing_endpoint_getter: _GetterType,
-    server_cert_getter: Optional[_GetterType],
+    tracing_endpoint_getter: Union[_GetterType, _InstanceAttribute],
+    server_cert_getter: Optional[Union[_GetterType, _InstanceAttribute]],
     service_name: Optional[str] = None,
 ):
     """Patch the charm's initializer."""
@@ -328,6 +356,9 @@ def _setup_root_span_initializer(
         server_cert: Optional[Union[str, Path]] = (
             _get_server_cert(server_cert_getter, self, charm) if server_cert_getter else None
         )
+
+        if tracing_endpoint.startswith("https://") and not server_cert:
+            raise TLSError()
 
         exporter = OTLPSpanExporter(
             endpoint=tracing_endpoint,
@@ -433,8 +464,14 @@ def trace_charm(
         """Autoinstrument the wrapped charmbase type."""
         _autoinstrument(
             charm_type,
-            tracing_endpoint_getter=getattr(charm_type, tracing_endpoint),
-            server_cert_getter=getattr(charm_type, server_cert) if server_cert else None,
+            tracing_endpoint_getter=getattr(
+                charm_type, tracing_endpoint, _InstanceAttribute(tracing_endpoint)
+            ),
+            server_cert_getter=(
+                getattr(charm_type, server_cert, _InstanceAttribute(server_cert))
+                if server_cert
+                else None
+            ),
             service_name=service_name,
             extra_types=extra_types,
         )
@@ -445,8 +482,8 @@ def trace_charm(
 
 def _autoinstrument(
     charm_type: Type[CharmBase],
-    tracing_endpoint_getter: _GetterType,
-    server_cert_getter: Optional[_GetterType] = None,
+    tracing_endpoint_getter: Union[_GetterType, _InstanceAttribute],
+    server_cert_getter: Optional[Union[_GetterType, _InstanceAttribute]] = None,
     service_name: Optional[str] = None,
     extra_types: Sequence[type] = (),
 ) -> Type[CharmBase]:
