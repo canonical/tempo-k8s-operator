@@ -213,7 +213,7 @@ def test_base_tracer_endpoint_event(caplog):
         evt = span2.events[0]
         assert evt.name == "start"
 
-        assert span3.name == "charm exec"
+        assert span3.name == "frank/0: start event"
 
         for span in spans:
             assert span.resource.attributes["service.name"] == "frank"
@@ -286,7 +286,7 @@ def test_base_tracer_endpoint_methods(caplog):
             "method call: MyCharmWithMethods.c",
             "method call: MyCharmWithMethods._on_start",
             "event: start",
-            "charm exec",
+            "frank/0: start event",
         ]
 
 
@@ -339,7 +339,7 @@ def test_base_tracer_endpoint_custom_event(caplog):
             "event: foo",
             "method call: MyCharmWithCustomEvents._on_start",
             "event: start",
-            "charm exec",
+            "frank/0: start event",
         ]
         # only the charm exec span is a root
         assert not spans[-1].parent
@@ -540,7 +540,7 @@ def test_trace_staticmethods(caplog):
             "method call: OtherObj._staticmeth2",
             "method call: MyCharmStaticMethods._on_start",
             "event: start",
-            "charm exec",
+            "jolene/0: start event",
         ]
 
         for span in spans:

@@ -110,7 +110,9 @@ async def test_verify_traces_http(ops_test: OpsTest):
 
     found = False
     for trace in traces:
-        if trace["rootServiceName"] == APP_NAME and trace["rootTraceName"] == "charm exec":
+        if trace["rootServiceName"] == APP_NAME and trace["rootTraceName"].startswith(
+            f"{APP_NAME}/0"
+        ):
             found = True
 
     assert found, f"There's no trace of charm exec traces in tempo. {json.dumps(traces, indent=2)}"
