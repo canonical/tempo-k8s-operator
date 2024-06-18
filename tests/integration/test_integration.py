@@ -110,8 +110,9 @@ async def test_verify_traces_http(ops_test: OpsTest):
 
     found = False
     for trace in traces:
-        if trace["rootServiceName"] == APP_NAME and trace["rootTraceName"].startswith(
-            f"{APP_NAME}/0"
+        if (
+            trace["rootServiceName"] == APP_NAME + "-charm"
+            and trace["rootTraceName"].startswith(f"{APP_NAME}/0")
         ):
             found = True
 

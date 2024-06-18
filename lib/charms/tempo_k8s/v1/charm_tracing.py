@@ -294,8 +294,8 @@ def _setup_root_span_initializer(
         # self.handle = Handle(None, self.handle_kind, None)
 
         original_event_context = framework._event_context
-
-        _service_name = service_name or self.app.name
+        # default service name isn't just app name because it could conflict with the workload service name
+        _service_name = service_name or f"{self.app.name}-charm"
 
         unit_name = self.unit.name
         resource = Resource.create(
