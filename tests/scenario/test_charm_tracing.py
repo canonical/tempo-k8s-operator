@@ -62,8 +62,8 @@ def test_base_tracer_endpoint(caplog):
         # assert "Setting up span exporter to endpoint: foo.bar:80" in caplog.text
         assert "Starting root trace with id=" in caplog.text
         span = f.call_args_list[0].args[0][0]
-        assert span.resource.attributes["service.name"] == "frank"
-        assert span.resource.attributes["compose_service"] == "frank"
+        assert span.resource.attributes["service.name"] == "frank-charm"
+        assert span.resource.attributes["compose_service"] == "frank-charm"
         assert span.resource.attributes["charm_type"] == "MyCharmSimple"
 
 
@@ -130,8 +130,8 @@ def test_init_attr(caplog):
         ctx.run("start", State())
         # assert "Setting up span exporter to endpoint: foo.bar:80" in caplog.text
         span = f.call_args_list[0].args[0][0]
-        assert span.resource.attributes["service.name"] == "frank"
-        assert span.resource.attributes["compose_service"] == "frank"
+        assert span.resource.attributes["service.name"] == "frank-charm"
+        assert span.resource.attributes["compose_service"] == "frank-charm"
         assert span.resource.attributes["charm_type"] == "MyCharmInitAttr"
 
 
@@ -213,10 +213,10 @@ def test_base_tracer_endpoint_event(caplog):
         evt = span2.events[0]
         assert evt.name == "start"
 
-        assert span3.name == "charm exec"
+        assert span3.name == "frank/0: start event"
 
         for span in spans:
-            assert span.resource.attributes["service.name"] == "frank"
+            assert span.resource.attributes["service.name"] == "frank-charm"
 
 
 def test_juju_topology_injection(caplog):
@@ -286,7 +286,7 @@ def test_base_tracer_endpoint_methods(caplog):
             "method call: MyCharmWithMethods.c",
             "method call: MyCharmWithMethods._on_start",
             "event: start",
-            "charm exec",
+            "frank/0: start event",
         ]
 
 
@@ -339,7 +339,7 @@ def test_base_tracer_endpoint_custom_event(caplog):
             "event: foo",
             "method call: MyCharmWithCustomEvents._on_start",
             "event: start",
-            "charm exec",
+            "frank/0: start event",
         ]
         # only the charm exec span is a root
         assert not spans[-1].parent
@@ -540,11 +540,11 @@ def test_trace_staticmethods(caplog):
             "method call: OtherObj._staticmeth2",
             "method call: MyCharmStaticMethods._on_start",
             "event: start",
-            "charm exec",
+            "jolene/0: start event",
         ]
 
         for span in spans:
-            assert span.resource.attributes["service.name"] == "jolene"
+            assert span.resource.attributes["service.name"] == "jolene-charm"
 
 
 def test_trace_staticmethods_bork(caplog):
