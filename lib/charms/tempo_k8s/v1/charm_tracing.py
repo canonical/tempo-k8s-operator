@@ -240,10 +240,10 @@ class TLSError(TracingError):
 
 def _get_tracing_endpoint(
     tracing_endpoint_attr: str,
-    self: ops.CharmBase,
-    charm: Type[ops.CharmBase],
+    charm_instance: ops.CharmBase,
+    charm_type: Type[ops.CharmBase],
 ):
-    _tracing_endpoint = getattr(self, tracing_endpoint_attr)
+    _tracing_endpoint = getattr(charm_instance, tracing_endpoint_attr)
     if callable(_tracing_endpoint):
         tracing_endpoint = _tracing_endpoint()
     else:
@@ -251,13 +251,13 @@ def _get_tracing_endpoint(
 
     if tracing_endpoint is None:
         logger.debug(
-            f"{charm}.{tracing_endpoint_attr} is None; quietly disabling "
+            f"{charm_type}.{tracing_endpoint_attr} is None; quietly disabling "
             f"charm_tracing for the run."
         )
         return
     elif not isinstance(tracing_endpoint, str):
         raise TypeError(
-            f"{charm}.{tracing_endpoint_attr} should resolve to a tempo endpoint (string); "
+            f"{charm_type}.{tracing_endpoint_attr} should resolve to a tempo endpoint (string); "
             f"got {tracing_endpoint} instead."
         )
     else:
@@ -267,10 +267,10 @@ def _get_tracing_endpoint(
 
 def _get_server_cert(
     server_cert_attr: str,
-    self: ops.CharmBase,
-    charm: Type[ops.CharmBase],
+    charm_instance: ops.CharmBase,
+    charm_type: Type[ops.CharmBase],
 ):
-    _server_cert = getattr(self, server_cert_attr)
+    _server_cert = getattr(charm_instance, server_cert_attr)
     if callable(_server_cert):
         server_cert = _server_cert()
     else:
@@ -278,28 +278,31 @@ def _get_server_cert(
 
     if server_cert is None:
         logger.warning(
-            f"{charm}.{server_cert_attr} is None; sending traces over INSECURE connection."
+            f"{charm_type}.{server_cert_attr} is None; sending traces over INSECURE connection."
         )
         return
     elif not Path(server_cert).is_absolute():
         raise ValueError(
-            f"{charm}.{server_cert_attr} should resolve to a valid tls cert absolute path (string | Path)); "
+            f"{charm_type}.{server_cert_attr} should resolve to a valid tls cert absolute path (string | Path)); "
             f"got {server_cert} instead."
         )
     return server_cert
 
 
 def _setup_root_span_initializer(
-    charm: Type[CharmBase],
+    charm_type: Type[CharmBase],
     tracing_endpoint_attr: str,
     server_cert_attr: Optional[str],
     service_name: Optional[str] = None,
 ):
     """Patch the charm's initializer."""
-    original_init = charm.__init__
+    original_init = charm_type.__init__
 
     @functools.wraps(original_init)
     def wrap_init(self: CharmBase, framework: Framework, *args, **kwargs):
+        # we're using 'self' here because this is charm init code, makes sense to read what's below
+        # from the perspective of the charm. Self.unit.name...
+
         original_init(self, framework, *args, **kwargs)
         if not is_enabled():
             logger.info("Tracing DISABLED: skipping root span initialization")
@@ -327,13 +330,13 @@ def _setup_root_span_initializer(
         )
         provider = TracerProvider(resource=resource)
         try:
-            tracing_endpoint = _get_tracing_endpoint(tracing_endpoint_attr, self, charm)
+            tracing_endpoint = _get_tracing_endpoint(tracing_endpoint_attr, self, charm_type)
         except Exception:
             # if anything goes wrong with retrieving the endpoint, we go on with tracing disabled.
             # better than breaking the charm.
             logger.exception(
                 f"exception retrieving the tracing "
-                f"endpoint from {charm}.{tracing_endpoint_attr}; "
+                f"endpoint from {charm_type}.{tracing_endpoint_attr}; "
                 f"proceeding with charm_tracing DISABLED. "
             )
             return
@@ -342,7 +345,7 @@ def _setup_root_span_initializer(
             return
 
         server_cert: Optional[Union[str, Path]] = (
-            _get_server_cert(server_cert_attr, self, charm) if server_cert_attr else None
+            _get_server_cert(server_cert_attr, self, charm_type) if server_cert_attr else None
         )
 
         if tracing_endpoint.startswith("https://") and not server_cert:
@@ -401,7 +404,7 @@ def _setup_root_span_initializer(
         framework.close = wrap_close
         return
 
-    charm.__init__ = wrap_init
+    charm_type.__init__ = wrap_init
 
 
 def trace_charm(
@@ -574,7 +577,7 @@ def trace(obj: Union[Type, Callable]):
     if isinstance(obj, type):
         if issubclass(obj, CharmBase):
             raise ValueError(
-                "cannot use @trace on CharmBase subclasses: use @trace_charm instead "
+                "cannot use @trace on CharmBase subclasses: use @trace_char instead "
                 "(we need some arguments!)"
             )
         return trace_type(obj)
