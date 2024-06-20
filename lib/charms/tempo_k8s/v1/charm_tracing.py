@@ -153,6 +153,10 @@ LIBPATCH = 10
 PYDEPS = ["opentelemetry-exporter-otlp-proto-http==1.21.0"]
 
 logger = logging.getLogger("tracing")
+dev_logger = logging.getLogger("tracing-dev")
+
+# set this to 0 if you are debugging/developing this library source
+dev_logger.setLevel(logging.CRITICAL)
 
 tracer: ContextVar[Tracer] = ContextVar("tracer")
 _GetterType = Union[Callable[[CharmBase], Optional[str]], property]
@@ -258,7 +262,7 @@ def _get_tracing_endpoint(
             f"got {tracing_endpoint} instead."
         )
 
-    # logger.debug(f"Setting up span exporter to endpoint: {tracing_endpoint}/v1/traces")
+    dev_logger.debug(f"Setting up span exporter to endpoint: {tracing_endpoint}/v1/traces")
     return f"{tracing_endpoint}/v1/traces"
 
 
@@ -301,7 +305,11 @@ def _setup_root_span_initializer(
         # from the perspective of the charm. Self.unit.name...
 
         original_init(self, framework, *args, **kwargs)
+        # we call this from inside the init context instead of, say, _autoinstrument, because we want it to
+        # be checked on a per-charm-instantiation basis, not on a per-type-declaration one.
         if not is_enabled():
+            # this will only happen during unittesting, hopefully, so it's fine to log a
+            # bit more verbosely
             logger.info("Tracing DISABLED: skipping root span initialization")
             return
 
@@ -373,6 +381,7 @@ def _setup_root_span_initializer(
 
         @contextmanager
         def wrap_event_context(event_name: str):
+            dev_logger.info(f"entering event context: {event_name}")
             # when the framework enters an event context, we create a span.
             with _span("event: " + event_name) as event_context_span:
                 if event_context_span:
@@ -386,6 +395,7 @@ def _setup_root_span_initializer(
 
         @functools.wraps(original_close)
         def wrap_close():
+            dev_logger.info("tearing down tracer and flushing traces")
             span.end()
             opentelemetry.context.detach(span_token)  # type: ignore
             tracer.reset(_tracer_token)
@@ -494,7 +504,7 @@ def _autoinstrument(
     :param extra_types: pass any number of types that you also wish to autoinstrument.
         For example, charm libs, relation endpoint wrappers, workload abstractions, ...
     """
-    # logger.info(f"instrumenting {charm_type}")
+    dev_logger.info(f"instrumenting {charm_type}")
     _setup_root_span_initializer(
         charm_type,
         tracing_endpoint_attr,
@@ -515,12 +525,12 @@ def trace_type(cls: _T) -> _T:
     It assumes that this class is only instantiated after a charm type decorated with `@trace_charm`
     has been instantiated.
     """
-    # logger.info(f"instrumenting {cls}")
+    dev_logger.info(f"instrumenting {cls}")
     for name, method in inspect.getmembers(cls, predicate=inspect.isfunction):
-        # logger.info(f"discovered {method}")
+        dev_logger.info(f"discovered {method}")
 
         if method.__name__.startswith("__"):
-            # logger.info(f"skipping {method} (dunder)")
+            dev_logger.info(f"skipping {method} (dunder)")
             continue
 
         new_method = trace_method(method)
@@ -548,7 +558,7 @@ def trace_function(function: _F) -> _F:
 
 
 def _trace_callable(callable: _F, qualifier: str) -> _F:
-    # logger.info(f"instrumenting {callable}")
+    dev_logger.info(f"instrumenting {callable}")
 
     # sig = inspect.signature(callable)
     @functools.wraps(callable)
