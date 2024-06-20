@@ -452,12 +452,12 @@ autoinstrument(MyRemoteBorkyCharm, "tempo")
 
 @pytest.mark.parametrize("borky_return_value", (True, 42, object(), 0.2, [], (), {}))
 def test_borky_tempo_return_value(borky_return_value, caplog):
-    """Verify that the charm exits 0 (with charm_tracing disabled) if the tempo() call returns bad values."""
+    """Verify that the charm exits 1 (even with charm_tracing disabled) if the tempo() call returns bad values."""
     # IF the charm's tempo endpoint getter returns anything but None or str
     MyRemoteBorkyCharm._borky_return_value = borky_return_value
     ctx = Context(MyRemoteBorkyCharm, meta=MyRemoteBorkyCharm.META)
     # WHEN you get any event
-    # THEN you're not totally good: self.tempo() will raise, but charm exec will still exit 0
+    # THEN the self.tempo getter will raise and charm exec will exit 1
 
     # traceback from the TypeError raised by _get_tracing_endpoint
     with pytest.raises(
