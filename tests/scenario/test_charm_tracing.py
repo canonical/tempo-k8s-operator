@@ -47,7 +47,7 @@ class MyCharmSimple(CharmBase):
         return "foo.bar:80"
 
 
-autoinstrument(MyCharmSimple, MyCharmSimple.tempo)
+autoinstrument(MyCharmSimple, "tempo")
 
 
 def test_base_tracer_endpoint(caplog):
@@ -88,7 +88,7 @@ class MyCharmSubObject(CharmBase):
         return "foo.bar:80"
 
 
-autoinstrument(MyCharmSubObject, MyCharmSubObject.tempo, extra_types=[SubObject])
+autoinstrument(MyCharmSubObject, "tempo", extra_types=[SubObject])
 
 
 def test_subobj_tracer_endpoint(caplog):
@@ -116,7 +116,7 @@ class MyCharmInitAttr(CharmBase):
         return self._tempo
 
 
-autoinstrument(MyCharmInitAttr, MyCharmInitAttr.tempo)
+autoinstrument(MyCharmInitAttr, "tempo")
 
 
 def test_init_attr(caplog):
@@ -143,7 +143,7 @@ class MyCharmSimpleDisabled(CharmBase):
         return None
 
 
-autoinstrument(MyCharmSimpleDisabled, MyCharmSimpleDisabled.tempo)
+autoinstrument(MyCharmSimpleDisabled, "tempo")
 
 
 def test_base_tracer_endpoint_disabled(caplog):
@@ -190,7 +190,7 @@ class MyCharmSimpleEvent(CharmBase):
         return "foo.bar:80"
 
 
-autoinstrument(MyCharmSimpleEvent, MyCharmSimpleEvent.tempo)
+autoinstrument(MyCharmSimpleEvent, "tempo")
 
 
 def test_base_tracer_endpoint_event(caplog):
@@ -265,7 +265,7 @@ class MyCharmWithMethods(CharmBase):
         return "foo.bar:80"
 
 
-autoinstrument(MyCharmWithMethods, MyCharmWithMethods.tempo)
+autoinstrument(MyCharmWithMethods, "tempo")
 
 
 def test_base_tracer_endpoint_methods(caplog):
@@ -319,7 +319,7 @@ class MyCharmWithCustomEvents(CharmBase):
         return "foo.bar:80"
 
 
-autoinstrument(MyCharmWithCustomEvents, MyCharmWithCustomEvents.tempo)
+autoinstrument(MyCharmWithCustomEvents, "tempo")
 
 
 def test_base_tracer_endpoint_custom_event(caplog):
@@ -363,7 +363,7 @@ class MyRemoteCharm(CharmBase):
         return self.tracing.get_endpoint("otlp_http")
 
 
-autoinstrument(MyRemoteCharm, MyRemoteCharm.tempo)
+autoinstrument(MyRemoteCharm, "tempo")
 
 
 @pytest.mark.parametrize("leader", (True, False))
@@ -448,7 +448,7 @@ class MyRemoteBorkyCharm(CharmBase):
         return self._borky_return_value
 
 
-autoinstrument(MyRemoteBorkyCharm, MyRemoteBorkyCharm.tempo)
+autoinstrument(MyRemoteBorkyCharm, "tempo")
 
 
 @pytest.mark.parametrize("borky_return_value", (True, 42, object(), 0.2, [], (), {}))
@@ -462,7 +462,7 @@ def test_borky_tempo_return_value(borky_return_value, caplog):
 
     ctx.run("start", State())
     # traceback from the TypeError raised by _get_tracing_endpoint
-    assert "should return a tempo endpoint" in caplog.text
+    assert "should resolve to a tempo endpoint" in caplog.text
     # logger.exception in _setup_root_span_initializer
     assert "exception retrieving the tracing endpoint from" in caplog.text
     assert "proceeding with charm_tracing DISABLED." in caplog.text
@@ -515,7 +515,7 @@ class OtherObj:
         return 1 + 1
 
 
-autoinstrument(MyCharmStaticMethods, MyCharmStaticMethods.tempo, extra_types=[OtherObj])
+autoinstrument(MyCharmStaticMethods, "tempo", extra_types=[OtherObj])
 
 
 def test_trace_staticmethods(caplog):
