@@ -7,7 +7,6 @@ import scenario
 from charms.tempo_k8s.v1.charm_tracing import CHARM_TRACING_ENABLED
 from charms.tempo_k8s.v1.charm_tracing import _autoinstrument as autoinstrument
 from charms.tempo_k8s.v2.tracing import (
-    ProtocolNotRequestedError,
     ProtocolType,
     Receiver,
     TracingEndpointRequirer,
@@ -17,6 +16,7 @@ from charms.tempo_k8s.v2.tracing import (
 from ops import EventBase, EventSource, Framework
 from ops.charm import CharmBase, CharmEvents
 from scenario import Context, State
+from scenario.runtime import UncaughtCharmError
 
 from lib.charms.tempo_k8s.v1.charm_tracing import get_current_span, trace
 
@@ -59,7 +59,7 @@ def test_base_tracer_endpoint(caplog):
         f.return_value = opentelemetry.sdk.trace.export.SpanExportResult.SUCCESS
         ctx = Context(MyCharmSimple, meta=MyCharmSimple.META)
         ctx.run("start", State())
-        assert "Setting up span exporter to endpoint: foo.bar:80" in caplog.text
+        # assert "Setting up span exporter to endpoint: foo.bar:80" in caplog.text
         assert "Starting root trace with id=" in caplog.text
         span = f.call_args_list[0].args[0][0]
         assert span.resource.attributes["service.name"] == "frank"
@@ -128,7 +128,7 @@ def test_init_attr(caplog):
         f.return_value = opentelemetry.sdk.trace.export.SpanExportResult.SUCCESS
         ctx = Context(MyCharmInitAttr, meta=MyCharmInitAttr.META)
         ctx.run("start", State())
-        assert "Setting up span exporter to endpoint: foo.bar:80" in caplog.text
+        # assert "Setting up span exporter to endpoint: foo.bar:80" in caplog.text
         span = f.call_args_list[0].args[0][0]
         assert span.resource.attributes["service.name"] == "frank"
         assert span.resource.attributes["compose_service"] == "frank"
@@ -156,7 +156,7 @@ def test_base_tracer_endpoint_disabled(caplog):
         ctx = Context(MyCharmSimpleDisabled, meta=MyCharmSimpleDisabled.META)
         ctx.run("start", State())
 
-        assert "quietly disabling charm_tracing for the run." in caplog.text
+        # assert "quietly disabling charm_tracing for the run." in caplog.text
         assert not f.called
 
 
@@ -418,7 +418,7 @@ def test_tracing_requirer_remote_charm_no_request_but_response(leader):
 @pytest.mark.parametrize("relation", (True, False))
 @pytest.mark.parametrize("leader", (True, False))
 def test_tracing_requirer_remote_charm_no_request_no_response(leader, relation):
-    """Verify that the charm successfully executes (with charm_tracing disabled) if the tempo() call raises."""
+    """Verify that the charm errors out (even with charm_tracing disabled) if the tempo() call raises."""
     # IF the leader did NOT request the endpoint to be activated
     MyRemoteCharm._request = False
     ctx = Context(MyRemoteCharm, meta=MyRemoteCharm.META)
@@ -434,10 +434,9 @@ def test_tracing_requirer_remote_charm_no_request_no_response(leader, relation):
         # OR no relation at all
         relations = []
 
-    # THEN you're not totally good: self.tempo() will raise, but charm exec will still exit 0
-    with ctx.manager("start", State(leader=leader, relations=relations)) as mgr:
-        with pytest.raises(ProtocolNotRequestedError):
-            assert mgr.charm.tempo() is None
+    # THEN self.tempo() will raise on init
+    with pytest.raises(UncaughtCharmError, match=r"ProtocolNotRequestedError"):
+        ctx.run("start", State(relations=relations))
 
 
 class MyRemoteBorkyCharm(CharmBase):
@@ -460,12 +459,13 @@ def test_borky_tempo_return_value(borky_return_value, caplog):
     # WHEN you get any event
     # THEN you're not totally good: self.tempo() will raise, but charm exec will still exit 0
 
-    ctx.run("start", State())
     # traceback from the TypeError raised by _get_tracing_endpoint
-    assert "should resolve to a tempo endpoint" in caplog.text
-    # logger.exception in _setup_root_span_initializer
-    assert "exception retrieving the tracing endpoint from" in caplog.text
-    assert "proceeding with charm_tracing DISABLED." in caplog.text
+    with pytest.raises(
+        UncaughtCharmError,
+        match=r"MyRemoteBorkyCharm\.tempo should resolve to a tempo "
+        r"endpoint \(string\); got (.*) instead\.",
+    ):
+        ctx.run("start", State())
 
 
 class MyCharmStaticMethods(CharmBase):

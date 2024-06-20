@@ -250,18 +250,15 @@ def _get_tracing_endpoint(
         tracing_endpoint = _tracing_endpoint
 
     if tracing_endpoint is None:
-        logger.debug(
-            f"{charm_type}.{tracing_endpoint_attr} is None; quietly disabling "
-            f"charm_tracing for the run."
-        )
         return
+
     elif not isinstance(tracing_endpoint, str):
         raise TypeError(
-            f"{charm_type}.{tracing_endpoint_attr} should resolve to a tempo endpoint (string); "
+            f"{charm_type.__name__}.{tracing_endpoint_attr} should resolve to a tempo endpoint (string); "
             f"got {tracing_endpoint} instead."
         )
-    else:
-        logger.debug(f"Setting up span exporter to endpoint: {tracing_endpoint}/v1/traces")
+
+    # logger.debug(f"Setting up span exporter to endpoint: {tracing_endpoint}/v1/traces")
     return f"{tracing_endpoint}/v1/traces"
 
 
@@ -329,19 +326,12 @@ def _setup_root_span_initializer(
             }
         )
         provider = TracerProvider(resource=resource)
-        try:
-            tracing_endpoint = _get_tracing_endpoint(tracing_endpoint_attr, self, charm_type)
-        except Exception:
-            # if anything goes wrong with retrieving the endpoint, we go on with tracing disabled.
-            # better than breaking the charm.
-            logger.exception(
-                f"exception retrieving the tracing "
-                f"endpoint from {charm_type}.{tracing_endpoint_attr}; "
-                f"proceeding with charm_tracing DISABLED. "
-            )
-            return
+
+        # if anything goes wrong with retrieving the endpoint, we let the exception bubble up.
+        tracing_endpoint = _get_tracing_endpoint(tracing_endpoint_attr, self, charm_type)
 
         if not tracing_endpoint:
+            # tracing is off if tracing_endpoint is None
             return
 
         server_cert: Optional[Union[str, Path]] = (
@@ -349,7 +339,10 @@ def _setup_root_span_initializer(
         )
 
         if tracing_endpoint.startswith("https://") and not server_cert:
-            raise TLSError()
+            raise TLSError(
+                "Tracing endpoint is https, but no server_cert has been passed."
+                "Please point @trace_charm to a `server_cert` attr."
+            )
 
         exporter = OTLPSpanExporter(
             endpoint=tracing_endpoint,
@@ -372,7 +365,7 @@ def _setup_root_span_initializer(
         span = _tracer.start_span("charm exec", attributes={"juju.dispatch_path": dispatch_path})
         ctx = set_span_in_context(span)
 
-        # log a trace id so we can look it up in tempo.
+        # log a trace id, so we can look it up in tempo and pick it up from jhack.
         root_trace_id = hex(span.get_span_context().trace_id)[2:]  # strip 0x prefix
         logger.debug(f"Starting root trace with id={root_trace_id!r}.")
 
@@ -501,7 +494,7 @@ def _autoinstrument(
     :param extra_types: pass any number of types that you also wish to autoinstrument.
         For example, charm libs, relation endpoint wrappers, workload abstractions, ...
     """
-    logger.info(f"instrumenting {charm_type}")
+    # logger.info(f"instrumenting {charm_type}")
     _setup_root_span_initializer(
         charm_type,
         tracing_endpoint_attr,
@@ -522,12 +515,12 @@ def trace_type(cls: _T) -> _T:
     It assumes that this class is only instantiated after a charm type decorated with `@trace_charm`
     has been instantiated.
     """
-    logger.info(f"instrumenting {cls}")
+    # logger.info(f"instrumenting {cls}")
     for name, method in inspect.getmembers(cls, predicate=inspect.isfunction):
-        logger.info(f"discovered {method}")
+        # logger.info(f"discovered {method}")
 
         if method.__name__.startswith("__"):
-            logger.info(f"skipping {method} (dunder)")
+            # logger.info(f"skipping {method} (dunder)")
             continue
 
         new_method = trace_method(method)
@@ -555,7 +548,7 @@ def trace_function(function: _F) -> _F:
 
 
 def _trace_callable(callable: _F, qualifier: str) -> _F:
-    logger.info(f"instrumenting {callable}")
+    # logger.info(f"instrumenting {callable}")
 
     # sig = inspect.signature(callable)
     @functools.wraps(callable)
@@ -577,7 +570,7 @@ def trace(obj: Union[Type, Callable]):
     if isinstance(obj, type):
         if issubclass(obj, CharmBase):
             raise ValueError(
-                "cannot use @trace on CharmBase subclasses: use @trace_char instead "
+                "cannot use @trace on CharmBase subclasses: use @trace_charm instead "
                 "(we need some arguments!)"
             )
         return trace_type(obj)
