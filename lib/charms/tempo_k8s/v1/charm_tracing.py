@@ -158,8 +158,13 @@ dev_logger = logging.getLogger("tracing-dev")
 # set this to 0 if you are debugging/developing this library source
 dev_logger.setLevel(logging.CRITICAL)
 
+
+_CharmType = Type[CharmBase]  # the type CharmBase and any subclass thereof
+_C = TypeVar("_C", bound=_CharmType)
+_T = TypeVar("_T", bound=type)
+_F = TypeVar("_F", bound=Type[Callable])
 tracer: ContextVar[Tracer] = ContextVar("tracer")
-_GetterType = Union[Callable[[CharmBase], Optional[str]], property]
+_GetterType = Union[Callable[[_CharmType], Optional[str]], property]
 
 CHARM_TRACING_ENABLED = "CHARM_TRACING_ENABLED"
 
@@ -225,11 +230,6 @@ def _span(name: str) -> Generator[Optional[Span], Any, Any]:
         yield None
 
 
-_C = TypeVar("_C", bound=Type[CharmBase])
-_T = TypeVar("_T", bound=type)
-_F = TypeVar("_F", bound=Type[Callable])
-
-
 class TracingError(RuntimeError):
     """Base class for errors raised by this module."""
 
@@ -244,8 +244,8 @@ class TLSError(TracingError):
 
 def _get_tracing_endpoint(
     tracing_endpoint_attr: str,
-    charm_instance: ops.CharmBase,
-    charm_type: Type[ops.CharmBase],
+    charm_instance: object,
+    charm_type: type,
 ):
     _tracing_endpoint = getattr(charm_instance, tracing_endpoint_attr)
     if callable(_tracing_endpoint):
@@ -291,7 +291,7 @@ def _get_server_cert(
 
 
 def _setup_root_span_initializer(
-    charm_type: Type[CharmBase],
+    charm_type: _CharmType,
     tracing_endpoint_attr: str,
     server_cert_attr: Optional[str],
     service_name: Optional[str] = None,
@@ -410,7 +410,7 @@ def _setup_root_span_initializer(
         framework.close = wrap_close
         return
 
-    charm_type.__init__ = wrap_init
+    charm_type.__init__ = wrap_init  # type: ignore
 
 
 def trace_charm(
@@ -418,7 +418,7 @@ def trace_charm(
     server_cert: Optional[str] = None,
     service_name: Optional[str] = None,
     extra_types: Sequence[type] = (),
-):
+) -> Callable[[_T], _T]:
     """Autoinstrument the decorated charm with tracing telemetry.
 
     Use this function to get out-of-the-box traces for all events emitted on this charm and all
@@ -461,7 +461,7 @@ def trace_charm(
         For example, charm libs, relation endpoint wrappers, workload abstractions, ...
     """
 
-    def _decorator(charm_type: Type[CharmBase]):
+    def _decorator(charm_type: _T) -> _T:
         """Autoinstrument the wrapped charmbase type."""
         _autoinstrument(
             charm_type,
@@ -476,12 +476,12 @@ def trace_charm(
 
 
 def _autoinstrument(
-    charm_type: Type[CharmBase],
+    charm_type: _T,
     tracing_endpoint_attr: str,
     server_cert_attr: Optional[str] = None,
     service_name: Optional[str] = None,
     extra_types: Sequence[type] = (),
-) -> Type[CharmBase]:
+) -> _T:
     """Set up tracing on this charm class.
 
     Use this function to get out-of-the-box traces for all events emitted on this charm and all
