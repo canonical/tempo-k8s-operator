@@ -26,8 +26,8 @@ from charms.tempo_k8s.v1.charm_tracing import charm_tracing
 @charm_tracing(
     # forward-declare the instance attributes that the instrumentor will look up to obtain the
     # tempo endpoint and server certificate
-    tracing_endpoint="charm_tracing_endpoint",
-    server_cert="charm_tracing_cert"
+    tracing_endpoint="tracing_endpoint",
+    server_cert="server_cert"
 )
 class MyCharm(CharmBase):
     _path_to_cert = "/path/to/cert.crt"
