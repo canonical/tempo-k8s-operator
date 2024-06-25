@@ -9,22 +9,57 @@
 This means that, if your charm is related to, for example, COS' Tempo charm, you will be able to inspect
 in real time from the Grafana dashboard the execution flow of your charm.
 
-To start using this library, you need to do two things:
+# Quickstart
+Fetch the following charm libs (and ensure the minimum version/revision numbers are satisfied):
+
+    charmcraft fetch-lib charms.tempo_k8s.v2.tracing  # >= 1.10
+    charmcraft fetch-lib charms.tempo_k8s.v1.charm_tracing  # >= 2.7
+
+Then edit your charm code to include:
+
+```python
+# import the necessary charm libs
+from charms.tempo_k8s.v2.tracing import TracingEndpointRequirer, charm_tracing_config
+from charms.tempo_k8s.v1.charm_tracing import charm_tracing
+
+# decorate your charm class with charm_tracing:
+@charm_tracing(
+    # forward-declare the instance attributes that the instrumentor will look up to obtain the
+    # tempo endpoint and server certificate
+    tracing_endpoint="tracing_endpoint",
+    server_cert="server_cert"
+)
+class MyCharm(CharmBase):
+    _path_to_cert = "/path/to/cert.crt"
+    # path to cert file **in the charm container**. Its presence will be used to determine whether
+    # the charm is ready to use tls for encrypting charm traces. If your charm does not support tls,
+    # you can ignore this and pass None to charm_tracing_config.
+    # If you do support TLS, you'll need to make sure that the server cert is copied to this location
+    # and kept up to date so the instrumentor can use it.
+
+    def __init__(self, ...):
+        ...
+        self.tracing = TracingEndpointRequirer(self, ...)
+        self.tracing_endpoint, self.server_cert = charm_tracing_config(self.tracing, self._path_to_cert)
+```
+
+# Detailed usage
+To use this library, you need to do two things:
 1) decorate your charm class with
 
 `@trace_charm(tracing_endpoint="my_tracing_endpoint")`
 
 2) add to your charm a "my_tracing_endpoint" (you can name this attribute whatever you like)
 **property**, **method** or **instance attribute** that returns an otlp http/https endpoint url.
-If you are using the `TracingEndpointProvider` as
-`self.tracing = TracingEndpointProvider(self)`, the implementation could be:
+If you are using the ``charms.tempo_k8s.v2.tracing.TracingEndpointRequirer`` as
+``self.tracing = TracingEndpointRequirer(self)``, the implementation could be:
 
 ```
     @property
     def my_tracing_endpoint(self) -> Optional[str]:
         '''Tempo endpoint for charm tracing'''
         if self.tracing.is_ready():
-            return self.tracing.otlp_http_endpoint()
+            return self.tracing.get_endpoint("otlp_http")
         else:
             return None
 ```
@@ -34,19 +69,52 @@ At this point your charm will be automatically instrumented so that:
     - every event as a span (including custom events)
     - every charm method call (except dunders) as a span
 
-if you wish to add more fine-grained information to the trace, you can do so by getting a hold of the tracer like so:
+
+## TLS support
+If your charm integrates with a TLS provider which is also trusted by the tracing provider (the Tempo charm),
+you can configure ``charm_tracing`` to use TLS by passing a ``server_cert`` parameter to the decorator.
+
+If your charm is not trusting the same CA as the Tempo endpoint it is sending traces to,
+you'll need to implement a cert-transfer relation to obtain the CA certificate from the same
+CA that Tempo is using.
+
+For example:
+```
+from charms.tempo_k8s.v1.charm_tracing import trace_charm
+@trace_charm(
+    tracing_endpoint="my_tracing_endpoint",
+    server_cert="_server_cert"
+)
+class MyCharm(CharmBase):
+    self._server_cert = "/path/to/server.crt"
+    ...
+
+    def on_tls_changed(self, e) -> Optional[str]:
+        # update the server cert on the charm container for charm tracing
+        Path(self._server_cert).write_text(self.get_server_cert())
+
+    def on_tls_broken(self, e) -> Optional[str]:
+        # remove the server cert so charm_tracing won't try to use tls anymore
+        Path(self._server_cert).unlink()
+```
+
+
+## More fine-grained manual instrumentation
+if you wish to add more spans to the trace, you can do so by getting a hold of the tracer like so:
 ```
 import opentelemetry
 ...
-    @property
-    def tracer(self) -> opentelemetry.trace.Tracer:
-        return opentelemetry.trace.get_tracer(type(self).__name__)
+def get_tracer(self) -> opentelemetry.trace.Tracer:
+    return opentelemetry.trace.get_tracer(type(self).__name__)
 ```
 
 By default, the tracer is named after the charm type. If you wish to override that, you can pass
-a different `service_name` argument to `trace_charm`.
+a different ``service_name`` argument to ``trace_charm``.
 
-*Upgrading from `v0`:*
+See the official opentelemetry Python SDK documentation for usage:
+https://opentelemetry-python.readthedocs.io/en/latest/
+
+## Upgrading from `v0`
 
 If you are upgrading from `charm_tracing` v0, you need to take the following steps (assuming you already
 have the newest version of the library in your charm):
@@ -56,8 +124,9 @@ of `charm_tracing` v0, you can replace it with):
 
 `opentelemetry-exporter-otlp-proto-http>=1.21.0`.
 
-2) Update the charm method referenced to from `@trace` and `@trace_charm`,
-to return from `TracingEndpointRequirer.otlp_http_endpoint()` instead of `grpc_http`. For example:
+2) Update the charm method referenced to from ``@trace`` and ``@trace_charm``,
+to return from ``TracingEndpointRequirer.get_endpoint("otlp_http")`` instead of ``grpc_http``.
+For example:
 
 ```
     from charms.tempo_k8s.v0.charm_tracing import trace_charm
@@ -73,7 +142,7 @@ to return from `TracingEndpointRequirer.otlp_http_endpoint()` instead of `grpc_h
         def my_tracing_endpoint(self) -> Optional[str]:
             '''Tempo endpoint for charm tracing'''
             if self.tracing.is_ready():
-                return self.tracing.otlp_grpc_endpoint()
+                return self.tracing.otlp_grpc_endpoint() #  OLD API, DEPRECATED.
             else:
                 return None
 ```
@@ -94,13 +163,13 @@ needs to be replaced with:
         def my_tracing_endpoint(self) -> Optional[str]:
             '''Tempo endpoint for charm tracing'''
             if self.tracing.is_ready():
-                return self.tracing.otlp_http_endpoint()
+                return self.tracing.get_endpoint("otlp_http")  # NEW API, use this.
             else:
                 return None
 ```
 
-3) If you were passing a certificate using `server_cert`, you need to change it to provide an *absolute* path to
-the certificate file.
+3) If you were passing a certificate (str) using `server_cert`, you need to change it to
+provide an *absolute* path to the certificate file instead.
 """
 
 import functools
@@ -148,7 +217,7 @@ LIBAPI = 1
 # Increment this PATCH version before using `charmcraft publish-lib` or reset
 # to 0 if you are raising the major API version
 
-LIBPATCH = 10
+LIBPATCH = 11
 
 PYDEPS = ["opentelemetry-exporter-otlp-proto-http==1.21.0"]
 
@@ -158,8 +227,13 @@ dev_logger = logging.getLogger("tracing-dev")
 # set this to 0 if you are debugging/developing this library source
 dev_logger.setLevel(logging.CRITICAL)
 
+
+_CharmType = Type[CharmBase]  # the type CharmBase and any subclass thereof
+_C = TypeVar("_C", bound=_CharmType)
+_T = TypeVar("_T", bound=type)
+_F = TypeVar("_F", bound=Type[Callable])
 tracer: ContextVar[Tracer] = ContextVar("tracer")
-_GetterType = Union[Callable[[CharmBase], Optional[str]], property]
+_GetterType = Union[Callable[[_CharmType], Optional[str]], property]
 
 CHARM_TRACING_ENABLED = "CHARM_TRACING_ENABLED"
 
@@ -225,11 +299,6 @@ def _span(name: str) -> Generator[Optional[Span], Any, Any]:
         yield None
 
 
-_C = TypeVar("_C", bound=Type[CharmBase])
-_T = TypeVar("_T", bound=type)
-_F = TypeVar("_F", bound=Type[Callable])
-
-
 class TracingError(RuntimeError):
     """Base class for errors raised by this module."""
 
@@ -244,8 +313,8 @@ class TLSError(TracingError):
 
 def _get_tracing_endpoint(
     tracing_endpoint_attr: str,
-    charm_instance: ops.CharmBase,
-    charm_type: Type[ops.CharmBase],
+    charm_instance: object,
+    charm_type: type,
 ):
     _tracing_endpoint = getattr(charm_instance, tracing_endpoint_attr)
     if callable(_tracing_endpoint):
@@ -291,7 +360,7 @@ def _get_server_cert(
 
 
 def _setup_root_span_initializer(
-    charm_type: Type[CharmBase],
+    charm_type: _CharmType,
     tracing_endpoint_attr: str,
     server_cert_attr: Optional[str],
     service_name: Optional[str] = None,
@@ -410,7 +479,7 @@ def _setup_root_span_initializer(
         framework.close = wrap_close
         return
 
-    charm_type.__init__ = wrap_init
+    charm_type.__init__ = wrap_init  # type: ignore
 
 
 def trace_charm(
@@ -418,7 +487,7 @@ def trace_charm(
     server_cert: Optional[str] = None,
     service_name: Optional[str] = None,
     extra_types: Sequence[type] = (),
-):
+) -> Callable[[_T], _T]:
     """Autoinstrument the decorated charm with tracing telemetry.
 
     Use this function to get out-of-the-box traces for all events emitted on this charm and all
@@ -426,7 +495,7 @@ def trace_charm(
 
     Usage:
     >>> from charms.tempo_k8s.v1.charm_tracing import trace_charm
-    >>> from charms.tempo_k8s.v1.tracing import TracingEndpointProvider
+    >>> from charms.tempo_k8s.v1.tracing import TracingEndpointRequirer
     >>> from ops import CharmBase
     >>>
     >>> @trace_charm(
@@ -436,7 +505,7 @@ def trace_charm(
     >>>
     >>>     def __init__(self, framework: Framework):
     >>>         ...
-    >>>         self.tracing = TracingEndpointProvider(self)
+    >>>         self.tracing = TracingEndpointRequirer(self)
     >>>
     >>>     @property
     >>>     def tempo_otlp_http_endpoint(self) -> Optional[str]:
@@ -445,19 +514,23 @@ def trace_charm(
     >>>         else:
     >>>             return None
     >>>
-    :param server_cert: method or property on the charm type that returns an
-        optional absolute path to a tls certificate to be used when sending traces to a remote server.
-        If it returns None, an _insecure_ connection will be used.
-    :param tracing_endpoint: name of a property on the charm type that returns an
-        optional (fully resolvable) tempo url. If None, tracing will be effectively disabled. Else, traces will be
-        pushed to that endpoint.
+
+    :param tracing_endpoint: name of a method, property or attribute  on the charm type that returns an
+        optional (fully resolvable) tempo url to which the charm traces will be pushed.
+        If None, tracing will be effectively disabled.
+    :param server_cert: name of a method, property or attribute on the charm type that returns an
+        optional absolute path to a CA certificate file to be used when sending traces to a remote server.
+        If it returns None, an _insecure_ connection will be used. To avoid errors in transient
+        situations where the endpoint is already https but there is no certificate on disk yet, it
+        is recommended to disable tracing (by returning None from the tracing_endpoint) altogether
+        until the cert has been written to disk.
     :param service_name: service name tag to attach to all traces generated by this charm.
         Defaults to the juju application name this charm is deployed under.
     :param extra_types: pass any number of types that you also wish to autoinstrument.
         For example, charm libs, relation endpoint wrappers, workload abstractions, ...
     """
 
-    def _decorator(charm_type: Type[CharmBase]):
+    def _decorator(charm_type: _T) -> _T:
         """Autoinstrument the wrapped charmbase type."""
         _autoinstrument(
             charm_type,
@@ -472,12 +545,12 @@ def trace_charm(
 
 
 def _autoinstrument(
-    charm_type: Type[CharmBase],
+    charm_type: _T,
     tracing_endpoint_attr: str,
     server_cert_attr: Optional[str] = None,
     service_name: Optional[str] = None,
     extra_types: Sequence[type] = (),
-) -> Type[CharmBase]:
+) -> _T:
     """Set up tracing on this charm class.
 
     Use this function to get out-of-the-box traces for all events emitted on this charm and all
@@ -496,12 +569,15 @@ def _autoinstrument(
     >>> main(MyCharm)
 
     :param charm_type: the CharmBase subclass to autoinstrument.
-    :param server_cert_attr: name of an attribute, method or property on the charm type that
-        returns an optional absolute path to a tls certificate to be used when sending traces to
-        a remote server. This needs to be a valid path to a certificate.
-    :param tracing_endpoint_attr: name of an attribute, method or property on the charm type that
-        returns an optional tempo url. If None, tracing will be effectively disabled. Else,
-        traces will be pushed to that endpoint.
+    :param tracing_endpoint_attr: name of a method, property or attribute  on the charm type that returns an
+        optional (fully resolvable) tempo url to which the charm traces will be pushed.
+        If None, tracing will be effectively disabled.
+    :param server_cert_attr: name of a method, property or attribute on the charm type that returns an
+        optional absolute path to a CA certificate file to be used when sending traces to a remote server.
+        If it returns None, an _insecure_ connection will be used. To avoid errors in transient
+        situations where the endpoint is already https but there is no certificate on disk yet, it
+        is recommended to disable tracing (by returning None from the tracing_endpoint) altogether
+        until the cert has been written to disk.
     :param service_name: service name tag to attach to all traces generated by this charm.
         Defaults to the juju application name this charm is deployed under.
     :param extra_types: pass any number of types that you also wish to autoinstrument.
