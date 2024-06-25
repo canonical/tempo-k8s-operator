@@ -594,3 +594,19 @@ def trace(obj: Union[Type, Callable]):
             raise UntraceableObjectError(
                 f"cannot create span from {type(obj)}; instrument {obj} manually."
             )
+
+
+from ops.middlewares import Middleware
+class TracingMiddleware(Middleware):
+    """Middleware to add tracing to your charm."""
+    def __init__(self, endpoint, cert):
+        self.endpoint = endpoint
+        self.cert = cert
+
+    # we could also achieve this in a slightly nicer way by using post_init instead,
+    # but that'd require us to refactor _setup_root_span_initializer to not directly do __init__
+    # patching.
+    def setup_class(self, charm_type: Type[CharmBase]):
+        _autoinstrument(charm_type, self.endpoint, self.cert)
+
+
