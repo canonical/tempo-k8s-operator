@@ -107,7 +107,7 @@ LIBAPI = 2
 
 # Increment this PATCH version before using `charmcraft publish-lib` or reset
 # to 0 if you are raising the major API version
-LIBPATCH = 7
+LIBPATCH = 8
 
 PYDEPS = ["pydantic"]
 
@@ -118,10 +118,6 @@ RELATION_INTERFACE_NAME = "tracing"
 
 ReceiverProtocol = Literal[
     "zipkin",
-    "kafka",
-    "opencensus",
-    "tempo_http",
-    "tempo_grpc",
     "otlp_grpc",
     "otlp_http",
 ]
@@ -141,12 +137,8 @@ class TransportProtocolType(str, enum.Enum):
     grpc = "grpc"
 
 
-receiver_protocol_to_transport_protocol = {
+receiver_protocol_to_transport_protocol: Dict[ReceiverProtocol, TransportProtocolType] = {
     "zipkin": TransportProtocolType.http,
-    "kafka": TransportProtocolType.http,
-    "opencensus": TransportProtocolType.http,
-    "tempo_http": TransportProtocolType.http,
-    "tempo_grpc": TransportProtocolType.grpc,
     "otlp_grpc": TransportProtocolType.grpc,
     "otlp_http": TransportProtocolType.http,
 }
