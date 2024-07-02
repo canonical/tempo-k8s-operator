@@ -137,12 +137,8 @@ class TransportProtocolType(str, enum.Enum):
     grpc = "grpc"
 
 
-receiver_protocol_to_transport_protocol = {
+receiver_protocol_to_transport_protocol: Dict[ReceiverProtocol, TransportProtocolType] = {
     "zipkin": TransportProtocolType.http,
-    "kafka": TransportProtocolType.http,
-    "opencensus": TransportProtocolType.http,
-    "tempo_http": TransportProtocolType.http,
-    "tempo_grpc": TransportProtocolType.grpc,
     "otlp_grpc": TransportProtocolType.grpc,
     "otlp_http": TransportProtocolType.http,
 }
