@@ -116,10 +116,16 @@ logger = logging.getLogger(__name__)
 DEFAULT_RELATION_NAME = "tracing"
 RELATION_INTERFACE_NAME = "tracing"
 
+# Supported list rationale https://github.com/canonical/tempo-coordinator-k8s-operator/issues/8
 ReceiverProtocol = Literal[
     "zipkin",
     "otlp_grpc",
     "otlp_http",
+    "opencensus",
+    "jaeger_grpc",
+    "jaeger_thrift_http",
+    "jaeger_thrift_compact",
+    "jaeger_thrift_binary",
 ]
 
 RawReceiver = Tuple[ReceiverProtocol, str]
@@ -135,12 +141,18 @@ class TransportProtocolType(str, enum.Enum):
 
     http = "http"
     grpc = "grpc"
+    udp = "udp"
 
 
 receiver_protocol_to_transport_protocol: Dict[ReceiverProtocol, TransportProtocolType] = {
     "zipkin": TransportProtocolType.http,
     "otlp_grpc": TransportProtocolType.grpc,
     "otlp_http": TransportProtocolType.http,
+    "opencensus": TransportProtocolType.grpc,
+    "jaeger_thrift_http": TransportProtocolType.http,
+    "jaeger_grpc": TransportProtocolType.grpc,
+    "jaeger_thrift_compact": TransportProtocolType.udp,
+    "jaeger_thrift_binary": TransportProtocolType.udp,
 }
 """A mapping between telemetry protocols and their corresponding transport protocol.
 """
