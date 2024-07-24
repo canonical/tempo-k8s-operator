@@ -178,7 +178,9 @@ import logging
 import os
 from contextlib import contextmanager
 from contextvars import Context, ContextVar, copy_context
+from importlib.metadata import distributions
 from pathlib import Path
+import shutil
 from typing import (
     Any,
     Callable,
@@ -217,7 +219,7 @@ LIBAPI = 1
 # Increment this PATCH version before using `charmcraft publish-lib` or reset
 # to 0 if you are raising the major API version
 
-LIBPATCH = 11
+LIBPATCH = 12
 
 PYDEPS = ["opentelemetry-exporter-otlp-proto-http==1.21.0"]
 
@@ -359,6 +361,23 @@ def _get_server_cert(
     return server_cert
 
 
+def _remove_stale_otel_sdk_packages():
+    """Hack to remove stale opentelemetry sdk packages from the environment.
+
+    See https://github.com/canonical/grafana-agent-operator/issues/146 and
+    https://bugs.launchpad.net/juju/+bug/2058335 for more context.
+    """
+    # Find any opentelemetry_sdk distributions
+    otel_sdk_distributions = list(distributions(name="opentelemetry_sdk"))
+    # If there are more than 2, inspect them and infer that any with 0 entrypoints are stale
+    if len(otel_sdk_distributions) > 1:
+        for d in otel_sdk_distributions:
+            if len(d.entry_points) == 0:
+                # Distribution appears to be empty.  Remove it
+                logger.debug(f"Removing empty opentelemetry_sdk distribution at: {d._path}")
+                shutil.rmtree(d._path)
+
+
 def _setup_root_span_initializer(
     charm_type: _CharmType,
     tracing_endpoint_attr: str,
@@ -391,6 +410,7 @@ def _setup_root_span_initializer(
         _service_name = service_name or f"{self.app.name}-charm"
 
         unit_name = self.unit.name
+        _remove_stale_otel_sdk_packages()
         resource = Resource.create(
             attributes={
                 "service.name": _service_name,
