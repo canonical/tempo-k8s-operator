@@ -176,11 +176,11 @@ import functools
 import inspect
 import logging
 import os
+import shutil
 from contextlib import contextmanager
 from contextvars import Context, ContextVar, copy_context
 from importlib.metadata import distributions
 from pathlib import Path
-import shutil
 from typing import (
     Any,
     Callable,
@@ -377,8 +377,8 @@ def _remove_stale_otel_sdk_packages():
             for d in otel_sdk_distributions:
                 if len(d.entry_points) == 0:
                     # Distribution appears to be empty.  Remove it
-                    logger.debug(f"Removing empty opentelemetry_sdk distribution at: {d._path}")
-                    shutil.rmtree(d._path)
+                    logger.debug(f"Removing empty opentelemetry_sdk distribution at: {d._path}")  # type: ignore
+                    shutil.rmtree(d._path)  # type: ignore
 
 
 def _setup_root_span_initializer(
