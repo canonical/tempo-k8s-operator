@@ -366,16 +366,19 @@ def _remove_stale_otel_sdk_packages():
 
     See https://github.com/canonical/grafana-agent-operator/issues/146 and
     https://bugs.launchpad.net/juju/+bug/2058335 for more context.
+
+    This only does something if executed on an upgrade-charm event.
     """
-    # Find any opentelemetry_sdk distributions
-    otel_sdk_distributions = list(distributions(name="opentelemetry_sdk"))
-    # If there are more than 2, inspect them and infer that any with 0 entrypoints are stale
-    if len(otel_sdk_distributions) > 1:
-        for d in otel_sdk_distributions:
-            if len(d.entry_points) == 0:
-                # Distribution appears to be empty.  Remove it
-                logger.debug(f"Removing empty opentelemetry_sdk distribution at: {d._path}")
-                shutil.rmtree(d._path)
+    if os.getenv("JUJU_HOOK_PATH") == "hooks/upgrade-charm":
+        # Find any opentelemetry_sdk distributions
+        otel_sdk_distributions = list(distributions(name="opentelemetry_sdk"))
+        # If there are more than 2, inspect them and infer that any with 0 entrypoints are stale
+        if len(otel_sdk_distributions) > 1:
+            for d in otel_sdk_distributions:
+                if len(d.entry_points) == 0:
+                    # Distribution appears to be empty.  Remove it
+                    logger.debug(f"Removing empty opentelemetry_sdk distribution at: {d._path}")
+                    shutil.rmtree(d._path)
 
 
 def _setup_root_span_initializer(
