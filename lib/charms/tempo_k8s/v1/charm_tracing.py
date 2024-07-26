@@ -365,7 +365,9 @@ def _remove_stale_otel_sdk_packages():
     """Hack to remove stale opentelemetry sdk packages from the environment.
 
     See https://github.com/canonical/grafana-agent-operator/issues/146 and
-    https://bugs.launchpad.net/juju/+bug/2058335 for more context.
+    https://bugs.launchpad.net/juju/+bug/2058335 for more context.  This patch can be removed after
+    this juju issue is resolved and sufficient time has passed to expect most users of this library
+    have migrated to the patched version of juju.
 
     This only does something if executed on an upgrade-charm event.
     """
