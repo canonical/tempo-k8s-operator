@@ -124,8 +124,6 @@ ReceiverProtocol = Literal[
     "opencensus",
     "jaeger_grpc",
     "jaeger_thrift_http",
-    "jaeger_thrift_compact",
-    "jaeger_thrift_binary",
 ]
 
 RawReceiver = Tuple[ReceiverProtocol, str]
@@ -141,7 +139,6 @@ class TransportProtocolType(str, enum.Enum):
 
     http = "http"
     grpc = "grpc"
-    udp = "udp"
 
 
 receiver_protocol_to_transport_protocol: Dict[ReceiverProtocol, TransportProtocolType] = {
@@ -151,8 +148,6 @@ receiver_protocol_to_transport_protocol: Dict[ReceiverProtocol, TransportProtoco
     "opencensus": TransportProtocolType.grpc,
     "jaeger_thrift_http": TransportProtocolType.http,
     "jaeger_grpc": TransportProtocolType.grpc,
-    "jaeger_thrift_compact": TransportProtocolType.udp,
-    "jaeger_thrift_binary": TransportProtocolType.udp,
 }
 """A mapping between telemetry protocols and their corresponding transport protocol.
 """
