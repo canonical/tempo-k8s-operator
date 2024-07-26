@@ -592,4 +592,3 @@ def test_inheritance_tracing(caplog):
         ctx.run("start", State())
         spans = f.call_args_list[0].args[0]
         assert spans[0].name == "method call: SuperCharm.foo"
-
