@@ -369,7 +369,7 @@ def _remove_stale_otel_sdk_packages():
 
     This only does something if executed on an upgrade-charm event.
     """
-    if os.getenv("JUJU_HOOK_PATH") == "hooks/upgrade-charm":
+    if os.getenv("JUJU_DISPATCH_PATH") == "hooks/upgrade-charm":
         # Find any opentelemetry_sdk distributions
         otel_sdk_distributions = list(distributions(name="opentelemetry_sdk"))
         # If there are more than 2, inspect them and infer that any with 0 entrypoints are stale
