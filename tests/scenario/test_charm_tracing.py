@@ -556,3 +556,40 @@ def test_trace_staticmethods_bork(caplog):
         f.return_value = opentelemetry.sdk.trace.export.SpanExportResult.SUCCESS
         ctx = Context(MyCharmStaticMethods, meta=MyCharmStaticMethods.META)
         ctx.run("update-status", State())
+
+
+class SuperCharm(CharmBase):
+    def foo(self):
+        return "bar"
+
+
+class MyInheritedCharm(SuperCharm):
+    META = {"name": "godcat"}
+
+    def __init__(self, framework: Framework):
+        super().__init__(framework)
+        framework.observe(self.on.start, self._on_start)
+
+    def _on_start(self, _):
+        self.foo()
+
+    @property
+    def tempo(self):
+        return "foo.bar:80"
+
+
+autoinstrument(MyInheritedCharm, "tempo")
+
+
+def test_inheritance_tracing(caplog):
+    import opentelemetry
+
+    with patch(
+        "opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter.export"
+    ) as f:
+        f.return_value = opentelemetry.sdk.trace.export.SpanExportResult.SUCCESS
+        ctx = Context(MyInheritedCharm, meta=MyInheritedCharm.META)
+        ctx.run("start", State())
+        spans = f.call_args_list[0].args[0]
+        assert spans[0].name == "method call: SuperCharm.foo"
+
