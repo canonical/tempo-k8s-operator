@@ -121,7 +121,6 @@ ReceiverProtocol = Literal[
     "zipkin",
     "otlp_grpc",
     "otlp_http",
-    "opencensus",
     "jaeger_grpc",
     "jaeger_thrift_http",
 ]
@@ -145,7 +144,6 @@ receiver_protocol_to_transport_protocol: Dict[ReceiverProtocol, TransportProtoco
     "zipkin": TransportProtocolType.http,
     "otlp_grpc": TransportProtocolType.grpc,
     "otlp_http": TransportProtocolType.http,
-    "opencensus": TransportProtocolType.grpc,
     "jaeger_thrift_http": TransportProtocolType.http,
     "jaeger_grpc": TransportProtocolType.grpc,
 }
