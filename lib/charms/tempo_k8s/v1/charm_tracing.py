@@ -362,25 +362,27 @@ def _get_server_cert(
 
 
 def _remove_stale_otel_sdk_packages():
-    """Hack to remove stale opentelemetry sdk packages from the environment.
+    """Hack to remove stale opentelemetry sdk packages from the charm's python venv.
 
     See https://github.com/canonical/grafana-agent-operator/issues/146 and
-    https://bugs.launchpad.net/juju/+bug/2058335 for more context.  This patch can be removed after
+    https://bugs.launchpad.net/juju/+bug/2058335 for more context. This patch can be removed after
     this juju issue is resolved and sufficient time has passed to expect most users of this library
     have migrated to the patched version of juju.
 
     This only does something if executed on an upgrade-charm event.
     """
     if os.getenv("JUJU_DISPATCH_PATH") == "hooks/upgrade-charm":
+        logger.debug("Executing _remove_stale_otel_sdk_packages patch on charm upgrade")
         # Find any opentelemetry_sdk distributions
         otel_sdk_distributions = list(distributions(name="opentelemetry_sdk"))
-        # If there are more than 2, inspect them and infer that any with 0 entrypoints are stale
+        # If there is more than 1, inspect each and if it has 0 entrypoints, infer that it is stale
         if len(otel_sdk_distributions) > 1:
-            for d in otel_sdk_distributions:
-                if len(d.entry_points) == 0:
-                    # Distribution appears to be empty.  Remove it
-                    logger.debug(f"Removing empty opentelemetry_sdk distribution at: {d._path}")  # type: ignore
-                    shutil.rmtree(d._path)  # type: ignore
+            for distribution in otel_sdk_distributions:
+                if len(distribution.entry_points) == 0:
+                    # Distribution appears to be empty. Remove it
+                    path = distribution._path  # type: ignore
+                    logger.debug(f"Removing empty opentelemetry_sdk distribution at: {path}")
+                    shutil.rmtree(path)
 
 
 def _setup_root_span_initializer(
@@ -415,6 +417,9 @@ def _setup_root_span_initializer(
         _service_name = service_name or f"{self.app.name}-charm"
 
         unit_name = self.unit.name
+        # apply hacky patch to remove stale opentelemetry sdk packages on upgrade-charm.
+        # it could be trouble if someone ever decides to implement their own tracer parallel to
+        # ours and before the charm has inited. We assume they won't.
         _remove_stale_otel_sdk_packages()
         resource = Resource.create(
             attributes={
