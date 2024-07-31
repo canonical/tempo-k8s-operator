@@ -1,3 +1,4 @@
+import functools
 import logging
 import os
 from unittest.mock import patch
@@ -592,3 +593,59 @@ def test_inheritance_tracing(caplog):
         ctx.run("start", State())
         spans = f.call_args_list[0].args[0]
         assert spans[0].name == "method call: SuperCharm.foo"
+
+
+def bad_wrapper(func):
+    def wrapper(*args, **kwargs):
+        return func(*args, **kwargs)
+
+    return wrapper
+
+
+def good_wrapper(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        return func(*args, **kwargs)
+
+    return wrapper
+
+
+class MyCharmWrappedMethods(CharmBase):
+    META = {"name": "catgod"}
+
+    def __init__(self, fw):
+        super().__init__(fw)
+        fw.observe(self.on.start, self._on_start)
+
+    @good_wrapper
+    def a(self):
+        pass
+
+    @bad_wrapper
+    def b(self):
+        pass
+
+    def _on_start(self, _):
+        self.a()
+        self.b()
+
+    @property
+    def tempo(self):
+        return "foo.bar:80"
+
+
+autoinstrument(MyCharmWrappedMethods, "tempo")
+
+
+def test_wrapped_method_wrapping(caplog):
+    import opentelemetry
+
+    with patch(
+        "opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter.export"
+    ) as f:
+        f.return_value = opentelemetry.sdk.trace.export.SpanExportResult.SUCCESS
+        ctx = Context(MyCharmWrappedMethods, meta=MyCharmWrappedMethods.META)
+        ctx.run("start", State())
+        spans = f.call_args_list[0].args[0]
+        assert spans[0].name == "method call: MyCharmWrappedMethods.a"
+        assert spans[1].name == "method call: @bad_wrapper(MyCharmWrappedMethods.b)"
