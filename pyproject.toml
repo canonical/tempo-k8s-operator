@@ -63,6 +63,8 @@ ignore = ["E501", "D107"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["D100","D101","D102","D103","D104"]
+# Remove charm_tracing.py E402 when _remove_stale_otel_sdk_packages() is removed
+# from the library
 "lib/charms/tempo_k8s/v1/charm_tracing.py" = ["E402"]
 
 [lint.mccabe]
