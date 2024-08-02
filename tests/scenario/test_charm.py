@@ -8,8 +8,8 @@ from charms.tempo_k8s.v2.tracing import TracingRequirerAppData
 from ops import pebble
 from scenario import Container, Mount, Relation, State
 from scenario.sequences import check_builtin_sequences
-
 from tempo import Tempo
+
 from tests.scenario.helpers import get_tempo_config
 
 TEMPO_CHARM_ROOT = Path(__file__).parent.parent.parent

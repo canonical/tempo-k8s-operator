@@ -2,11 +2,10 @@ import socket
 from unittest.mock import patch
 
 import pytest
+from charm import Tempo
 from charms.tempo_k8s.v1.charm_tracing import charm_tracing_disabled
 from charms.tempo_k8s.v2.tracing import TracingProviderAppData, TracingRequirerAppData
 from scenario import Container, Relation, State
-
-from charm import Tempo
 
 
 @pytest.fixture
