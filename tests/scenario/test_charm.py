@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -8,6 +9,7 @@ from charms.tempo_k8s.v2.tracing import TracingRequirerAppData
 from ops import pebble
 from scenario import Container, Mount, Relation, State
 from scenario.sequences import check_builtin_sequences
+from scenario.state import Notice, _BoundNotice
 
 from tempo import Tempo
 from tests.scenario.helpers import get_tempo_config
@@ -65,7 +67,7 @@ def test_tempo_restart_on_ingress_v2_changed(context, tmp_path, requested_protoc
     )
 
 
-def _tempo_mock_with_initial_config(tmp_path):
+def _tempo_mock_with_initial_config(tmp_path, tempo_ready_svc_exists: bool = True):
     tempo_config = tmp_path / "tempo.yaml"
     container = MagicMock()
     container.can_connect = lambda: True
@@ -75,19 +77,22 @@ def _tempo_mock_with_initial_config(tmp_path):
     )
     initial_config = Tempo(container).generate_config(["otlp_http"])
     tempo_config.write_text(yaml.safe_dump(initial_config))
+    layer_raw = {
+        "summary": "tempo layer",
+        "description": "foo",
+        "services": {
+            "tempo": {"startup": "enabled"},
+        },
+    }
+    if tempo_ready_svc_exists:
+        layer_raw["services"]["tempo-ready"] = {"startup": "disabled"}
+
     tempo = Container(
         "tempo",
         can_connect=True,
         layers={
             "tempo": pebble.Layer(
-                {
-                    "summary": "tempo layer",
-                    "description": "foo",
-                    "services": {
-                        "tempo": {"startup": "enabled"},
-                        "tempo-ready": {"startup": "disabled"},
-                    },
-                },
+                layer_raw,
             ),
         },
         service_status={
@@ -179,3 +184,22 @@ def test_tracing_storage_is_configured_to_s3_if_s3_relation_filled(
     new_config = get_tempo_config(tempo, context)
     expected_config = Tempo(container).generate_config(["otlp_http"], relation_data)
     assert new_config == expected_config
+
+
+def test_ready_check_on_resume(context, tmp_path, caplog):
+    # GIVEN the charm has no tempo-ready service
+    container, tempo = _tempo_mock_with_initial_config(tmp_path, tempo_ready_svc_exists=False)
+
+    state = State(leader=True, containers=[tempo])
+
+    # WHEN we receive a custom-notice event
+    with caplog.at_level("DEBUG"):
+        os.environ["SCENARIO_SKIP_CONSISTENCY_CHECKS"] = "1"
+        # scenario doesn't play nice in this very edge case
+        context.run(_BoundNotice(Notice(Tempo.tempo_ready_notice_key), tempo).event, state)
+        del os.environ["SCENARIO_SKIP_CONSISTENCY_CHECKS"]
+
+    # THEN we get a debug-log but the charm doesn't error
+    assert "`tempo-ready` service cannot be stopped at this time (probably doesn't exist)." in {
+        r.message for r in caplog.records
+    }

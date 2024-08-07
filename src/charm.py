@@ -11,8 +11,6 @@ from pathlib import Path
 from typing import Optional, Set, Tuple
 
 import ops
-from ops.pebble import APIError
-
 from charms.data_platform_libs.v0.s3 import S3Requirer
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
 from charms.grafana_k8s.v0.grafana_source import GrafanaSourceProvider
@@ -36,6 +34,7 @@ from ops.charm import (
 )
 from ops.main import main
 from ops.model import ActiveStatus, BlockedStatus, MaintenanceStatus, WaitingStatus
+from ops.pebble import APIError
 
 from tempo import Tempo
 
@@ -374,13 +373,16 @@ class TempoCharm(CharmBase):
 
             try:
                 self.tempo.container.stop("tempo-ready")
-            except APIError:
+                # ops will fire APIError but ops.testing._TestingPebbleClient will fire RuntimeError.
+            except (APIError, RuntimeError):
                 # see https://matrix.to/#/!xzmWHtGpPfVCXKivIh:ubuntu.com/
                 #  $d42wOu61e5mqMhnDRUB6K8eV4kUAPQ_yhIQmqq5Q_cs?via=ubuntu.com&
                 #  via=matrix.org&via=matrix.debian.social
                 # issue: on sleep/resume, we get this event but there's no tempo-ready
                 # service in pebble (somehow?)
-                pass
+                logger.debug(
+                    "`tempo-ready` service cannot be stopped at this time (probably doesn't exist)."
+                )
 
     def _on_tempo_pebble_ready(self, event: WorkloadEvent):
         if not self.tempo.container.can_connect():
