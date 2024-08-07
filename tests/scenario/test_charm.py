@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 import yaml
@@ -186,7 +186,7 @@ def test_tracing_storage_is_configured_to_s3_if_s3_relation_filled(
     assert new_config == expected_config
 
 
-def test_ready_check_on_resume(context, tmp_path, caplog):
+def test_ready_check_on_resume(context, tmp_path, caplog, monkeypatch):
     # GIVEN the charm has no tempo-ready service
     container, tempo = _tempo_mock_with_initial_config(tmp_path, tempo_ready_svc_exists=False)
 
@@ -194,10 +194,10 @@ def test_ready_check_on_resume(context, tmp_path, caplog):
 
     # WHEN we receive a custom-notice event
     with caplog.at_level("DEBUG"):
-        os.environ["SCENARIO_SKIP_CONSISTENCY_CHECKS"] = "1"
+        monkeypatch.setenv("SCENARIO_SKIP_CONSISTENCY_CHECKS", "1")
         # scenario doesn't play nice in this very edge case
         context.run(_BoundNotice(Notice(Tempo.tempo_ready_notice_key), tempo).event, state)
-        del os.environ["SCENARIO_SKIP_CONSISTENCY_CHECKS"]
+        monkeypatch.delenv("SCENARIO_SKIP_CONSISTENCY_CHECKS")
 
     # THEN we get a debug-log but the charm doesn't error
     assert "`tempo-ready` service cannot be stopped at this time (probably doesn't exist)." in {
