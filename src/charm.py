@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Optional, Set, Tuple
 
 import ops
+from ops.pebble import APIError
+
 from charms.data_platform_libs.v0.s3 import S3Requirer
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
 from charms.grafana_k8s.v0.grafana_source import GrafanaSourceProvider
@@ -369,7 +371,15 @@ class TempoCharm(CharmBase):
         if event.notice.key == self.tempo.tempo_ready_notice_key:
             logger.debug("pebble api reports ready")
             # collect-unit-status should do the rest.
-            self.tempo.container.stop("tempo-ready")
+            try:
+                self.tempo.container.stop("tempo-ready")
+            except APIError:
+                # see https://matrix.to/#/!xzmWHtGpPfVCXKivIh:ubuntu.com/
+                #  $d42wOu61e5mqMhnDRUB6K8eV4kUAPQ_yhIQmqq5Q_cs?via=ubuntu.com&
+                #  via=matrix.org&via=matrix.debian.social
+                # issue: on sleep/resume, we get this event but there's no tempo-ready
+                # service in pebble (somehow?)
+                pass
 
     def _on_tempo_pebble_ready(self, event: WorkloadEvent):
         if not self.tempo.container.can_connect():
