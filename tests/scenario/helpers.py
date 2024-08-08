@@ -2,7 +2,6 @@ from pathlib import Path
 
 import scenario
 import yaml
-
 from tempo import Tempo
 
 

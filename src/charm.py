@@ -35,7 +35,6 @@ from ops.charm import (
 from ops.main import main
 from ops.model import ActiveStatus, BlockedStatus, MaintenanceStatus, WaitingStatus
 from ops.pebble import APIError
-
 from tempo import Tempo
 
 logger = logging.getLogger(__name__)
@@ -488,6 +487,7 @@ class TempoCharm(CharmBase):
         return bool(relation.units)
 
     def peers(self) -> Optional[Set[ops.model.Unit]]:
+        """Return charm's peer units."""
         relation = self.model.get_relation("tempo-peers")
         if not relation:
             return None

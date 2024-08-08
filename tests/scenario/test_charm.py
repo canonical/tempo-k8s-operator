@@ -9,8 +9,8 @@ from ops import pebble
 from scenario import Container, Mount, Relation, State
 from scenario.sequences import check_builtin_sequences
 from scenario.state import Notice, _BoundNotice
-
 from tempo import Tempo
+
 from tests.scenario.helpers import get_tempo_config
 
 TEMPO_CHARM_ROOT = Path(__file__).parent.parent.parent

@@ -239,6 +239,7 @@ class Tempo:
 
     @property
     def is_running(self) -> bool:
+        """Return whether the container service for tempo is running."""
         return self.container.get_service("tempo").is_running()
 
     def shutdown(self):

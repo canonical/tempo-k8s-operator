@@ -925,7 +925,7 @@ class TracingEndpointRequirer(Object):
 def charm_tracing_config(
     endpoint_requirer: TracingEndpointRequirer, cert_path: Optional[Union[Path, str]]
 ) -> Tuple[Optional[str], Optional[str]]:
-    """Utility function to determine the charm_tracing config you will likely want.
+    """Return the charm_tracing config you likely want.
 
     If no endpoint is provided:
      disable charm tracing.
