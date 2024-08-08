@@ -34,6 +34,7 @@ from ops.charm import (
 )
 from ops.main import main
 from ops.model import ActiveStatus, BlockedStatus, MaintenanceStatus, WaitingStatus
+from ops.pebble import APIError
 
 from tempo import Tempo
 
@@ -367,9 +368,21 @@ class TempoCharm(CharmBase):
 
     def _on_tempo_pebble_custom_notice(self, event: PebbleNoticeEvent):
         if event.notice.key == self.tempo.tempo_ready_notice_key:
+            # collect-unit-status should now report ready.
             logger.debug("pebble api reports ready")
-            # collect-unit-status should do the rest.
-            self.tempo.container.stop("tempo-ready")
+
+            try:
+                self.tempo.container.stop("tempo-ready")
+                # ops will fire APIError but ops.testing._TestingPebbleClient will fire RuntimeError.
+            except (APIError, RuntimeError):
+                # see https://matrix.to/#/!xzmWHtGpPfVCXKivIh:ubuntu.com/
+                #  $d42wOu61e5mqMhnDRUB6K8eV4kUAPQ_yhIQmqq5Q_cs?via=ubuntu.com&
+                #  via=matrix.org&via=matrix.debian.social
+                # issue: on sleep/resume, we get this event but there's no tempo-ready
+                # service in pebble (somehow?)
+                logger.debug(
+                    "`tempo-ready` service cannot be stopped at this time (probably doesn't exist)."
+                )
 
     def _on_tempo_pebble_ready(self, event: WorkloadEvent):
         if not self.tempo.container.can_connect():
