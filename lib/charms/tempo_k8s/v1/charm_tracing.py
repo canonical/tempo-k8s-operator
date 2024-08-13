@@ -227,11 +227,24 @@ _remove_stale_otel_sdk_packages()
 import functools
 import inspect
 import logging
-import opentelemetry
-import ops
 import os
 from contextlib import contextmanager
 from contextvars import Context, ContextVar, copy_context
+from pathlib import Path
+from typing import (
+    Any,
+    Callable,
+    Generator,
+    Optional,
+    Sequence,
+    Type,
+    TypeVar,
+    Union,
+    cast,
+)
+
+import opentelemetry
+import ops
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import Span, TracerProvider
@@ -247,18 +260,6 @@ from opentelemetry.trace import (
 from opentelemetry.trace import get_current_span as otlp_get_current_span
 from ops.charm import CharmBase
 from ops.framework import Framework
-from pathlib import Path
-from typing import (
-    Any,
-    Callable,
-    Generator,
-    Optional,
-    Sequence,
-    Type,
-    TypeVar,
-    Union,
-    cast,
-)
 
 # The unique Charmhub library identifier, never change it
 LIBID = "cb1705dcd1a14ca09b2e60187d1215c7"
@@ -269,7 +270,7 @@ LIBAPI = 1
 # Increment this PATCH version before using `charmcraft publish-lib` or reset
 # to 0 if you are raising the major API version
 
-LIBPATCH = 14
+LIBPATCH = 15
 
 PYDEPS = ["opentelemetry-exporter-otlp-proto-http==1.21.0"]
 
@@ -371,9 +372,9 @@ class TLSError(TracingError):
 
 
 def _get_tracing_endpoint(
-        tracing_endpoint_attr: str,
-        charm_instance: object,
-        charm_type: type,
+    tracing_endpoint_attr: str,
+    charm_instance: object,
+    charm_type: type,
 ):
     _tracing_endpoint = getattr(charm_instance, tracing_endpoint_attr)
     if callable(_tracing_endpoint):
@@ -395,9 +396,9 @@ def _get_tracing_endpoint(
 
 
 def _get_server_cert(
-        server_cert_attr: str,
-        charm_instance: ops.CharmBase,
-        charm_type: Type[ops.CharmBase],
+    server_cert_attr: str,
+    charm_instance: ops.CharmBase,
+    charm_type: Type[ops.CharmBase],
 ):
     _server_cert = getattr(charm_instance, server_cert_attr)
     if callable(_server_cert):
@@ -419,10 +420,10 @@ def _get_server_cert(
 
 
 def _setup_root_span_initializer(
-        charm_type: _CharmType,
-        tracing_endpoint_attr: str,
-        server_cert_attr: Optional[str],
-        service_name: Optional[str] = None,
+    charm_type: _CharmType,
+    tracing_endpoint_attr: str,
+    server_cert_attr: Optional[str],
+    service_name: Optional[str] = None,
 ):
     """Patch the charm's initializer."""
     original_init = charm_type.__init__
@@ -545,10 +546,10 @@ def _setup_root_span_initializer(
 
 
 def trace_charm(
-        tracing_endpoint: str,
-        server_cert: Optional[str] = None,
-        service_name: Optional[str] = None,
-        extra_types: Sequence[type] = (),
+    tracing_endpoint: str,
+    server_cert: Optional[str] = None,
+    service_name: Optional[str] = None,
+    extra_types: Sequence[type] = (),
 ) -> Callable[[_T], _T]:
     """Autoinstrument the decorated charm with tracing telemetry.
 
@@ -607,11 +608,11 @@ def trace_charm(
 
 
 def _autoinstrument(
-        charm_type: _T,
-        tracing_endpoint_attr: str,
-        server_cert_attr: Optional[str] = None,
-        service_name: Optional[str] = None,
-        extra_types: Sequence[type] = (),
+    charm_type: _T,
+    tracing_endpoint_attr: str,
+    server_cert_attr: Optional[str] = None,
+    service_name: Optional[str] = None,
+    extra_types: Sequence[type] = (),
 ) -> _T:
     """Set up tracing on this charm class.
 

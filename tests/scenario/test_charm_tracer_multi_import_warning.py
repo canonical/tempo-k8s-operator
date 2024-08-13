@@ -1,10 +1,11 @@
-from ops import CharmBase
-from scenario import Context, State
 from unittest.mock import patch
 
 # this test file is intentionally quite broken, don't modify the imports
 # import autoinstrument and get_current_span from charms.[...]
 from charms.tempo_k8s.v1.charm_tracing import _autoinstrument as autoinstrument
+from ops import CharmBase
+from scenario import Context, State
+
 # import trace from lib.charms.[...]
 from lib.charms.tempo_k8s.v1.charm_tracing import trace
 
@@ -38,11 +39,10 @@ def test_charm_tracer_multi_import_warning(caplog, monkeypatch):
     See https://python-notes.curiousefficiency.org/en/latest/python_concepts/import_traps.html#the-double-import-trap
     for a great explanation of what's going on.
     """
-
     import opentelemetry
 
     with patch(
-            "opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter.export"
+        "opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter.export"
     ) as f:
         f.return_value = opentelemetry.sdk.trace.export.SpanExportResult.SUCCESS
         ctx = Context(MyCharmSimpleEvent, meta=MyCharmSimpleEvent.META)
@@ -55,6 +55,6 @@ def test_charm_tracer_multi_import_warning(caplog, monkeypatch):
             "function call: _my_fn",
             "method call: MyCharmSimpleEvent._on_start",
             "event: start",
-            "margherita/0: start event"
+            "margherita/0: start event",
         ]
         assert "Tracer not found in `tracer` context var." in caplog.records[0].message
