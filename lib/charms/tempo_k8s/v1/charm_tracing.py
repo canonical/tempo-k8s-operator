@@ -224,28 +224,14 @@ def _remove_stale_otel_sdk_packages():
 
 _remove_stale_otel_sdk_packages()
 
-
 import functools
 import inspect
 import logging
+import opentelemetry
+import ops
 import os
 from contextlib import contextmanager
 from contextvars import Context, ContextVar, copy_context
-from pathlib import Path
-from typing import (
-    Any,
-    Callable,
-    Generator,
-    Optional,
-    Sequence,
-    Type,
-    TypeVar,
-    Union,
-    cast,
-)
-
-import opentelemetry
-import ops
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import Span, TracerProvider
@@ -261,6 +247,18 @@ from opentelemetry.trace import (
 from opentelemetry.trace import get_current_span as otlp_get_current_span
 from ops.charm import CharmBase
 from ops.framework import Framework
+from pathlib import Path
+from typing import (
+    Any,
+    Callable,
+    Generator,
+    Optional,
+    Sequence,
+    Type,
+    TypeVar,
+    Union,
+    cast,
+)
 
 # The unique Charmhub library identifier, never change it
 LIBID = "cb1705dcd1a14ca09b2e60187d1215c7"
@@ -280,7 +278,6 @@ dev_logger = logging.getLogger("tracing-dev")
 
 # set this to 0 if you are debugging/developing this library source
 dev_logger.setLevel(logging.CRITICAL)
-
 
 _CharmType = Type[CharmBase]  # the type CharmBase and any subclass thereof
 _C = TypeVar("_C", bound=_CharmType)
@@ -333,9 +330,17 @@ def _get_tracer() -> Optional[Tracer]:
     try:
         return tracer.get()
     except LookupError:
+        # fallback: this course-corrects for a user error where charm_tracing symbols are imported
+        # from different paths (typically charms.tempo_k8s... and lib.charms.tempo_k8s...)
         try:
             ctx: Context = copy_context()
             if context_tracer := _get_tracer_from_context(ctx):
+                logger.warning(
+                    "Tracer not found in `tracer` context var. "
+                    "Verify that you're importing all `charm_tracing` symbols from the same module path."
+                    "For more info: https://python-notes.curiousefficiency.org/en/latest/python"
+                    "_concepts/import_traps.html#the-double-import-trap"
+                )
                 return context_tracer.get()
             else:
                 return None
@@ -366,9 +371,9 @@ class TLSError(TracingError):
 
 
 def _get_tracing_endpoint(
-    tracing_endpoint_attr: str,
-    charm_instance: object,
-    charm_type: type,
+        tracing_endpoint_attr: str,
+        charm_instance: object,
+        charm_type: type,
 ):
     _tracing_endpoint = getattr(charm_instance, tracing_endpoint_attr)
     if callable(_tracing_endpoint):
@@ -390,9 +395,9 @@ def _get_tracing_endpoint(
 
 
 def _get_server_cert(
-    server_cert_attr: str,
-    charm_instance: ops.CharmBase,
-    charm_type: Type[ops.CharmBase],
+        server_cert_attr: str,
+        charm_instance: ops.CharmBase,
+        charm_type: Type[ops.CharmBase],
 ):
     _server_cert = getattr(charm_instance, server_cert_attr)
     if callable(_server_cert):
@@ -414,10 +419,10 @@ def _get_server_cert(
 
 
 def _setup_root_span_initializer(
-    charm_type: _CharmType,
-    tracing_endpoint_attr: str,
-    server_cert_attr: Optional[str],
-    service_name: Optional[str] = None,
+        charm_type: _CharmType,
+        tracing_endpoint_attr: str,
+        server_cert_attr: Optional[str],
+        service_name: Optional[str] = None,
 ):
     """Patch the charm's initializer."""
     original_init = charm_type.__init__
@@ -540,10 +545,10 @@ def _setup_root_span_initializer(
 
 
 def trace_charm(
-    tracing_endpoint: str,
-    server_cert: Optional[str] = None,
-    service_name: Optional[str] = None,
-    extra_types: Sequence[type] = (),
+        tracing_endpoint: str,
+        server_cert: Optional[str] = None,
+        service_name: Optional[str] = None,
+        extra_types: Sequence[type] = (),
 ) -> Callable[[_T], _T]:
     """Autoinstrument the decorated charm with tracing telemetry.
 
@@ -602,11 +607,11 @@ def trace_charm(
 
 
 def _autoinstrument(
-    charm_type: _T,
-    tracing_endpoint_attr: str,
-    server_cert_attr: Optional[str] = None,
-    service_name: Optional[str] = None,
-    extra_types: Sequence[type] = (),
+        charm_type: _T,
+        tracing_endpoint_attr: str,
+        server_cert_attr: Optional[str] = None,
+        service_name: Optional[str] = None,
+        extra_types: Sequence[type] = (),
 ) -> _T:
     """Set up tracing on this charm class.
 

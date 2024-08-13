@@ -1,12 +1,17 @@
 import functools
 import logging
 import os
-from unittest.mock import patch
-
 import pytest
 import scenario
-from charms.tempo_k8s.v1.charm_tracing import CHARM_TRACING_ENABLED
-from charms.tempo_k8s.v1.charm_tracing import _autoinstrument as autoinstrument
+from ops import EventBase, EventSource, Framework
+from ops.charm import CharmBase, CharmEvents
+from scenario import Context, State
+from scenario.runtime import UncaughtCharmError
+from unittest.mock import patch
+
+from charms.tempo_k8s.v1.charm_tracing import (
+    CHARM_TRACING_ENABLED, _autoinstrument as autoinstrument, get_current_span, trace
+)
 from charms.tempo_k8s.v2.tracing import (
     ProtocolType,
     Receiver,
@@ -14,12 +19,6 @@ from charms.tempo_k8s.v2.tracing import (
     TracingProviderAppData,
     TracingRequirerAppData,
 )
-from ops import EventBase, EventSource, Framework
-from ops.charm import CharmBase, CharmEvents
-from scenario import Context, State
-from scenario.runtime import UncaughtCharmError
-
-from lib.charms.tempo_k8s.v1.charm_tracing import get_current_span, trace
 
 os.environ[CHARM_TRACING_ENABLED] = "1"
 
@@ -55,7 +54,7 @@ def test_base_tracer_endpoint(caplog):
     import opentelemetry
 
     with patch(
-        "opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter.export"
+            "opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter.export"
     ) as f:
         f.return_value = opentelemetry.sdk.trace.export.SpanExportResult.SUCCESS
         ctx = Context(MyCharmSimple, meta=MyCharmSimple.META)
@@ -96,7 +95,7 @@ def test_subobj_tracer_endpoint(caplog):
     import opentelemetry
 
     with patch(
-        "opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter.export"
+            "opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter.export"
     ) as f:
         f.return_value = opentelemetry.sdk.trace.export.SpanExportResult.SUCCESS
         ctx = Context(MyCharmSubObject, meta=MyCharmSubObject.META)
@@ -124,7 +123,7 @@ def test_init_attr(caplog):
     import opentelemetry
 
     with patch(
-        "opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter.export"
+            "opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter.export"
     ) as f:
         f.return_value = opentelemetry.sdk.trace.export.SpanExportResult.SUCCESS
         ctx = Context(MyCharmInitAttr, meta=MyCharmInitAttr.META)
@@ -151,7 +150,7 @@ def test_base_tracer_endpoint_disabled(caplog):
     import opentelemetry
 
     with patch(
-        "opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter.export"
+            "opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter.export"
     ) as f:
         f.return_value = opentelemetry.sdk.trace.export.SpanExportResult.SUCCESS
         ctx = Context(MyCharmSimpleDisabled, meta=MyCharmSimpleDisabled.META)
@@ -198,7 +197,7 @@ def test_base_tracer_endpoint_event(caplog):
     import opentelemetry
 
     with patch(
-        "opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter.export"
+            "opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter.export"
     ) as f:
         f.return_value = opentelemetry.sdk.trace.export.SpanExportResult.SUCCESS
         ctx = Context(MyCharmSimpleEvent, meta=MyCharmSimpleEvent.META)
@@ -224,7 +223,7 @@ def test_juju_topology_injection(caplog):
     import opentelemetry
 
     with patch(
-        "opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter.export"
+            "opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter.export"
     ) as f:
         f.return_value = opentelemetry.sdk.trace.export.SpanExportResult.SUCCESS
         ctx = Context(MyCharmSimpleEvent, meta=MyCharmSimpleEvent.META)
@@ -273,7 +272,7 @@ def test_base_tracer_endpoint_methods(caplog):
     import opentelemetry
 
     with patch(
-        "opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter.export"
+            "opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter.export"
     ) as f:
         f.return_value = opentelemetry.sdk.trace.export.SpanExportResult.SUCCESS
         ctx = Context(MyCharmWithMethods, meta=MyCharmWithMethods.META)
@@ -327,7 +326,7 @@ def test_base_tracer_endpoint_custom_event(caplog):
     import opentelemetry
 
     with patch(
-        "opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter.export"
+            "opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter.export"
     ) as f:
         f.return_value = opentelemetry.sdk.trace.export.SpanExportResult.SUCCESS
         ctx = Context(MyCharmWithCustomEvents, meta=MyCharmWithCustomEvents.META)
@@ -462,9 +461,9 @@ def test_borky_tempo_return_value(borky_return_value, caplog):
 
     # traceback from the TypeError raised by _get_tracing_endpoint
     with pytest.raises(
-        UncaughtCharmError,
-        match=r"MyRemoteBorkyCharm\.tempo should resolve to a tempo "
-        r"endpoint \(string\); got (.*) instead\.",
+            UncaughtCharmError,
+            match=r"MyRemoteBorkyCharm\.tempo should resolve to a tempo "
+                  r"endpoint \(string\); got (.*) instead\.",
     ):
         ctx.run("start", State())
 
@@ -523,7 +522,7 @@ def test_trace_staticmethods(caplog):
     import opentelemetry
 
     with patch(
-        "opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter.export"
+            "opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter.export"
     ) as f:
         f.return_value = opentelemetry.sdk.trace.export.SpanExportResult.SUCCESS
         ctx = Context(MyCharmStaticMethods, meta=MyCharmStaticMethods.META)
@@ -552,7 +551,7 @@ def test_trace_staticmethods_bork(caplog):
     import opentelemetry
 
     with patch(
-        "opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter.export"
+            "opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter.export"
     ) as f:
         f.return_value = opentelemetry.sdk.trace.export.SpanExportResult.SUCCESS
         ctx = Context(MyCharmStaticMethods, meta=MyCharmStaticMethods.META)
@@ -586,7 +585,7 @@ def test_inheritance_tracing(caplog):
     import opentelemetry
 
     with patch(
-        "opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter.export"
+            "opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter.export"
     ) as f:
         f.return_value = opentelemetry.sdk.trace.export.SpanExportResult.SUCCESS
         ctx = Context(MyInheritedCharm, meta=MyInheritedCharm.META)
@@ -641,7 +640,7 @@ def test_wrapped_method_wrapping(caplog):
     import opentelemetry
 
     with patch(
-        "opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter.export"
+            "opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter.export"
     ) as f:
         f.return_value = opentelemetry.sdk.trace.export.SpanExportResult.SUCCESS
         ctx = Context(MyCharmWrappedMethods, meta=MyCharmWrappedMethods.META)
@@ -649,3 +648,5 @@ def test_wrapped_method_wrapping(caplog):
         spans = f.call_args_list[0].args[0]
         assert spans[0].name == "method call: MyCharmWrappedMethods.a"
         assert spans[1].name == "method call: @bad_wrapper(MyCharmWrappedMethods.b)"
+
+
