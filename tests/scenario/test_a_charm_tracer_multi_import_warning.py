@@ -1,3 +1,10 @@
+# WARNING keep this test module on top of the scenario tests, else the
+# imports from previous tests will pollute the sys.modules and cause this test to fail.
+# I know this is horrible but yea, couldn't find a better way to fix the issue. Tried:
+# - delete from sys.modules all modules containing 'charms.tempo_k8s'
+# - delete from sys.modules all modules containing 'otlp_http'
+
+
 from unittest.mock import patch
 
 # this test file is intentionally quite broken, don't modify the imports
