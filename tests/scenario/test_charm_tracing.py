@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 import scenario
-from charms.tempo_k8s.v1.charm_tracing import CHARM_TRACING_ENABLED
+from charms.tempo_k8s.v1.charm_tracing import CHARM_TRACING_ENABLED, get_current_span, trace
 from charms.tempo_k8s.v1.charm_tracing import _autoinstrument as autoinstrument
 from charms.tempo_k8s.v2.tracing import (
     ProtocolType,
@@ -18,8 +18,6 @@ from ops import EventBase, EventSource, Framework
 from ops.charm import CharmBase, CharmEvents
 from scenario import Context, State
 from scenario.runtime import UncaughtCharmError
-
-from lib.charms.tempo_k8s.v1.charm_tracing import get_current_span, trace
 
 os.environ[CHARM_TRACING_ENABLED] = "1"
 
