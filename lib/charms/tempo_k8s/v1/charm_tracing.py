@@ -339,7 +339,8 @@ def _get_tracer() -> Optional[Tracer]:
                 logger.warning(
                     "Tracer not found in `tracer` context var. "
                     "Verify that you're importing all `charm_tracing` symbols from the same module path. \n"
-                    "For example, DO: `from charms.lib...charm_tracing import foo, bar`. \n"
+                    "For example, DO"
+                    ": `from charms.lib...charm_tracing import foo, bar`. \n"
                     "DONT: \n"
                     " \t - `from charms.lib...charm_tracing import foo` \n"
                     " \t - `from lib...charm_tracing import bar` \n"
