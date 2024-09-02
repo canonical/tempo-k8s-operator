@@ -39,7 +39,12 @@ def interface_tester(interface_tester: InterfaceTester):
                                                 "startup": "enabled",
                                                 "current": "active",
                                                 "name": "tempo",
-                                            }
+                                            },
+                                            "tempo-ready": {
+                                                "startup": "enabled",
+                                                "current": "active",
+                                                "name": "tempo-ready",
+                                            },
                                         },
                                         "checks": {},
                                     }
