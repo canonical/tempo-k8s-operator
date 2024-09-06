@@ -334,6 +334,7 @@ if int(pydantic.version.VERSION.split(".")[0]) < 2:
         )
 
 else:
+
     class ProtocolType(BaseModel):
         """Protocol Type."""
 
