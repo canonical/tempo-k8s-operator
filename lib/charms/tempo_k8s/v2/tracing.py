@@ -334,12 +334,10 @@ if int(pydantic.version.VERSION.split(".")[0]) < 2:
         )
 
 else:
-    from pydantic import ConfigDict
-
     class ProtocolType(BaseModel):
         """Protocol Type."""
 
-        model_config = ConfigDict(
+        model_config = ConfigDict(  # type: ignore
             # Allow serializing enum values.
             use_enum_values=True
         )
