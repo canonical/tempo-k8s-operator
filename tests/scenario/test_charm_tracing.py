@@ -434,8 +434,10 @@ def test_tracing_requirer_remote_charm_no_request_no_response(leader, relation):
         relations = []
 
     # THEN self.tempo() will raise on init
+    # FIXME: non-leader units should get a permission denied exception,
+    # but it won't fire due to https://github.com/canonical/operator/issues/1378
     with pytest.raises(UncaughtCharmError, match=r"ProtocolNotRequestedError"):
-        ctx.run("start", State(relations=relations))
+        ctx.run("start", State(relations=relations, leader=leader))
 
 
 class MyRemoteBorkyCharm(CharmBase):
