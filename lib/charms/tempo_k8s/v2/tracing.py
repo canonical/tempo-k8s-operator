@@ -906,7 +906,7 @@ class TracingEndpointRequirer(Object):
 
         It could happen that this function gets called before the provider publishes the endpoints.
         In such a scenario, if a non-leader unit calls this function, a permission denied exception will be raised due to
-        unauthorized access to the local app databag. To prevent this, this function needs to be guarded by the `is_ready` check.
+        restricted access. To prevent this, this function needs to be guarded by the `is_ready` check.
 
         Raises:
         ProtocolNotRequestedError:
