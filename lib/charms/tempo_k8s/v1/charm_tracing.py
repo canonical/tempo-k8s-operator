@@ -485,7 +485,9 @@ def _setup_root_span_initializer(
                 "Tracing endpoint is https, but no server_cert has been passed."
                 "Please point @trace_charm to a `server_cert` attr. "
                 "This might also mean that the tracing provider is related to a "
-                "certificates provider, but this application is not."
+                "certificates provider, but this application is not (yet). "
+                "In that case, you might just have to wait a bit for the certificates "
+                "integration to settle. "
             )
             return
 
